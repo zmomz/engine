@@ -18,7 +18,7 @@ COPY . /app/
 
 # Update the lock file and install dependencies
 RUN poetry lock
-RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi
+RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --with dev
 
 # Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bash"]

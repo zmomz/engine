@@ -18,11 +18,12 @@ python-dotenv = "1.0.0"
 cryptography = "41.0.5"
 slowapi = "0.1.8"
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
-bcrypt = "^4.1.2"
+bcrypt = "^4.1.3"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 # Required for SQLAlchemy 2.0 async support with postgres
 asyncpg = "^0.29.0"
 email-validator = "^2.1.0"
+python-multipart = "^0.0.9"
 
 
 [tool.poetry.group.dev.dependencies]

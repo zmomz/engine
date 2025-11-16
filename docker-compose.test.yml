@@ -19,6 +19,7 @@ services:
         condition: service_healthy
     command: >
       sh -c "
+        poetry install --no-interaction --no-ansi &&
         poetry run python /app/scripts/wait-for-db.py &&
         poetry run /app/scripts/run_integration.sh
       "
