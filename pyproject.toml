@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "execution-engine"
+version = "0.1.0"
+description = "A fully automated trading execution engine."
+authors = ["Gemini"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "0.104.1"
+sqlalchemy = {extras = ["asyncio"], version = "2.0.23"}
+alembic = "1.12.1"
+ccxt = "4.1.59"
+pydantic = "2.4.2"
+uvicorn = "0.24.0"
+psycopg2-binary = "2.9.9"
+python-dotenv = "1.0.0"
+cryptography = "41.0.5"
+slowapi = "0.1.8"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+bcrypt = "^4.1.2"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+# Required for SQLAlchemy 2.0 async support with postgres
+asyncpg = "^0.29.0"
+email-validator = "^2.1.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-cov = "^7.0.0"
+pytest-asyncio = "^0.23.8"
+pytest-httpx = "^0.22.0"
+anyio = "^3.7.1"
+aiosqlite = "^0.19.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

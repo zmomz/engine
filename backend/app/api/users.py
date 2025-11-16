@@ -1,0 +1,27 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.database import get_db_session
+from app.schemas.user import UserCreate, UserInDB
+from app.repositories.user import UserRepository
+from app.core.security import get_password_hash
+
+router = APIRouter()
+
+@router.post("/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
+async def register_user(
+    user_in: UserCreate,
+    db: AsyncSession = Depends(get_db_session),
+):
+    user_repo = UserRepository(db)
+    existing_user = await user_repo.get_by_username(user_in.username)
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
+
+    existing_email = await user_repo.get_by_email(user_in.email)
+    if existing_email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    hashed_password = get_password_hash(user_in.password)
+    user = await user_repo.create(user_in, hashed_password)
+    return user

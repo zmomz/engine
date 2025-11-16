@@ -1,0 +1,322 @@
+"""
+Service for the Risk Engine, responsible for identifying and offsetting losing positions.
+"""
+import asyncio
+import logging
+from typing import List, Optional, Tuple, Dict
+from datetime import datetime, timedelta
+from decimal import Decimal
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+
+from app.models.position_group import PositionGroup, PositionGroupStatus
+from app.models.dca_order import DCAOrder, OrderStatus
+from app.models.risk_action import RiskAction, RiskActionType
+from app.repositories.position_group import PositionGroupRepository
+from app.repositories.risk_action import RiskActionRepository
+from app.repositories.dca_order import DCAOrderRepository
+from app.services.exchange_abstraction.interface import ExchangeInterface
+from app.services.order_management import OrderService
+from app.schemas.grid_config import RiskEngineConfig # Assuming this schema exists
+from fastapi import HTTPException, status # Added imports
+
+logger = logging.getLogger(__name__)
+
+# Helper function (will be moved to precision service later)
+def round_to_step_size(value: Decimal, step_size: Decimal) -> Decimal:
+    return (value / step_size).quantize(Decimal('1')) * step_size
+
+# --- Standalone functions for selection logic (as per EP.md 6.2) ---
+
+def select_loser_and_winners(
+    position_groups: List[PositionGroup],
+    config: RiskEngineConfig
+) -> Tuple[Optional[PositionGroup], List[PositionGroup], Decimal]:
+    """
+    Risk Engine selection logic (SoW Section 4.4 & 4.5):
+    
+    Loser Selection (by % loss):
+    1. Highest loss percentage
+    2. If tied → highest unrealized loss USD
+    3. If tied → oldest trade
+    
+    Winner Selection (by $ profit):
+    - Rank all winning positions by unrealized profit USD
+    - Select up to max_winners_to_combine (default: 3)
+    
+    Offset Execution:
+    - Calculate required_usd to cover loser
+    - Close winners partially to realize that amount
+    """
+    
+    # Filter eligible losers
+    eligible_losers = []
+    for pg in position_groups:
+        # Must meet all conditions
+        if not all([
+            pg.status == PositionGroupStatus.ACTIVE,
+            pg.pyramid_count >= pg.max_pyramids if config.require_full_pyramids else True,
+            pg.risk_timer_expires and pg.risk_timer_expires <= datetime.utcnow(),
+            pg.unrealized_pnl_percent <= config.loss_threshold_percent,
+            not pg.risk_blocked,
+            not pg.risk_skip_once
+        ]):
+            continue
+        
+        # Age filter (optional)
+        if config.use_trade_age_filter:
+            age_minutes = (datetime.utcnow() - pg.created_at).total_seconds() / 60
+            if age_minutes < config.age_threshold_minutes:
+                continue
+        
+        eligible_losers.append(pg)
+    
+    if not eligible_losers:
+        return None, [], Decimal("0")
+    
+    # Sort losers by priority
+    selected_loser = max(eligible_losers, key=lambda pg: (
+        abs(pg.unrealized_pnl_percent),  # Primary: highest loss %
+        abs(pg.unrealized_pnl_usd),      # Secondary: highest loss $
+        -pg.created_at.timestamp()        # Tertiary: oldest
+    ))
+    
+    required_usd = abs(selected_loser.unrealized_pnl_usd)
+    
+    # Select winners
+    winning_positions = [
+        pg for pg in position_groups
+        if pg.status == PositionGroupStatus.ACTIVE and pg.unrealized_pnl_usd > 0
+    ]
+    
+    # Sort by USD profit (descending)
+    winning_positions.sort(
+        key=lambda pg: pg.unrealized_pnl_usd,
+        reverse=True
+    )
+    
+    # Take up to max_winners_to_combine
+    selected_winners = winning_positions[:config.max_winners_to_combine]
+    
+    return selected_loser, selected_winners, required_usd
+
+async def calculate_partial_close_quantities(
+    exchange_connector: ExchangeInterface,
+    winners: List[PositionGroup],
+    required_usd: Decimal,
+    precision_rules: Dict
+) -> List[Tuple[PositionGroup, Decimal]]:
+    """
+    Calculate how much to close from each winner to realize required_usd.
+    
+    Returns: List of (PositionGroup, quantity_to_close)
+    """
+    close_plan = []
+    remaining_needed = required_usd
+    
+    for winner in winners:
+        if remaining_needed <= 0:
+            break
+        
+        # Calculate how much profit this winner can contribute
+        available_profit = winner.unrealized_pnl_usd
+        
+        # Determine how much of this winner to close
+        profit_to_take = min(available_profit, remaining_needed)
+        
+        # Calculate quantity to close to realize this profit
+        current_price = await exchange_connector.get_current_price(winner.symbol)
+        profit_per_unit = current_price - winner.weighted_avg_entry
+        if winner.side == "short":
+            profit_per_unit = winner.weighted_avg_entry - current_price
+        
+        if profit_per_unit <= 0:
+            logger.warning(f"Cannot calculate quantity for {winner.symbol}: profit_per_unit is zero or negative.")
+            continue
+
+        quantity_to_close = profit_to_take / profit_per_unit
+        
+        # Round to step size
+        symbol_precision = precision_rules.get(winner.symbol, {})
+        step_size = symbol_precision.get("step_size", Decimal("0.001")) # Default if not found
+        quantity_to_close = round_to_step_size(quantity_to_close, step_size)
+        
+        # Check minimum notional
+        notional_value = quantity_to_close * current_price
+        min_notional = symbol_precision.get("min_notional", Decimal("10")) # Default if not found
+        
+        if notional_value < min_notional:
+            logger.warning(
+                f"Partial close for {winner.symbol} below min notional "
+                f"({notional_value} < {min_notional}). Skipping."
+            )
+            continue
+        
+        close_plan.append((winner, quantity_to_close))
+        remaining_needed -= profit_to_take
+    
+    return close_plan
+
+class RiskEngineService:
+    def __init__(
+        self,
+        session_factory: callable,
+        position_group_repository_class: type[PositionGroupRepository],
+        risk_action_repository_class: type[RiskActionRepository],
+        dca_order_repository_class: type[DCAOrderRepository],
+        exchange_connector: ExchangeInterface,
+        order_service_class: type[OrderService],
+        risk_engine_config: RiskEngineConfig,
+        polling_interval_seconds: int = 60
+    ):
+        self.session_factory = session_factory
+        self.position_group_repository_class = position_group_repository_class
+        self.risk_action_repository_class = risk_action_repository_class
+        self.dca_order_repository_class = dca_order_repository_class
+        self.exchange_connector = exchange_connector
+        self.order_service_class = order_service_class
+        self.polling_interval_seconds = polling_interval_seconds
+        self.config = risk_engine_config
+        self._running = False
+        self._monitor_task = None
+
+    async def _evaluate_positions(self):
+        """
+        Evaluates all active positions for risk management and initiates offset if conditions are met.
+        """
+        async for session in self.session_factory():
+            try:
+                position_group_repo = self.position_group_repository_class(session)
+                risk_action_repo = self.risk_action_repository_class(session)
+                dca_order_repo = self.dca_order_repository_class(session)
+                order_service = self.order_service_class(self.exchange_connector, dca_order_repo)
+
+                all_positions = await position_group_repo.get_all() # Fetch all positions
+
+                loser, winners, required_usd = select_loser_and_winners(all_positions, self.config)
+
+                if loser and winners:
+                    logger.info(f"Risk Engine: Identified loser {loser.symbol} (loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners.")
+                    
+                    precision_rules = {}
+                    for pg in [loser] + winners:
+                        if pg.symbol not in precision_rules:
+                            precision_rules[pg.symbol] = await self.exchange_connector.get_precision_rules(pg.symbol)
+
+                    close_plan = await calculate_partial_close_quantities(self.exchange_connector, winners, required_usd, precision_rules)
+
+                    if not close_plan and required_usd > 0:
+                        logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
+                        return
+
+                    # Close the loser
+                    await order_service.place_market_order(
+                        user_id=loser.user_id,
+                        exchange=loser.exchange,
+                        symbol=loser.symbol,
+                        side="sell" if loser.side == "long" else "buy",
+                        quantity=loser.total_filled_quantity,
+                        position_group_id=loser.id
+                    )
+                    logger.info(f"Risk Engine: Closed loser {loser.symbol} (ID: {loser.id}).")
+
+                    winner_details = []
+                    for winner_pg, quantity_to_close in close_plan:
+                        await order_service.place_market_order(
+                            user_id=winner_pg.user_id,
+                            exchange=winner_pg.exchange,
+                            symbol=winner_pg.symbol,
+                            side="sell" if winner_pg.side == "long" else "buy",
+                            quantity=quantity_to_close,
+                            position_group_id=winner_pg.id
+                        )
+                        logger.info(f"Risk Engine: Partially closed winner {winner_pg.symbol} (ID: {winner_pg.id}) for {quantity_to_close} units.")
+                        winner_details.append({
+                            "group_id": str(winner_pg.id),
+                            "pnl_usd": str(winner_pg.unrealized_pnl_usd),
+                            "quantity_closed": str(quantity_to_close)
+                        })
+                    
+                    risk_action = RiskAction(
+                        group_id=loser.id,
+                        action_type=RiskActionType.OFFSET_LOSS,
+                        loser_group_id=loser.id,
+                        loser_pnl_usd=loser.unrealized_pnl_usd,
+                        winner_details=winner_details
+                    )
+                    await risk_action_repo.create(risk_action)
+                    await session.commit()
+                    logger.info(f"Risk Engine: Offset for {loser.symbol} successfully executed and recorded.")
+                else:
+                    logger.debug("Risk Engine: No eligible loser or winners found for offset.")
+            except Exception as e:
+                logger.error(f"Risk Engine: Error during evaluation. Rolling back transaction: {e}")
+                await session.rollback()
+
+    async def start_monitoring_task(self):
+        """
+        Starts the background task for the Risk Engine.
+        """
+        if not self._running:
+            self._running = True
+            self._monitor_task = asyncio.create_task(self._monitoring_loop())
+            logger.info("RiskEngineService monitoring task started.")
+
+    async def _monitoring_loop(self):
+        """
+        The main loop for the Risk Engine monitoring task.
+        """
+        while self._running:
+            try:
+                await self._evaluate_positions()
+                await asyncio.sleep(self.polling_interval_seconds)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in Risk Engine monitoring loop: {e}")
+                await asyncio.sleep(self.polling_interval_seconds) # Wait before retrying
+
+    async def stop_monitoring_task(self):
+        """
+        Stops the background Risk Engine monitoring task.
+        """
+        if self._running and self._monitor_task:
+            self._running = False
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("RiskEngineService monitoring task stopped.")
+
+    async def set_risk_blocked(self, group_id: uuid.UUID, blocked: bool) -> PositionGroup:
+        """Sets the risk_blocked flag for a specific PositionGroup."""
+        async for session in self.session_factory():
+            position_group_repo = self.position_group_repository_class(session)
+            position_group = await position_group_repo.get(group_id)
+            if not position_group:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PositionGroup not found")
+            
+            position_group.risk_blocked = blocked
+            await position_group_repo.update(position_group)
+            await session.commit()
+            await session.refresh(position_group)
+            logger.info(f"PositionGroup {group_id} risk_blocked set to {blocked}")
+            return position_group
+
+    async def set_risk_skip_once(self, group_id: uuid.UUID, skip: bool) -> PositionGroup:
+        """Sets the risk_skip_once flag for a specific PositionGroup."""
+        async for session in self.session_factory():
+            position_group_repo = self.position_group_repository_class(session)
+            position_group = await position_group_repo.get(group_id)
+            if not position_group:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PositionGroup not found")
+            
+            position_group.risk_skip_once = skip
+            await position_group_repo.update(position_group)
+            await session.commit()
+            await session.refresh(position_group)
+            logger.info(f"PositionGroup {group_id} risk_skip_once set to {skip}")
+            return position_group
