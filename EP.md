@@ -1386,7 +1386,7 @@ Implement the sophisticated, multi-conditional Risk Engine to offset losing trad
 Set up a modern, scalable, and maintainable frontend architecture with robust state management, routing, and API integration.
 
 #### Steps
-0.  **Create Tests:** Write unit tests for the Zustand store, authentication hooks, and WebSocket service. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+0.  [x] **Create Tests:** Write unit tests for the Zustand store, authentication hooks, and WebSocket service. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 1.  [x] **Initialize Project:** Use `create-react-app` with the TypeScript template. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 2.  [x] **Install Core Libraries:** Add `react-router-dom`, `axios`, `zustand`, `@mui/material`, `@mui/x-data-grid`, `@emotion/react`, `@emotion/styled`, `react-hook-form`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 3.  [x] **Set up Folder Structure:** Create a standard folder structure: `/components` (reusable), `/features` (feature-specific components), `/pages`, `/hooks`, `/services`, `/state`, `/theme`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
