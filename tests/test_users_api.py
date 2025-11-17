@@ -18,7 +18,7 @@ async def test_register_user_success(client: AsyncClient, db_session: AsyncSessi
     data = response.json()
     assert data["username"] == "testuser"
     assert data["email"] == "test@example.com"
-    assert "hashed_password" in data
+    
     assert "id" in data
     assert data["is_active"] is True
     assert data["is_superuser"] is False
