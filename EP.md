@@ -1387,16 +1387,16 @@ Set up a modern, scalable, and maintainable frontend architecture with robust st
 
 #### Steps
 0.  **Create Tests:** Write unit tests for the Zustand store, authentication hooks, and WebSocket service. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-1.  **Initialize Project:** Use `create-react-app` with the TypeScript template. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-2.  **Install Core Libraries:** Add `react-router-dom`, `axios`, `zustand`, `@mui/material`, `@mui/x-data-grid`, `@emotion/react`, `@emotion/styled`, `react-hook-form`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-3.  **Set up Folder Structure:** Create a standard folder structure: `/components` (reusable), `/features` (feature-specific components), `/pages`, `/hooks`, `/services`, `/state`, `/theme`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-4.  **Implement State Management:**
+1.  [x] **Initialize Project:** Use `create-react-app` with the TypeScript template. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+2.  [x] **Install Core Libraries:** Add `react-router-dom`, `axios`, `zustand`, `@mui/material`, `@mui/x-data-grid`, `@emotion/react`, `@emotion/styled`, `react-hook-form`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+3.  [x] **Set up Folder Structure:** Create a standard folder structure: `/components` (reusable), `/features` (feature-specific components), `/pages`, `/hooks`, `/services`, `/state`, `/theme`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+4.  [x] **Implement State Management:**
     - Set up a Zustand store (`/state/useStore.ts`) for global state: User, Auth Token, System Status, Positions, Queued Signals. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
     - Define actions for logging in, logging out, and updating state from WebSocket events. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 5.  **Configure API Client:** Create an `axios` instance in `/services/api.ts` with interceptors to:
     - Automatically add the JWT `Authorization` header from the Zustand store. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
     - On `401 Unauthorized` responses, automatically call the logout action to clear user state and redirect to the login page. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-6.  **Implement Routing:** Set up `react-router-dom` with the following routes: `/login`, `/register`, and a `ProtectedRoute` component for `/`, `/positions`, `/queue`, `/risk`, `/logs`, `/settings`. A `NotFoundPage` will handle invalid routes. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+6.  [x] **Implement Routing:** Set up `react-router-dom` with the following routes: `/login`, `/register`, and a `ProtectedRoute` component for `/`, `/positions`, `/queue`, `/risk`, `/logs`, `/settings`. A `NotFoundPage` will handle invalid routes. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 7.  **Create Theme:** Define a Material UI theme in `/theme/theme.ts` with light/dark mode palettes, typography, and global component overrides. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 8.  **Implement WebSocket Manager:** Create a `/services/websocket.ts` service and a `useWebSocket` hook. The service will manage the connection, handle automatic reconnection with exponential backoff, and call Zustand actions to update the store when new messages arrive. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 
