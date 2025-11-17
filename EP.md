@@ -1135,8 +1135,8 @@ EXCHANGE_TYPE=mock
 Design and implement the complete database schema, migrations, and data access layer.
 
 #### Steps
-0.  **Create Tests:** Write unit tests for the repository pattern and data models. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git) (Status: In Progress - Currently fixing unit test failures related to SQLAlchemy async mocking and indentation errors.)
-1.  **Implement Models:** Translate the data models from Section 3 into SQLAlchemy code. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+0.  **Create Tests:** Write unit tests for the repository pattern and data models. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git) (Status: Completed)
+1.  **Implement Models:** Translate the data models from Section 3 into SQLAlchemy code. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git) (Status: Completed)
 2.  **Generate Initial Migration:** Run `docker compose exec app alembic revision --autogenerate -m "initial_schema"`. Manually review and refine the generated script. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 3.  **Create Repository Pattern:** Implement a `BaseRepository` and specific repositories (e.g., `PositionGroupRepository`) for all major models. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 4.  **Configure Connection Pooling:** Set up the SQLAlchemy engine with `pool_size=20`, `max_overflow=10`. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
