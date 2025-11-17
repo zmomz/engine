@@ -13,12 +13,11 @@ RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/ap
 # Copy only the files necessary for dependency installation to leverage Docker cache
 COPY pyproject.toml poetry.lock* /app/
 
+# Install dependencies based on the lock file
+RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --with dev
+
 # Copy the rest of the application code
 COPY . /app/
-
-# Update the lock file and install dependencies
-RUN poetry lock
-RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --with dev
 
 # Command to run the application
 CMD ["bash"]

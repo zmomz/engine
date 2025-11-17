@@ -30,8 +30,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
     networks:
       - test_net
+    mem_limit: 4g
 
   db:
     image: postgres:15
