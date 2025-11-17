@@ -1393,7 +1393,7 @@ Set up a modern, scalable, and maintainable frontend architecture with robust st
 4.  [x] **Implement State Management:**
     - Set up a Zustand store (`/state/useStore.ts`) for global state: User, Auth Token, System Status, Positions, Queued Signals. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
     - Define actions for logging in, logging out, and updating state from WebSocket events. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-5.  **Configure API Client:** Create an `axios` instance in `/services/api.ts` with interceptors to:
+5.  [x] **Configure API Client:** Create an `axios` instance in `/services/api.ts` with interceptors to:
     - Automatically add the JWT `Authorization` header from the Zustand store. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
     - On `401 Unauthorized` responses, automatically call the logout action to clear user state and redirect to the login page. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 6.  [x] **Implement Routing:** Set up `react-router-dom` with the following routes: `/login`, `/register`, and a `ProtectedRoute` component for `/`, `/positions`, `/queue`, `/risk`, `/logs`, `/settings`. A `NotFoundPage` will handle invalid routes. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
