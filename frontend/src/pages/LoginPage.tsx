@@ -1,63 +1,98 @@
-import React, { useState } from 'react';
-import useAuthStore from '../store/authStore';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { TextField, Button, Container, Typography, Box } from '@mui/material';
+import { useAuthStore } from '../store/authStore';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const schema = z.object({
+  email: z.string().email('Invalid email address').min(1, 'Email is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters').min(1, 'Password is required'),
+});
+
+type LoginFormInputs = z.infer<typeof schema>;
 
 const LoginPage: React.FC = () => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const login = useAuthStore((state) => state.login);
-  const navigate = useNavigate();
+  const { login } = useAuthStore();
+  const {
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormInputs>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+  });
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    // Placeholder for API call
-    try {
-      // In a real application, you would make an API call here
-      // const response = await fetch('/api/v1/users/login', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ username, password }),
-      // });
-      // const data = await response.json();
-
-      // For now, simulate a successful login
-      const mockToken = 'mock-jwt-token';
-      const mockUser = { id: 1, username: username, email: 'test@example.com' };
-      login(mockToken, mockUser);
-      navigate('/'); // Redirect to home or dashboard after login
-    } catch (error) {
-      console.error('Login failed:', error);
-      // Handle login error (e.g., display error message to user)
-    }
+  const onSubmit = (data: LoginFormInputs) => {
+    login(data.email, data.password);
   };
 
   return (
-    <div>
-      <h1>Login</h1>
-      <form onSubmit={handleLogin}>
-        <div>
-          <label htmlFor="username">Username:</label>
-          <input
-            type="text"
-            id="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Typography component="h1" variant="h5">
+          Sign In
+        </Typography>
+        <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
+          <Controller
+            name="email"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                margin="normal"
+                required
+                fullWidth
+                id="email"
+                label="Email Address"
+                name="email"
+                autoComplete="email"
+                autoFocus
+                error={!!errors.email}
+                helperText={errors.email?.message}
+              />
+            )}
           />
-        </div>
-        <div>
-          <label htmlFor="password">Password:</label>
-          <input
-            type="password"
-            id="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
+          <Controller
+            name="password"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                margin="normal"
+                required
+                fullWidth
+                name="password"
+                label="Password"
+                type="password"
+                id="password"
+                autoComplete="current-password"
+                error={!!errors.password}
+                helperText={errors.password?.message}
+              />
+            )}
           />
-        </div>
-        <button type="submit">Login</button>
-      </form>
-    </div>
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+          >
+            Sign In
+          </Button>
+        </Box>
+      </Box>
+    </Container>
   );
 };
 
