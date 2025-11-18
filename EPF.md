@@ -62,15 +62,15 @@ This phase establishes the architectural backbone of the application.
     6.  [x] **State Management:** Set up initial Zustand stores.
     7.  [x] **Routing:** Implement `App.tsx` with `react-router-dom`, defining public routes and a `ProtectedRoute` component.
 
-### Phase 2: Authentication & Application Layout
+### Phase 2: Authentication & Application Layout (Complete)
 
 - **Objectives:** Build the user-facing authentication pages and the main application shell (header, sidebar).
 - **Steps:**
     1.  [x] **Create Tests:** Write tests for `LoginPage`, `RegistrationPage`, and `MainLayout`.
     2.  [x] **Build `LoginPage`:** Create the login form using MUI components and `react-hook-form` for validation. On successful login, call the `authStore` action and redirect.
     3.  [x] **Build `RegistrationPage`:** Create the registration form, similar to the login page.
-    4.  **Implement `ProtectedRoute`:** Flesh out the logic to redirect unauthenticated users to `/login`.
-    5.  **Build `MainLayout`:** Create a layout component using MUI's `AppBar` (header) and `Drawer` (sidebar).
+    4.  [x] **Implement `ProtectedRoute`:** Flesh out the logic to redirect unauthenticated users to `/login`.
+    5.  [x] **Build `MainLayout`:** Create a layout component using MUI's `AppBar` (header) and `Drawer` (sidebar).
         - The `AppBar` will contain the theme toggle button and a user menu with a logout option.
         - The `Drawer` will contain navigation links to all main pages (Dashboard, Positions, etc.).
 
@@ -78,8 +78,8 @@ This phase establishes the architectural backbone of the application.
 
 - **Objectives:** Implement the main Dashboard page, providing a high-level overview of the engine's status and performance.
 - **Steps:**
-    1.  **Create Tests:** Write tests for the `DashboardPage` and all its child widget components.
-    2.  **Build `DashboardPage` Layout:** Create a grid-based layout using MUI's `<Grid>` component to arrange the widgets as per the wireframe in `EP.md`.
+    1.  [x] **Create Tests:** Write tests for the `DashboardPage` and all its child widget components.
+    2.  [x] **Build `DashboardPage` Layout:** Create a grid-based layout using MUI's `<Grid>` component to arrange the widgets as per the wireframe in `EP.md`.
     3.  **Build `PoolUsageWidget`:**
         - Create a component that subscribes to `dataStore`.
         - Display "X / Y" active positions.

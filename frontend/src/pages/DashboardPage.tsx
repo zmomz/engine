@@ -1,42 +1,26 @@
 import React from 'react';
+import { Grid, Typography } from '@mui/material';
+import PoolUsageWidget from './PoolUsageWidget';
+import SystemStatusWidget from './SystemStatusWidget';
+import PnlCard from './PnlCard';
 
 const DashboardPage: React.FC = () => {
   return (
     <div>
-      <h1>Dashboard - Global Overview</h1>
-      <p>Welcome to your dashboard!</p>
-
-      <section>
-        <h2>Key Metrics</h2>
-        <div>
-          <strong>Total Active Position Groups:</strong> [X]
-        </div>
-        <div>
-          <strong>Execution Pool Usage:</strong> [X / Max active groups (visual progress bar)]
-        </div>
-        <div>
-          <strong>Queued Signals Count:</strong> [Number of entries waiting]
-        </div>
-        <div>
-          <strong>Total PnL:</strong> [Realized + Unrealized, in both USD and %]
-        </div>
-        <div>
-          <strong>Last Webhook Timestamp:</strong> [Timestamp]
-        </div>
-      </section>
-
-      <section>
-        <h2>System Status</h2>
-        <div>
-          <strong>Engine Status Banner:</strong> [Running / Paused / Error (color-coded)]
-        </div>
-        <div>
-          <strong>Risk Engine Status:</strong> [Active / Idle / Blocked (with last action time)]
-        </div>
-        <div>
-          <strong>Error & Warning Alerts:</strong> [API rejects, precision sync failure, rate limit, rejected orders]
-        </div>
-      </section>
+      <Typography variant="h4" gutterBottom>
+        Dashboard
+      </Typography>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <PoolUsageWidget />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <SystemStatusWidget />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <PnlCard />
+        </Grid>
+      </Grid>
     </div>
   );
 };
