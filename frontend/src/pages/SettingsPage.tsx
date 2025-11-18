@@ -35,7 +35,7 @@ const SettingsPage: React.FC = () => {
         <h2>Execution Pool</h2>
         <div>
           <label htmlFor="max-open-groups">Max Open Groups:</label>
-          <input type="number" id="max-open-groups" value={10} />
+          <input type="number" id="max-open-groups" defaultValue={10} />
         </div>
       </section>
 
@@ -43,7 +43,7 @@ const SettingsPage: React.FC = () => {
         <h2>Risk Engine</h2>
         <div>
           <label htmlFor="loss-threshold">Loss % Threshold:</label>
-          <input type="number" id="loss-threshold" value={-5} />
+          <input type="number" id="loss-threshold" defaultValue={-5} />
         </div>
       </section>
 

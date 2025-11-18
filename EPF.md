@@ -74,7 +74,7 @@ This phase establishes the architectural backbone of the application.
         - The `AppBar` will contain the theme toggle button and a user menu with a logout option.
         - The `Drawer` will contain navigation links to all main pages (Dashboard, Positions, etc.).
 
-### Phase 3: Dashboard & Data Visualization
+### Phase 3: Dashboard & Data Visualization (Complete)
 
 - **Objectives:** Implement the main Dashboard page, providing a high-level overview of the engine's status and performance.
 - **Steps:**
@@ -94,7 +94,7 @@ This phase establishes the architectural backbone of the application.
         - Integrate a lightweight charting library (e.g., `Recharts` or `Chart.js`).
         - Create a placeholder component that will eventually be fed historical PnL data.
 
-### Phase 4: Real-time Data Tables & Interactions
+### Phase 4: Real-time Data Tables & Interactions (Complete)
 
 - **Objectives:** Build the core data-heavy pages for monitoring positions and the queue, and integrate WebSocket for real-time updates.
 - **Steps:**
@@ -109,7 +109,7 @@ This phase establishes the architectural backbone of the application.
         - Implement columns as defined in the `EP.md` wireframe.
         - Create custom cell renderer components like `PnlCell` (for color) and `StatusChip`.
         - Implement the expandable row feature to show the `DcaLegsTable` for a selected position.
-    4.  **Build `QueuePage`:**
+    4.  [x] **Build `QueuePage`:**
         - Use `MUI X Data Grid` to display `queuedSignals` from `dataStore`.
         - Implement columns for `symbol`, `replacement_count`, `priority_score`, etc.
         - Add action buttons to each row (`Promote`, `Force Add`).
@@ -119,7 +119,7 @@ This phase establishes the architectural backbone of the application.
 
 - **Objectives:** Build the pages for managing settings and viewing logs.
 - **Steps:**
-    1.  **Create Tests:** Write Jest and React Testing Library tests for `SettingsPage` and `LogsPage`.
+    1.  [x] **Create Tests:** Write Jest and React Testing Library tests for `SettingsPage` and `LogsPage`.
     2.  **Build `SettingsPage`:**
         - Use MUI `<Tabs>` to separate configuration sections (Exchange API, Risk Engine, etc.).
         - For each section, create a form using `react-hook-form` to manage state and validation.
