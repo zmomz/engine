@@ -1,15 +1,13 @@
-version: '3.8'
-
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.test
     volumes:
       - .:/app
     env_file:
       - .env
     environment:
-      - PYTHONPATH=/app/backend
-      - HOME=/tmp
       - DATABASE_URL=postgresql+asyncpg://tv_user:your_password@db:5432/tv_engine_db_test
       - EXCHANGE_TYPE=mock
     depends_on:
@@ -17,23 +15,9 @@ services:
         condition: service_started
       mock-exchange:
         condition: service_healthy
+    # The command is now much simpler
     command: >
-      sh -c "
-        poetry install --no-interaction --no-ansi &&
-        poetry run python /app/scripts/wait-for-db.py &&
-        poetry run pytest -s -vv
-      "
-    ports:
-      - "8001:8001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    networks:
-      - test_net
-    mem_limit: 4g
+      sh -c "/app/.venv/bin/python /app/scripts/wait-for-db.py && /app/.venv/bin/pytest -s -vv"
 
   db:
     image: postgres:15
@@ -44,17 +28,13 @@ services:
     environment:
       - POSTGRES_DB=tv_engine_db_test
     ports:
-      - "5433:5432" # Use a different host port to avoid conflicts
-    networks:
-      - test_net
+      - "5433:5432"
 
   mock-exchange:
     build:
       context: ./tests/integration/mock_exchange
     ports:
       - "9000:9000"
-    networks:
-      - test_net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 5s
@@ -64,6 +44,3 @@ services:
 
 volumes:
   postgres_test_data:
-
-networks:
-  test_net:

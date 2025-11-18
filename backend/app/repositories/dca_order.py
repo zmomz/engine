@@ -10,6 +10,17 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
     def __init__(self, session: AsyncSession):
         super().__init__(DCAOrder, session)
 
+    async def get_open_and_partially_filled_orders_for_user(self, user_id: str) -> List[DCAOrder]:
+        result = await self.session.execute(
+            select(self.model)
+            .join(self.model.group)
+            .where(
+                self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED]),
+                self.model.group.user_id == user_id
+            )
+        )
+        return result.scalars().all()
+
     async def get_open_and_partially_filled_orders(self) -> List[DCAOrder]:
         result = await self.session.execute(
             select(self.model).where(

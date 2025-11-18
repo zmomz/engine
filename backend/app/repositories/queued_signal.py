@@ -25,6 +25,16 @@ class QueuedSignalRepository(BaseRepository[QueuedSignal]):
         )
         return result.scalars().first()
 
+    async def get_all_queued_signals_for_user(self, user_id: str, for_update: bool = False) -> List[QueuedSignal]:
+        query = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.status == QueueStatus.QUEUED.value
+        )
+        if for_update:
+            query = query.with_for_update()
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
     async def get_all_queued_signals(self, for_update: bool = False) -> List[QueuedSignal]:
         query = select(self.model).where(self.model.status == QueueStatus.QUEUED.value)
         if for_update:

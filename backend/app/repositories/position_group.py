@@ -25,6 +25,19 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         """
         return await self.get_by_status(["active"], for_update=for_update)
 
+    async def get_active_position_groups_for_user(self, user_id: uuid.UUID, for_update: bool = False) -> list[PositionGroup]:
+        """
+        Retrieves all active position groups for a given user.
+        """
+        query = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.status.in_(["live", "partially_filled", "active", "closing"])
+        )
+        if for_update:
+            query = query.with_for_update()
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
     async def get_all_active_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
         """
         Retrieves all active position groups for a given user.

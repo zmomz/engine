@@ -1,43 +1,37 @@
 import React from 'react';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { TextField, Button, Box, Typography, Checkbox, FormControlLabel } from '@mui/material';
-
-const schema = z.object({
-  apiKey: z.string().min(1, 'API Key is required'),
-  apiSecret: z.string().min(1, 'API Secret is required'),
-  testnet: z.boolean(),
-});
-
-type ExchangeApiFormInputs = z.infer<typeof schema>;
+import { useFormContext, Controller } from 'react-hook-form';
+import { TextField, Box, Typography, Checkbox, FormControlLabel } from '@mui/material';
 
 const ExchangeApiSettings: React.FC = () => {
   const {
     control,
-    handleSubmit,
     formState: { errors },
-  } = useForm<ExchangeApiFormInputs>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      apiKey: '',
-      apiSecret: '',
-      testnet: false,
-    },
-  });
-
-  const onSubmit = (data: ExchangeApiFormInputs) => {
-    console.log(data);
-    // Here you would call the API to save the settings
-  };
+  } = useFormContext();
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ mt: 1 }}>
+    <Box sx={{ mt: 1 }}>
       <Typography variant="h6" gutterBottom>
+        Webhook Settings
+      </Typography>
+      <Controller
+        name="webhookSecret"
+        control={control}
+        render={({ field }) => (
+          <TextField
+            {...field}
+            label="Webhook Secret"
+            variant="outlined"
+            margin="normal"
+            fullWidth
+            type="password"
+          />
+        )}
+      />
+      <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
         Binance API Credentials
       </Typography>
       <Controller
-        name="apiKey"
+        name="encrypted_api_keys.binance.apiKey"
         control={control}
         render={({ field }) => (
           <TextField
@@ -46,14 +40,12 @@ const ExchangeApiSettings: React.FC = () => {
             variant="outlined"
             margin="normal"
             fullWidth
-            error={!!errors.apiKey}
-            helperText={errors.apiKey?.message}
             type="password"
           />
         )}
       />
       <Controller
-        name="apiSecret"
+        name="encrypted_api_keys.binance.apiSecret"
         control={control}
         render={({ field }) => (
           <TextField
@@ -62,14 +54,12 @@ const ExchangeApiSettings: React.FC = () => {
             variant="outlined"
             margin="normal"
             fullWidth
-            error={!!errors.apiSecret}
-            helperText={errors.apiSecret?.message}
             type="password"
           />
         )}
       />
       <Controller
-        name="testnet"
+        name="encrypted_api_keys.binance.testnet"
         control={control}
         render={({ field }) => (
           <FormControlLabel
@@ -78,13 +68,9 @@ const ExchangeApiSettings: React.FC = () => {
           />
         )}
       />
-      <Box sx={{ mt: 2 }}>
-        <Button type="submit" variant="contained" color="primary">
-          Save Settings
-        </Button>
-      </Box>
     </Box>
   );
 };
 
 export default ExchangeApiSettings;
+

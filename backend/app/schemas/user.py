@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, EmailStr
 
@@ -8,9 +8,19 @@ class UserBase(BaseModel):
     email: EmailStr
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
+    webhook_secret: Optional[str] = None
+    encrypted_api_keys: Optional[Dict[str, Any]] = None
 
 class UserCreate(UserBase):
     password: str
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    is_active: Optional[bool] = None
+    is_superuser: Optional[bool] = None
+    webhook_secret: Optional[str] = None
+    encrypted_api_keys: Optional[Dict[str, Any]] = None
 
 class UserInDB(UserBase):
     id: uuid.UUID
@@ -19,7 +29,7 @@ class UserInDB(UserBase):
     class Config:
         from_attributes = True
 
-class UserPublic(UserBase):
+class UserRead(UserBase):
     id: uuid.UUID
 
     class Config:
@@ -31,3 +41,4 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: str | None = None
+

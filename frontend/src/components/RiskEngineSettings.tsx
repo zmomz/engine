@@ -1,8 +1,7 @@
 import React from 'react';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useFormContext, Controller } from 'react-hook-form';
+import { TextField, Box, Typography, Checkbox, FormControlLabel, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { z } from 'zod';
-import { TextField, Button, Box, Typography, Checkbox, FormControlLabel, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 
 const schema = z.object({
   lossThresholdPercent: z.number().min(-100).max(0),
@@ -18,26 +17,11 @@ type RiskEngineFormInputs = z.infer<typeof schema>;
 const RiskEngineSettings: React.FC = () => {
   const {
     control,
-    handleSubmit,
     formState: { errors },
-  } = useForm<RiskEngineFormInputs>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      lossThresholdPercent: -5,
-      useTradeAgeFilter: false,
-      ageThresholdMinutes: 200,
-      requireFullPyramids: true,
-      postFullWaitMinutes: 60,
-      timerStartCondition: 'after_5_pyramids',
-    },
-  });
-
-  const onSubmit = (data: RiskEngineFormInputs) => {
-    console.log(data);
-  };
+  } = useFormContext<RiskEngineFormInputs>();
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ mt: 1 }}>
+    <Box sx={{ mt: 1 }}>
       <Typography variant="h6" gutterBottom>
         Risk Engine Configuration
       </Typography>
@@ -130,11 +114,6 @@ const RiskEngineSettings: React.FC = () => {
           )}
         />
       </FormControl>
-      <Box sx={{ mt: 2 }}>
-        <Button type="submit" variant="contained" color="primary">
-          Save Risk Settings
-        </Button>
-      </Box>
     </Box>
   );
 };

@@ -1,23 +1,36 @@
-# Dockerfile
+# ---- Builder Stage ----
+FROM python:3.10-slim as builder
 
-# Use an official Python runtime as a parent image
-FROM python:3.10-slim
-
-# Set the working directory in the container
 WORKDIR /app
 
-# Install poetry
 RUN pip install poetry
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
-# Copy only the files necessary for dependency installation to leverage Docker cache
 COPY pyproject.toml poetry.lock* /app/
 
-# Install dependencies based on the lock file
-RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --with dev
+# Install dependencies for production
+RUN poetry config virtualenvs.in-project true && \
+    poetry install --no-interaction --no-ansi --without dev
 
-# Copy the rest of the application code
+# ---- Final Stage ----
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Create a non-root user
+RUN addgroup --system app && adduser --system --group app
+
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /.venv
+
+# Copy application code
 COPY . /app/
 
-# Command to run the application
-CMD ["bash"]
+# Set environment variables for the virtual environment
+ENV PATH="/app/.venv/bin:$PATH"
+
+USER app
+
+EXPOSE 8000
+
+# Use gunicorn for production
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000"]

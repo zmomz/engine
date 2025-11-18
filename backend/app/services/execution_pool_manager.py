@@ -13,24 +13,24 @@ from app.repositories.position_group import PositionGroupRepository
 class ExecutionPoolManager:
     def __init__(
         self,
-        session_factory: callable,
+        session: AsyncSession,
         position_group_repository_class: type[PositionGroupRepository],
         max_open_groups: int = 10
     ):
-        self.session_factory = session_factory
+        self.session = session
         self.position_group_repository_class = position_group_repository_class
         self.max_open_groups = max_open_groups
+        self.repo = self.position_group_repository_class(self.session)
 
-    async def get_current_pool_size(self, session: AsyncSession, for_update: bool = False) -> int:
+    async def get_current_pool_size(self, for_update: bool = False) -> int:
         """
         Returns the current number of active position groups in the pool.
         """
-        repo = self.position_group_repository_class(session)
         active_statuses = [PositionGroupStatus.LIVE.value, PositionGroupStatus.PARTIALLY_FILLED.value, PositionGroupStatus.ACTIVE.value, PositionGroupStatus.CLOSING.value]
-        count = await repo.count_by_status(active_statuses, for_update=for_update)
+        count = await self.repo.count_by_status(active_statuses, for_update=for_update)
         return count
 
-    async def request_slot(self, session: AsyncSession, is_pyramid_continuation: bool = False) -> bool:
+    async def request_slot(self, is_pyramid_continuation: bool = False) -> bool:
         """
         Requests a slot in the execution pool within a given session.
         Pyramid continuations bypass the max position limit.
@@ -39,18 +39,8 @@ class ExecutionPoolManager:
         if is_pyramid_continuation:
             return True
 
-        current_size = await self.get_current_pool_size(session, for_update=True)
+        current_size = await self.get_current_pool_size(for_update=True)
         if current_size < self.max_open_groups:
             return True
         else:
             return False
-
-    async def release_slot(self, position_group_id: str):
-        """
-        Marks a position group as closed, effectively releasing its slot in the pool.
-        This method would typically be called when a position group transitions to a 'closed' state.
-        """
-        # This method is more of a conceptual placeholder for now.
-        # The actual release happens when a PositionGroup's status changes to 'closed'.
-        # The pool manager primarily *checks* for available slots.
-        pass

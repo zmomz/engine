@@ -1,0 +1,19 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install poetry
+RUN pip install poetry
+
+# Copy dependency manifests
+COPY pyproject.toml poetry.lock* /app/
+
+# Install all dependencies, including dev, for testing
+RUN poetry config virtualenvs.in-project true && \
+    poetry install --no-interaction --no-ansi
+
+# Set the PATH to include the virtual environment's bin directory
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Copy the application code
+COPY . /app/

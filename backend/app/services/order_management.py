@@ -11,15 +11,18 @@ from app.exceptions import APIError, ExchangeConnectionError
 
 class OrderService:
     """
-    Service for managing the full lifecycle of DCA orders.
+    Service for managing the full lifecycle of DCA orders for a specific user.
     """
     def __init__(
         self, 
-        exchange_connector: ExchangeInterface, 
-        dca_order_repository: DCAOrderRepository
+        session: AsyncSession,
+        user: "User",
+        exchange_connector: ExchangeInterface
     ):
+        self.session = session
+        self.user = user
         self.exchange_connector = exchange_connector
-        self.dca_order_repository = dca_order_repository
+        self.dca_order_repository = DCAOrderRepository(self.session)
 
     async def submit_order(self, dca_order: DCAOrder) -> DCAOrder:
         """

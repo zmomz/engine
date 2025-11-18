@@ -1,11 +1,15 @@
 import uuid
+import secrets
 from datetime import datetime
 
-from sqlalchemy import Column, String, Boolean, DateTime
+from sqlalchemy import Column, String, Boolean, DateTime, JSON
 from sqlalchemy.orm import relationship
 
 from app.db.types import GUID
 from app.models.base import Base
+
+def generate_webhook_secret():
+    return secrets.token_hex(16)
 
 class User(Base):
     __tablename__ = "users"
@@ -16,6 +20,8 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
+    webhook_secret = Column(String, nullable=False, default=generate_webhook_secret)
+    encrypted_api_keys = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

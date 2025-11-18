@@ -47,6 +47,7 @@
 | ------------------------------------------ | --------------------------------- | ----------------------------------------- | ------------------------------------ |
 | Key / JSON Path                            | Example Value                     | Source / Placeholder                      | Description                          |
 | **secret**                                 | YOUR\_WEBHOOK\_SECRET             | Manual                                    | Security key to verify request       |
+| **user\_id**                               | YOUR\_USER\_ID                    | Manual                                    | Unique identifier for the user       |
 | **source**                                 | tradingview                       | Static                                    | Identifies webhook origin            |
 | **timestamp**                              | {{timenow}}                       | TradingView                               | Alert execution timestamp            |
 | **tv.exchange**                            | BINANCE                           | {{exchange}}                              | Exchange name from TradingView       |
