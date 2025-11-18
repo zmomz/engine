@@ -8,6 +8,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@mui/icons-material": "^7.3.5",
     "@mui/material": "^7.3.5",
+    "@mui/x-data-grid": "^8.18.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -44,12 +45,13 @@
   },
   "jest": {
     "transformIgnorePatterns": [
-      "node_modules/(?!react-router-dom|axios|@remix-run|react-router)"
+      "node_modules/(?!react-router-dom|axios|@remix-run|react-router|@mui/x-data-grid)"
     ],
     "moduleNameMapper": {
       "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
       "^react-router$": "<rootDir>/node_modules/react-router/dist/development/index.js",
-      "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js"
+      "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js",
+      "^@mui/x-data-grid$": "<rootDir>/node_modules/@mui/x-data-grid/index.js"
     }
   },
   "browserslist": {

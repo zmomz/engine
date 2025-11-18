@@ -104,7 +104,7 @@ This phase establishes the architectural backbone of the application.
         - Implement automatic reconnection logic with exponential backoff.
         - On message receipt, parse the data and call the appropriate `dataStore` action to update the state.
         - Create a `useWebSocket` hook to initialize the connection from the main application component.
-    3.  **Build `PositionsPage`:**
+    3.  [x] **Build `PositionsPage`:**
         - Use `MUI X Data Grid` to display the `positionGroups` from `dataStore`.
         - Implement columns as defined in the `EP.md` wireframe.
         - Create custom cell renderer components like `PnlCell` (for color) and `StatusChip`.
