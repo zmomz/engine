@@ -115,30 +115,30 @@ This phase establishes the architectural backbone of the application.
         - Add action buttons to each row (`Promote`, `Force Add`).
         - Implement the confirmation modal micro-interaction as defined in `EP.md` for the "Force Add" action, including loading and feedback states.
 
-### Phase 5: Configuration & Utility Pages
+### Phase 5: Configuration & Utility Pages (Complete)
 
 - **Objectives:** Build the pages for managing settings and viewing logs.
 - **Steps:**
     1.  [x] **Create Tests:** Write Jest and React Testing Library tests for `SettingsPage` and `LogsPage`.
-    2.  **Build `SettingsPage`:**
+    2.  [x] **Build `SettingsPage`:**
         - Use MUI `<Tabs>` to separate configuration sections (Exchange API, Risk Engine, etc.).
         - For each section, create a form using `react-hook-form` to manage state and validation.
         - On submit, call the backend API to save the configuration. Provide feedback (e.g., a snackbar) on success or failure.
-    3.  **Build `LogsPage`:**
+    3.  [x] **Build `LogsPage`:**
         - Fetch and display log data from the backend.
         - To handle potentially large datasets, use a virtualized list component (e.g., `react-window` or `react-virtualized`).
         - Add MUI `<TextField>` and `<Select>` components for filtering logs by text and severity level.
 
-### Phase 6: Final Polish & Error Handling
+### Phase 6: Final Polish & Error Handling (Complete)
 
 - **Objectives:** Ensure the application is robust, provides clear feedback for all states, and is visually polished.
 - **Steps:**
-    1.  **Create Tests:** Write Jest and React Testing Library tests for global error boundaries, loading indicators, and responsiveness.
-    2.  **Implement Global Error Handling:**
+    1.  [x] **Create Tests:** Write Jest and React Testing Library tests for global error boundaries, loading indicators, and responsiveness.
+    2.  [x] **Implement Global Error Handling:**
         - Create a global `ErrorBoundary` component to catch rendering errors and display a fallback UI.
         - Implement a standardized way to display API errors to the user using MUI's `<Snackbar>` for non-critical notifications and `<Dialog>` for critical errors.
-    3.  **Implement Loading States:**
+    3.  [x] **Implement Loading States:**
         - Use MUI `<Skeleton>` components to provide a good user experience on initial page loads while data is being fetched.
         - Use MUI `<CircularProgress>` indicators on buttons and within components during API calls or actions.
-    4.  **Responsiveness:** Review all pages and ensure they are usable on tablet-sized screens (down to 768px width). Adjust layouts as needed using MUI's grid system and responsive helpers.
-    5.  **Final UX Review:** Conduct a full application walkthrough to identify and fix any confusing workflows, missing feedback, or visual inconsistencies.
+    4.  [x] **Responsiveness:** Review all pages and ensure they are usable on tablet-sized screens (down to 768px width). Adjust layouts as needed using MUI's grid system and responsive helpers.
+    5.  [x] **Final UX Review:** Conduct a full application walkthrough to identify and fix any confusing workflows, missing feedback, or visual inconsistencies.

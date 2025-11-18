@@ -102,7 +102,7 @@ describe('App Routing', () => {
         <App />
       </MemoryRouter>
     );
-    expect(screen.getByRole('heading', { name: /logs & alerts/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /system logs/i })).toBeInTheDocument();
   });
 
   test('renders SettingsPage for /settings route when authenticated', () => {
