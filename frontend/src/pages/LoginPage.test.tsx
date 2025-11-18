@@ -2,12 +2,10 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter as Router } from 'react-router-dom';
 import LoginPage from './LoginPage';
-import { useAuthStore } from '../store/authStore';
+import useAuthStore from '../store/authStore';
 
 // Mock the auth store
-jest.mock('../store/authStore', () => ({
-  useAuthStore: jest.fn(),
-}));
+jest.mock('../store/authStore');
 
 describe('LoginPage', () => {
   const mockLogin = jest.fn();

@@ -68,7 +68,7 @@ This phase establishes the architectural backbone of the application.
 - **Steps:**
     1.  [x] **Create Tests:** Write tests for `LoginPage`, `RegistrationPage`, and `MainLayout`.
     2.  [x] **Build `LoginPage`:** Create the login form using MUI components and `react-hook-form` for validation. On successful login, call the `authStore` action and redirect.
-    3.  **Build `RegistrationPage`:** Create the registration form, similar to the login page.
+    3.  [x] **Build `RegistrationPage`:** Create the registration form, similar to the login page.
     4.  **Implement `ProtectedRoute`:** Flesh out the logic to redirect unauthenticated users to `/login`.
     5.  **Build `MainLayout`:** Create a layout component using MUI's `AppBar` (header) and `Drawer` (sidebar).
         - The `AppBar` will contain the theme toggle button and a user menu with a logout option.
