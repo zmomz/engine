@@ -8,6 +8,7 @@ from app.db.database import get_db_session
 from app.models.base import Base
 from app.main import app
 from httpx import AsyncClient
+from app.models.user import User
 
 DATABASE_URL = "postgresql+asyncpg://tv_user:your_password@db:5432/tv_engine_db_test"
 
@@ -39,6 +40,15 @@ async def db_session(test_db_engine):
         await session.begin_nested()
         yield session
         await session.rollback()
+
+
+@pytest.fixture(scope="function")
+async def test_user(db_session: AsyncSession):
+    user = User(username="testuser", email="test@example.com", hashed_password="hashedpassword")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
 
 
 

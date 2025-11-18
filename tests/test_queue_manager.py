@@ -7,6 +7,8 @@ import asyncio
 
 from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.queue_manager import QueueManagerService, calculate_queue_priority
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.repositories.queued_signal import QueuedSignalRepository
@@ -14,10 +16,24 @@ from app.repositories.position_group import PositionGroupRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.models.queued_signal import QueuedSignal, QueueStatus
 from app.models.position_group import PositionGroup
+from app.models.user import User # Import User model
 from app.services.position_manager import PositionManagerService
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 
 # --- Fixtures for QueueManagerService ---
+
+@pytest.fixture
+async def user_id_fixture(db_session: AsyncMock):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_qm",
+        email="test_qm@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user.id
 
 @pytest.fixture
 def mock_queued_signal_repository_class():
@@ -52,11 +68,10 @@ def mock_execution_pool_manager():
 
 @pytest.fixture
 def mock_session_factory():
-    async def factory():
-        mock_session_obj = AsyncMock()
-        yield mock_session_obj
-        await mock_session_obj.close()
-    return factory
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__.return_value = mock_session
+    return MagicMock(return_value=mock_context_manager)
 
 @pytest.fixture
 def mock_position_manager_service():
@@ -194,12 +209,12 @@ def test_priority_tier_1_pyramid_continuation():
 # --- Tests for QueueManagerService methods ---
 
 @pytest.mark.asyncio
-async def test_add_to_queue_new_signal(queue_manager_service, mock_queued_signal_repository_class):
+async def test_add_to_queue_new_signal(queue_manager_service, mock_queued_signal_repository_class, user_id_fixture):
     """
     Test adding a new signal to the queue.
     """
     signal_payload = {
-        "user_id": str(uuid.uuid4()),
+        "user_id": str(user_id_fixture),
         "exchange": "binance",
         "symbol": "LTCUSDT",
         "timeframe": 60,
@@ -212,19 +227,18 @@ async def test_add_to_queue_new_signal(queue_manager_service, mock_queued_signal
     
     assert result is not None
     assert result.symbol == "LTCUSDT"
-    assert result.status == QueueStatus.QUEUED
+    assert result.status == "queued"
     mock_queued_signal_repository_class.return_value.create.assert_called_once()
     mock_queued_signal_repository_class.return_value.get_by_symbol_timeframe_side.assert_called_once_with("LTCUSDT", 60, "long")
 
 @pytest.mark.asyncio
-async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queued_signal_repository_class):
+async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queued_signal_repository_class, user_id_fixture):
     """
     Test adding a replacement signal to the queue (updates existing).
     """
-    user_id = uuid.uuid4()
     original_signal = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=user_id,
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="LTCUSDT",
         timeframe=60,
@@ -238,7 +252,7 @@ async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queue
     mock_queued_signal_repository_class.return_value.get_by_symbol_timeframe_side.return_value = original_signal
 
     signal_payload = {
-        "user_id": str(user_id),
+        "user_id": str(user_id_fixture),
         "exchange": "binance",
         "symbol": "LTCUSDT",
         "timeframe": 60,
@@ -284,12 +298,12 @@ async def test_promote_from_queue_logic(queue_manager_service, mock_queued_signa
         return Decimal("0")
     mock_exchange_connector.get_current_price.side_effect = price_side_effect
 
-    async for session in queue_manager_service.session_factory():
-        promoted_signal = await queue_manager_service.promote_from_queue(
-            session,
-            mock_queued_signal_repository_class.return_value,
-            mock_position_group_repository_class.return_value
-        )
+    mock_session = AsyncMock()
+    promoted_signal = await queue_manager_service.promote_from_queue(
+        mock_session,
+        mock_queued_signal_repository_class.return_value,
+        mock_position_group_repository_class.return_value
+    )
 
     assert promoted_signal is not None
     assert promoted_signal.id == signal1.id # BTCUSDT has higher loss, so higher priority
@@ -302,18 +316,21 @@ async def test_promote_highest_priority_signal_no_signals(queue_manager_service,
     Test promotion when no signals are in the queue.
     """
     mock_queued_signal_repository_class.return_value.get_all_queued_signals.return_value = []
-    await queue_manager_service._promotion_loop()
+    
+    mock_session = AsyncMock()
+    await queue_manager_service._promote_highest_priority_signal(mock_session)
+    
     mock_execution_pool_manager.request_slot.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_promote_highest_priority_signal_slot_available(queue_manager_service, mock_queued_signal_repository_class, mock_position_group_repository_class, mock_exchange_connector, mock_execution_pool_manager):
+async def test_promote_highest_priority_signal_slot_available(queue_manager_service, mock_queued_signal_repository_class, mock_position_group_repository_class, mock_exchange_connector, mock_execution_pool_manager, user_id_fixture):
     """
     Test promotion when a slot is available and a signal is promoted.
     """
     now = datetime.utcnow()
     signal_to_promote = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -328,29 +345,29 @@ async def test_promote_highest_priority_signal_slot_available(queue_manager_serv
     mock_execution_pool_manager.request_slot.return_value = True
     mock_exchange_connector.get_current_price.return_value = Decimal("49000") # Simulate loss
 
-    async for session in queue_manager_service.session_factory():
-        await queue_manager_service._promote_highest_priority_signal(session)
+    mock_session = AsyncMock()
+    await queue_manager_service._promote_highest_priority_signal(mock_session)
 
     mock_exchange_connector.get_current_price.assert_called_once_with("BTCUSDT")
     mock_queued_signal_repository_class.return_value.update.assert_called_with(
         signal_to_promote.id,
         {
-            "status": QueueStatus.PROMOTED,
+            "status": "promoted",
             "promoted_at": ANY,
             "current_loss_percent": ANY,
         },
     )
-    mock_execution_pool_manager.request_slot.assert_called_once_with(ANY, is_pyramid_continuation=False)
+    mock_execution_pool_manager.request_slot.assert_called_once_with(mock_session, is_pyramid_continuation=False)
 
 @pytest.mark.asyncio
-async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mock_queued_signal_repository_class, mock_execution_pool_manager):
+async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mock_queued_signal_repository_class, mock_execution_pool_manager, user_id_fixture):
     """
     Test promotion when no slot is available.
     """
     now = datetime.utcnow()
     signal_in_queue = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="ETHUSDT",
         timeframe=60,
@@ -364,24 +381,24 @@ async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mo
     mock_queued_signal_repository_class.return_value.get_all_queued_signals.return_value = [signal_in_queue]
     mock_execution_pool_manager.request_slot.return_value = False # No slot available
     
-    async for session in queue_manager_service.session_factory():
-        await queue_manager_service._promote_highest_priority_signal(session)
+    mock_session = AsyncMock()
+    await queue_manager_service._promote_highest_priority_signal(mock_session)
 
     queue_manager_service.exchange_connector.get_current_price.assert_called_once_with("ETHUSDT")
-    mock_execution_pool_manager.request_slot.assert_called_once_with(ANY, is_pyramid_continuation=False)
+    mock_execution_pool_manager.request_slot.assert_called_once_with(mock_session, is_pyramid_continuation=False)
     # Assert that update was NOT called, as no slot was available
     mock_queued_signal_repository_class.return_value.update.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_promote_highest_priority_signal_pyramid_continuation(queue_manager_service, mock_queued_signal_repository_class, mock_position_group_repository_class, mock_execution_pool_manager):
+async def test_promote_highest_priority_signal_pyramid_continuation(queue_manager_service, mock_queued_signal_repository_class, mock_position_group_repository_class, mock_execution_pool_manager, user_id_fixture):
     """
     Test that a pyramid continuation signal bypasses the pool limit check.
     """
     now = datetime.utcnow()
-    active_group = PositionGroup(symbol="SOLUSDT", timeframe=15, side="long", user_id=uuid.uuid4(), exchange="binance", total_dca_legs=5, base_entry_price=Decimal(100), weighted_avg_entry=Decimal(100), tp_mode="per_leg")
+    active_group = PositionGroup(symbol="SOLUSDT", timeframe=15, side="long", user_id=user_id_fixture, exchange="binance", total_dca_legs=5, base_entry_price=Decimal(100), weighted_avg_entry=Decimal(100), tp_mode="per_leg")
     signal_pyramid = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="SOLUSDT",
         timeframe=15,
@@ -397,19 +414,19 @@ async def test_promote_highest_priority_signal_pyramid_continuation(queue_manage
     mock_execution_pool_manager.request_slot.return_value = True # Should be granted for pyramid
     queue_manager_service.exchange_connector.get_current_price.return_value = Decimal("90") # Simulate loss
 
-    async for session in queue_manager_service.session_factory():
-        await queue_manager_service._promote_highest_priority_signal(session)
+    mock_session = AsyncMock()
+    await queue_manager_service._promote_highest_priority_signal(mock_session)
 
     queue_manager_service.exchange_connector.get_current_price.assert_called_once_with("SOLUSDT")
     mock_queued_signal_repository_class.return_value.update.assert_called_with(
         signal_pyramid.id,
         {
-            "status": QueueStatus.PROMOTED,
+            "status": "promoted",
             "promoted_at": ANY,
             "current_loss_percent": ANY,
         },
     )
-    mock_execution_pool_manager.request_slot.assert_called_once_with(ANY, is_pyramid_continuation=True)
+    mock_execution_pool_manager.request_slot.assert_called_once_with(mock_session, is_pyramid_continuation=True)
 
 @pytest.mark.asyncio
 async def test_start_and_stop_promotion_task(queue_manager_service):

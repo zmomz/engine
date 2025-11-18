@@ -20,13 +20,13 @@ class QueuedSignalRepository(BaseRepository[QueuedSignal]):
                 self.model.symbol == symbol,
                 self.model.timeframe == timeframe,
                 self.model.side == side,
-                self.model.status == QueueStatus.QUEUED
+                self.model.status == QueueStatus.QUEUED.value
             )
         )
         return result.scalars().first()
 
     async def get_all_queued_signals(self, for_update: bool = False) -> List[QueuedSignal]:
-        query = select(self.model).where(self.model.status == QueueStatus.QUEUED)
+        query = select(self.model).where(self.model.status == QueueStatus.QUEUED.value)
         if for_update:
             query = query.with_for_update()
         result = await self.session.execute(query)

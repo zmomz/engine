@@ -5,6 +5,8 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timedelta
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.queue_manager import QueueManagerService
 from app.repositories.queued_signal import QueuedSignalRepository
 from app.repositories.position_group import PositionGroupRepository
@@ -13,8 +15,22 @@ from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.position_manager import PositionManagerService
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.models.queued_signal import QueuedSignal, QueueStatus
+from app.models.user import User # Import User model
 
 # --- Fixtures ---
+
+@pytest.fixture
+async def user_id_fixture(db_session: AsyncMock):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_qms",
+        email="test_qms@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user.id
 
 @pytest.fixture
 def mock_queued_signal_repository_class():
@@ -57,11 +73,10 @@ def mock_total_capital_usd():
 
 @pytest.fixture
 def mock_session_factory():
-    async def factory():
-        mock_session_obj = AsyncMock()
-        yield mock_session_obj
-        await mock_session_obj.close()
-    return factory
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__.return_value = mock_session
+    return MagicMock(return_value=mock_context_manager)
 
 @pytest.fixture
 def queue_manager_service(
@@ -88,9 +103,9 @@ def queue_manager_service(
     )
 
 @pytest.fixture
-def sample_queued_signal_data():
+def sample_queued_signal_data(user_id_fixture):
     return {
-        "user_id": str(uuid.uuid4()), # Convert UUID to string for payload
+        "user_id": str(user_id_fixture), # Convert UUID to string for payload
         "exchange": "binance",
         "symbol": "BTCUSDT",
         "timeframe": 15,
@@ -130,7 +145,7 @@ async def test_add_to_queue_new_signal(queue_manager_service, mock_queued_signal
     assert isinstance(created_signal_args, QueuedSignal)
     assert str(created_signal_args.user_id) == sample_queued_signal_data["user_id"]
     assert created_signal_args.symbol == sample_queued_signal_data["symbol"]
-    assert created_signal_args.status == QueueStatus.QUEUED
+    assert created_signal_args.status == "queued"
     assert created_signal_args.queued_at is not None
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-# Project: Execution Engine v4.0
+g Project: Execution Engine v4.0
 
 ## Project Overview
 
@@ -76,11 +76,11 @@ To prevent getting stuck in repetitive, failing loops, the following debugging p
 
 - **Run Backend Tests:**
   ```bash
-  docker compose exec app pytest
+  docker compose -f docker-compose.test.yml run --rm app pytest -v
   ```
 - **Run Backend Test Coverage:**
   ```bash
-  docker compose exec app pytest --cov=app
+  docker compose -f docker-compose.test.yml run --rm app pytest --cov=app
   ```
 - **Run Backend Linting:**
   ```bash

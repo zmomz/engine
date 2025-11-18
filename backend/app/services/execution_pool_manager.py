@@ -26,7 +26,7 @@ class ExecutionPoolManager:
         Returns the current number of active position groups in the pool.
         """
         repo = self.position_group_repository_class(session)
-        active_statuses = [PositionGroupStatus.LIVE, PositionGroupStatus.PARTIALLY_FILLED, PositionGroupStatus.ACTIVE, PositionGroupStatus.CLOSING]
+        active_statuses = [PositionGroupStatus.LIVE.value, PositionGroupStatus.PARTIALLY_FILLED.value, PositionGroupStatus.ACTIVE.value, PositionGroupStatus.CLOSING.value]
         count = await repo.count_by_status(active_statuses, for_update=for_update)
         return count
 

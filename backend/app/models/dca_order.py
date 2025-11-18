@@ -51,7 +51,7 @@ class DCAOrder(Base):
     symbol = Column(String, nullable=False)
     side = Column(SQLAlchemyEnum("buy", "sell", name="order_side_enum"), nullable=False)
     order_type = Column(
-        SQLAlchemyEnum(OrderType, name="order_type_enum"), default=OrderType.LIMIT
+        SQLAlchemyEnum(OrderType, name="order_type_enum", values_callable=lambda x: [e.value for e in x]), default=OrderType.LIMIT
     )
     price = Column(Numeric(20, 10), nullable=False)
     quantity = Column(Numeric(20, 10), nullable=False)
@@ -62,9 +62,9 @@ class DCAOrder(Base):
     tp_price = Column(Numeric(20, 10), nullable=False)
 
     status = Column(
-        SQLAlchemyEnum(OrderStatus, name="order_status_enum"),
+        SQLAlchemyEnum(OrderStatus, name="order_status_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
-        default=OrderStatus.PENDING,
+        default=OrderStatus.PENDING.value,
     )
     filled_quantity = Column(Numeric(20, 10), default=Decimal("0"))
     avg_fill_price = Column(Numeric(20, 10))

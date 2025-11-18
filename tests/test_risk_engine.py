@@ -20,6 +20,7 @@ from app.repositories.dca_order import DCAOrderRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.order_management import OrderService
 from app.schemas.grid_config import RiskEngineConfig
+from app.models.user import User # Import User model
 
 # --- Fixtures for RiskEngineService ---
 
@@ -102,10 +103,10 @@ def risk_engine_service(
 class MockPositionGroupForRisk(PositionGroup):
     def __init__(self, id, symbol, timeframe, side, status, unrealized_pnl_percent, unrealized_pnl_usd, created_at,
                  pyramid_count=0, max_pyramids=5, risk_timer_expires=None, risk_blocked=False, risk_skip_once=False,
-                 weighted_avg_entry=Decimal("0"), total_filled_quantity=Decimal("0"), dca_orders=None):
+                 weighted_avg_entry=Decimal("0"), total_filled_quantity=Decimal("0"), dca_orders=None, user_id=None):
         super().__init__(
             id=id,
-            user_id=uuid.uuid4(),
+            user_id=user_id if user_id else uuid.uuid4(),
             exchange="binance",
             symbol=symbol,
             timeframe=timeframe,
@@ -155,9 +156,9 @@ class MockDCAOrderForRisk(DCAOrder):
 def test_select_loser_highest_loss_percent():
     """Test loser selection based on highest loss percentage."""
     now = datetime.utcnow()
-    pg1 = MockPositionGroupForRisk(uuid.uuid4(), "BTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg2 = MockPositionGroupForRisk(uuid.uuid4(), "ETHUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-5.0"), Decimal("-500"), now - timedelta(hours=2), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg3 = MockPositionGroupForRisk(uuid.uuid4(), "LTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-12.0"), Decimal("-800"), now - timedelta(hours=3), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
+    pg1 = MockPositionGroupForRisk(uuid.uuid4(), "BTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg2 = MockPositionGroupForRisk(uuid.uuid4(), "ETHUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-5.0"), Decimal("-500"), now - timedelta(hours=2), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg3 = MockPositionGroupForRisk(uuid.uuid4(), "LTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-12.0"), Decimal("-800"), now - timedelta(hours=3), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
 
     config = RiskEngineConfig(loss_threshold_percent=Decimal("-1.0"), require_full_pyramids=True, timer_start_condition="after_all_dca_filled", post_full_wait_minutes=60, max_winners_to_combine=3)
     
@@ -167,9 +168,9 @@ def test_select_loser_highest_loss_percent():
 def test_select_loser_highest_loss_usd_on_tie():
     """Test loser selection based on highest unrealized loss USD when loss percentage is tied."""
     now = datetime.utcnow()
-    pg1 = MockPositionGroupForRisk(uuid.uuid4(), "BTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg2 = MockPositionGroupForRisk(uuid.uuid4(), "ETHUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1200"), now - timedelta(hours=2), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg3 = MockPositionGroupForRisk(uuid.uuid4(), "LTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-800"), now - timedelta(hours=3), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
+    pg1 = MockPositionGroupForRisk(uuid.uuid4(), "BTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg2 = MockPositionGroupForRisk(uuid.uuid4(), "ETHUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1200"), now - timedelta(hours=2), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg3 = MockPositionGroupForRisk(uuid.uuid4(), "LTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-800"), now - timedelta(hours=3), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
 
     config = RiskEngineConfig(loss_threshold_percent=Decimal("-1.0"), require_full_pyramids=True, timer_start_condition="after_all_dca_filled", post_full_wait_minutes=60, max_winners_to_combine=3)
     
@@ -179,9 +180,9 @@ def test_select_loser_highest_loss_usd_on_tie():
 def test_select_loser_oldest_trade_on_tie():
     """Test loser selection based on oldest trade when loss percentage and USD are tied."""
     now = datetime.utcnow()
-    pg1 = MockPositionGroupForRisk(uuid.uuid4(), "BTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=3), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg2 = MockPositionGroupForRisk(uuid.uuid4(), "ETHUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=2), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg3 = MockPositionGroupForRisk(uuid.uuid4(), "LTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
+    pg1 = MockPositionGroupForRisk(uuid.uuid4(), "BTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=3), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg2 = MockPositionGroupForRisk(uuid.uuid4(), "ETHUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=2), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg3 = MockPositionGroupForRisk(uuid.uuid4(), "LTCUSDT", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
 
     config = RiskEngineConfig(loss_threshold_percent=Decimal("-1.0"), require_full_pyramids=True, timer_start_condition="after_all_dca_filled", post_full_wait_minutes=60, max_winners_to_combine=3)
     
@@ -191,8 +192,8 @@ def test_select_loser_oldest_trade_on_tie():
 def test_select_winners_by_profit_descending():
     """Test winner selection based on unrealized profit USD (descending)."""
     now = datetime.utcnow()
-    pg_loser = MockPositionGroupForRisk(uuid.uuid4(), "LOSER", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg_winner1 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER1", 15, "long", PositionGroupStatus.ACTIVE, Decimal("5.0"), Decimal("500"), now - timedelta(hours=1))
+    pg_loser = MockPositionGroupForRisk(uuid.uuid4(), "LOSER", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1), user_id=uuid.uuid4())
+    pg_winner1 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER1", 15, "long", PositionGroupStatus.ACTIVE, Decimal("5.0"), Decimal("500"), now - timedelta(hours=1), user_id=uuid.uuid4())
     pg_winner2 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER2", 15, "long", PositionGroupStatus.ACTIVE, Decimal("10.0"), Decimal("1200"), now - timedelta(hours=2))
     pg_winner3 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER3", 15, "long", PositionGroupStatus.ACTIVE, Decimal("2.0"), Decimal("200"), now - timedelta(hours=3))
 
@@ -209,7 +210,7 @@ def test_select_winners_max_winners_to_combine():
     """Test winner selection respects max_winners_to_combine."""
     now = datetime.utcnow()
     pg_loser = MockPositionGroupForRisk(uuid.uuid4(), "LOSER", 15, "long", PositionGroupStatus.ACTIVE, Decimal("-10.0"), Decimal("-1000"), now - timedelta(hours=1), pyramid_count=5, risk_timer_expires=now - timedelta(minutes=1))
-    pg_winner1 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER1", 15, "long", PositionGroupStatus.ACTIVE, Decimal("5.0"), Decimal("500"), now - timedelta(hours=1))
+    pg_winner1 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER1", 15, "long", PositionGroupStatus.ACTIVE, Decimal("5.0"), Decimal("500"), now - timedelta(hours=1), user_id=uuid.uuid4())
     pg_winner2 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER2", 15, "long", PositionGroupStatus.ACTIVE, Decimal("10.0"), Decimal("1200"), now - timedelta(hours=2))
     pg_winner3 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER3", 15, "long", PositionGroupStatus.ACTIVE, Decimal("2.0"), Decimal("200"), now - timedelta(hours=3))
     pg_winner4 = MockPositionGroupForRisk(uuid.uuid4(), "WINNER4", 15, "long", PositionGroupStatus.ACTIVE, Decimal("7.0"), Decimal("700"), now - timedelta(hours=4))

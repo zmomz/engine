@@ -3,7 +3,7 @@ from httpx import AsyncClient
 import uuid
 from decimal import Decimal
 from datetime import datetime
-
+from sqlalchemy import text
 from app.main import app
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.schemas.position_group import TPMode
@@ -24,13 +24,24 @@ async def queued_signal_repo(db_session: AsyncSession):
 
 # --- Tests for /positions endpoints ---
 
+from app.models.user import User # Import User model
+
 @pytest.mark.asyncio
 async def test_get_all_positions_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_positions",
+        email="test_positions@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     # Create some position groups directly in the database
     pg1 = PositionGroup(
         id=uuid.uuid4(),
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -57,7 +68,7 @@ async def test_get_all_positions_integration(position_group_repo: PositionGroupR
     )
     pg2 = PositionGroup(
         id=uuid.uuid4(),
-        user_id=user_id,
+        user_id=user.id,
         exchange="bybit",
         symbol="ETHUSDT",
         timeframe=60,
@@ -87,7 +98,7 @@ async def test_get_all_positions_integration(position_group_repo: PositionGroupR
     await db_session.commit()
 
     async with AsyncClient(app=app, base_url="http://test") as ac:
-        response = await ac.get(f"/api/v1/positions/{user_id}")
+        response = await ac.get(f"/api/v1/positions/{user.id}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -99,6 +110,14 @@ async def test_get_all_positions_integration(position_group_repo: PositionGroupR
 async def test_get_position_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
     user_id = uuid.uuid4()
     group_id = uuid.uuid4()
+    
+    # Create user directly in database
+    await db_session.execute(
+        text("INSERT INTO users (id, username, email, hashed_password) VALUES (:id, :username, :email, :password)"),
+        {"id": user_id, "username": "testuser_group", "email": "test_group@example.com", "password": "hashedpassword"}
+    )
+    
+    # Create position group using repository
     pg = PositionGroup(
         id=group_id,
         user_id=user_id,
@@ -129,6 +148,7 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
     await position_group_repo.create(pg)
     await db_session.commit()
 
+    # Test the endpoint
     async with AsyncClient(app=app, base_url="http://test") as ac:
         response = await ac.get(f"/api/v1/positions/{user_id}/{group_id}")
 
@@ -136,10 +156,19 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
     response_data = response.json()
     assert response_data["id"] == str(group_id)
     assert response_data["symbol"] == "BTCUSDT"
-
 @pytest.mark.asyncio
 async def test_get_position_group_not_found_integration(db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_notfound",
+        email="test_notfound@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    user_id = user.id
     group_id = uuid.uuid4()
 
     async with AsyncClient(app=app, base_url="http://test") as ac:
@@ -152,11 +181,21 @@ async def test_get_position_group_not_found_integration(db_session: AsyncSession
 
 @pytest.mark.asyncio
 async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_queue",
+        email="test_queue@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    user_id = user.id
     # Create some queued signals directly in the database
     qs1 = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -171,7 +210,7 @@ async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSign
     )
     qs2 = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=user_id,
+        user_id=user.id,
         exchange="bybit",
         symbol="ETHUSDT",
         timeframe=60,
@@ -199,11 +238,21 @@ async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSign
 
 @pytest.mark.asyncio
 async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_remove_queue",
+        email="test_remove_queue@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    user_id = user.id
     signal_id = uuid.uuid4()
     qs = QueuedSignal(
         id=signal_id,
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -231,6 +280,16 @@ async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignal
 
 @pytest.mark.asyncio
 async def test_remove_queued_signal_not_found_integration(db_session: AsyncSession):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_remove_queue_notfound",
+        email="test_remove_queue_notfound@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     signal_id = uuid.uuid4()
 
     async with AsyncClient(app=app, base_url="http://test") as ac:
@@ -243,11 +302,21 @@ async def test_remove_queued_signal_not_found_integration(db_session: AsyncSessi
 
 @pytest.mark.asyncio
 async def test_block_risk_for_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_block_risk",
+        email="test_block_risk@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    user_id = user.id
     group_id = uuid.uuid4()
     pg = PositionGroup(
         id=group_id,
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -289,11 +358,21 @@ async def test_block_risk_for_group_integration(position_group_repo: PositionGro
 
 @pytest.mark.asyncio
 async def test_unblock_risk_for_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_unblock_risk",
+        email="test_unblock_risk@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    user_id = user.id
     group_id = uuid.uuid4()
     pg = PositionGroup(
         id=group_id,
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -335,11 +414,21 @@ async def test_unblock_risk_for_group_integration(position_group_repo: PositionG
 
 @pytest.mark.asyncio
 async def test_skip_next_risk_evaluation_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_skip_risk",
+        email="test_skip_risk@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    user_id = user.id
     group_id = uuid.uuid4()
     pg = PositionGroup(
         id=group_id,
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,

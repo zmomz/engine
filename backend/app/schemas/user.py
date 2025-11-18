@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr
@@ -12,14 +13,14 @@ class UserCreate(UserBase):
     password: str
 
 class UserInDB(UserBase):
-    id: int
+    id: uuid.UUID
     hashed_password: str
 
     class Config:
         from_attributes = True
 
 class UserPublic(UserBase):
-    id: int
+    id: uuid.UUID
 
     class Config:
         from_attributes = True

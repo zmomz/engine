@@ -56,7 +56,7 @@ def select_loser_and_winners(
     for pg in position_groups:
         # Must meet all conditions
         if not all([
-            pg.status == PositionGroupStatus.ACTIVE,
+            pg.status == PositionGroupStatus.ACTIVE.value,
             pg.pyramid_count >= pg.max_pyramids if config.require_full_pyramids else True,
             pg.risk_timer_expires and pg.risk_timer_expires <= datetime.utcnow(),
             pg.unrealized_pnl_percent <= config.loss_threshold_percent,
@@ -88,7 +88,7 @@ def select_loser_and_winners(
     # Select winners
     winning_positions = [
         pg for pg in position_groups
-        if pg.status == PositionGroupStatus.ACTIVE and pg.unrealized_pnl_usd > 0
+        if pg.status == PositionGroupStatus.ACTIVE.value and pg.unrealized_pnl_usd > 0
     ]
     
     # Sort by USD profit (descending)

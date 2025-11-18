@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.services.position_manager import PositionManagerService
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.queued_signal import QueuedSignal, QueueStatus
+from app.models.user import User # Import User model
 from app.repositories.position_group import PositionGroupRepository
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig, DCALevelConfig
 from app.services.grid_calculator import GridCalculatorService
@@ -16,6 +17,19 @@ from app.services.order_management import OrderService
 from app.models.dca_order import DCAOrder, OrderStatus
 
 # --- Fixtures for PositionManagerService --- 
+
+@pytest.fixture
+async def user_id_fixture(db_session: AsyncMock): # Use AsyncMock for db_session
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_pm",
+        email="test_pm@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user.id
 
 
 
@@ -72,10 +86,10 @@ def position_manager_service(
 # --- Test Data ---
 
 @pytest.fixture
-def sample_queued_signal():
+def sample_queued_signal(user_id_fixture):
     return QueuedSignal(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -106,10 +120,10 @@ def sample_total_capital_usd():
     return Decimal("1000")
 
 @pytest.fixture
-def sample_position_group(sample_risk_config):
+def sample_position_group(sample_risk_config, user_id_fixture):
     pg = PositionGroup(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -279,7 +293,7 @@ async def test_handle_exit_signal(
 
 
 @pytest.mark.asyncio
-async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_position_group_repository_class):
+async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_position_group_repository_class, user_id_fixture):
     """
     Test that the risk timer starts correctly when the 'after_5_pyramids'
     condition is met.
@@ -295,7 +309,7 @@ async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_
     
     position_group = PositionGroup(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -323,7 +337,7 @@ async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_
 
 
 @pytest.mark.asyncio
-async def test_risk_timer_start_after_all_dca_submitted(position_manager_service, mock_position_group_repository_class):
+async def test_risk_timer_start_after_all_dca_submitted(position_manager_service, mock_position_group_repository_class, user_id_fixture):
     """
     Test that the risk timer starts correctly when the 'after_all_dca_submitted'
     condition is met.
@@ -339,7 +353,7 @@ async def test_risk_timer_start_after_all_dca_submitted(position_manager_service
     
     position_group = PositionGroup(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="ETHUSDT",
         timeframe=60,
@@ -368,7 +382,7 @@ async def test_risk_timer_start_after_all_dca_submitted(position_manager_service
 
 
 @pytest.mark.asyncio
-async def test_risk_timer_start_after_all_dca_filled(position_manager_service, mock_position_group_repository_class):
+async def test_risk_timer_start_after_all_dca_filled(position_manager_service, mock_position_group_repository_class, user_id_fixture):
     """
     Test that the risk timer starts correctly when the 'after_all_dca_filled'
     condition is met.
@@ -384,7 +398,7 @@ async def test_risk_timer_start_after_all_dca_filled(position_manager_service, m
     
     position_group = PositionGroup(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_fixture,
         exchange="binance",
         symbol="SOLUSDT",
         timeframe=5,

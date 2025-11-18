@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-from app.models import PositionGroup, Pyramid, DCAOrder, QueuedSignal, RiskAction
+from app.models import PositionGroup, Pyramid, DCAOrder, QueuedSignal, RiskAction, User
 from app.repositories import (
     PositionGroupRepository,
     PyramidRepository,
@@ -18,10 +18,19 @@ from app.repositories import (
 
 @pytest.mark.asyncio
 async def test_position_group_repository(db_session: AsyncSession):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_repo",
+        email="test_repo@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     repo = PositionGroupRepository(db_session)
-    user_id = uuid.uuid4()
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -34,7 +43,7 @@ async def test_position_group_repository(db_session: AsyncSession):
     created_pg = await repo.create(pg)
 
     assert created_pg.id is not None
-    assert created_pg.user_id == user_id
+    assert created_pg.user_id == user.id
 
     fetched_pg = await repo.get(created_pg.id)
     assert fetched_pg == created_pg
@@ -46,10 +55,19 @@ async def test_position_group_repository(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_pyramid_repository(db_session: AsyncSession):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_repo2",
+        email="test_repo2@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     pg_repo = PositionGroupRepository(db_session)
-    user_id = uuid.uuid4()
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -85,10 +103,19 @@ async def test_pyramid_repository(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_dca_order_repository(db_session: AsyncSession):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_repo3",
+        email="test_repo3@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     pg_repo = PositionGroupRepository(db_session)
-    user_id = uuid.uuid4()
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -142,10 +169,19 @@ async def test_dca_order_repository(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_queued_signal_repository(db_session: AsyncSession):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_repo4",
+        email="test_repo4@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     repo = QueuedSignalRepository(db_session)
-    user_id = uuid.uuid4()
     queued_signal = QueuedSignal(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="ETHUSDT",
         timeframe=60,
@@ -157,7 +193,7 @@ async def test_queued_signal_repository(db_session: AsyncSession):
     created_signal = await repo.create(queued_signal)
 
     assert created_signal.id is not None
-    assert created_signal.user_id == user_id
+    assert created_signal.user_id == user.id
 
     fetched_signal = await repo.get(created_signal.id)
     assert fetched_signal == created_signal
@@ -169,10 +205,19 @@ async def test_queued_signal_repository(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_risk_action_repository(db_session: AsyncSession):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_repo5",
+        email="test_repo5@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     pg_repo = PositionGroupRepository(db_session)
-    user_id = uuid.uuid4()
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,

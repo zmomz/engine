@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { create } from 'zustand';
-import useAuthStore from './authStore';
+import useAuthStore, { AuthState } from './authStore';
 
 describe('useAuthStore', () => {
   const originalLocalStorage = window.localStorage;

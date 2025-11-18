@@ -69,7 +69,7 @@ class QueueManagerService:
         self._promotion_task = None
 
     async def add_to_queue(self, signal_payload: dict) -> QueuedSignal:
-        async with self.session_factory() as session:
+        async for session in self.session_factory():
             queued_signal_repo = self.queued_signal_repository_class(session)
             existing_signal = await queued_signal_repo.get_by_symbol_timeframe_side(
                 signal_payload["symbol"], 
@@ -87,7 +87,6 @@ class QueueManagerService:
                     "signal_payload": existing_signal.signal_payload,
                     "queued_at": existing_signal.queued_at
                 })
-                await session.commit()
                 logger.info(f"Replaced queued signal {existing_signal.id}. New replacement count: {existing_signal.replacement_count}")
                 return existing_signal
             else:
@@ -99,38 +98,36 @@ class QueueManagerService:
                     side=signal_payload["side"],
                     entry_price=Decimal(str(signal_payload["entry_price"])),
                     signal_payload=signal_payload,
-                    status=QueueStatus.QUEUED.value,
+                    status=QueueStatus.QUEUED,
                     queued_at=datetime.utcnow()
                 )
                 await queued_signal_repo.create(new_signal)
-                await session.commit()
                 logger.info(f"Added new signal {new_signal.id} to queue for {new_signal.symbol}")
                 return new_signal
 
     async def remove_from_queue(self, signal_id: uuid.UUID) -> bool:
-        async with self.session_factory() as session:
+        async for session in self.session_factory():
             queued_signal_repo = self.queued_signal_repository_class(session)
             signal = await queued_signal_repo.get_by_id(signal_id)
             if signal:
                 await queued_signal_repo.delete(signal_id)
-                await session.commit()
                 logger.info(f"Removed signal {signal_id} from queue.")
                 return True
             logger.warning(f"Signal {signal_id} not found in queue for removal.")
             return False
 
     async def get_all_queued_signals(self) -> List[QueuedSignal]:
-        async with self.session_factory() as session:
+        async for session in self.session_factory():
             queued_signal_repo = self.queued_signal_repository_class(session)
             return await queued_signal_repo.get_all_queued_signals()
 
     async def promote_specific_signal(self, signal_id: uuid.UUID) -> Optional[QueuedSignal]:
-        async with self.session_factory() as session:
+        async for session in self.session_factory():
             queued_signal_repo = self.queued_signal_repository_class(session)
             position_group_repo = self.position_group_repository_class(session)
 
             signal = await queued_signal_repo.get_by_id(signal_id, for_update=True)
-            if not signal or signal.status != QueueStatus.QUEUED.value:
+            if not signal or signal.status != QueueStatus.QUEUED:
                 logger.warning(f"Signal {signal_id} not found or not in queued status for promotion.")
                 return None
 
@@ -182,12 +179,12 @@ class QueueManagerService:
                 return None
 
     async def force_add_specific_signal_to_pool(self, signal_id: uuid.UUID) -> Optional[QueuedSignal]:
-        async with self.session_factory() as session:
+        async for session in self.session_factory():
             queued_signal_repo = self.queued_signal_repository_class(session)
             position_group_repo = self.position_group_repository_class(session)
 
             signal = await queued_signal_repo.get_by_id(signal_id, for_update=True)
-            if not signal or signal.status != QueueStatus.QUEUED.value:
+            if not signal or signal.status != QueueStatus.QUEUED:
                 logger.warning(f"Signal {signal_id} not found or not in queued status for force add.")
                 return None
 
@@ -312,7 +309,7 @@ class QueueManagerService:
     async def _promotion_loop(self, stop_event: asyncio.Event = None):
         while self._running:
             try:
-                async with self.session_factory() as session:
+                async for session in self.session_factory():
                     await self._promote_highest_priority_signal(session)
                 if stop_event:
                     stop_event.set()

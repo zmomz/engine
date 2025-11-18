@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-interface AuthState {
+export interface AuthState {
   token: string | null;
   user: any | null; // Replace 'any' with a proper User type later
   isAuthenticated: boolean;

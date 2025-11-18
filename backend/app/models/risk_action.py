@@ -34,7 +34,7 @@ class RiskAction(Base):
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
     group_id = Column(GUID, ForeignKey("position_groups.id"), nullable=False)
 
-    action_type = Column(SQLAlchemyEnum(RiskActionType), nullable=False)
+    action_type = Column(SQLAlchemyEnum(RiskActionType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     # Details for offset_loss

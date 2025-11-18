@@ -35,7 +35,7 @@ class QueuedSignal(Base):
     __tablename__ = "queued_signals"
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
-    user_id = Column(GUID, nullable=False)  # ForeignKey("users.id")
+    user_id = Column(GUID, ForeignKey("users.id"), nullable=False)
 
     exchange = Column(String, nullable=False)
     symbol = Column(String, nullable=False)
@@ -52,8 +52,8 @@ class QueuedSignal(Base):
     current_loss_percent = Column(Numeric(10, 4))
 
     status = Column(
-        SQLAlchemyEnum("queued", "promoted", "cancelled", name="queue_status_enum"),
+        SQLAlchemyEnum(QueueStatus, name="queue_status_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
-        default="queued",
+        default=QueueStatus.QUEUED.value,
     )
     promoted_at = Column(DateTime)

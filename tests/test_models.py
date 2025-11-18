@@ -12,14 +12,24 @@ from app.models import (
     Pyramid,
     QueuedSignal,
     RiskAction,
+    User,
 )
 
 
 @pytest.mark.asyncio
 async def test_create_position_group(db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser",
+        email="test@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -34,15 +44,24 @@ async def test_create_position_group(db_session: AsyncSession):
     await db_session.refresh(pg)
 
     assert pg.id is not None
-    assert pg.user_id == user_id
+    assert pg.user_id == user.id
     assert pg.status == "waiting"
 
 
 @pytest.mark.asyncio
 async def test_create_pyramid(db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser2",
+        email="test2@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -75,9 +94,18 @@ async def test_create_pyramid(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_create_dca_order(db_session: AsyncSession):
-    user_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser3",
+        email="test3@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
     pg = PositionGroup(
-        user_id=user_id,
+        user_id=user.id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,

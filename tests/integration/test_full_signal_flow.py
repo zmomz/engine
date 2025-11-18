@@ -8,12 +8,14 @@ import httpx
 from app.models.position_group import PositionGroup
 from app.models.dca_order import DCAOrder
 from tests.integration.utils import generate_tradingview_signature
+from app.models.user import User
 
 @pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_full_signal_flow_new_position(
     http_client: AsyncClient,
-    db_session: AsyncSession
+    db_session: AsyncSession,
+    test_user: User
 ):
     """
     Tests the full signal flow for a new position:
@@ -41,7 +43,7 @@ async def test_full_signal_flow_new_position(
         "timeframe": 15,
         "side": "long",
         "price": "50000.00",
-        "user_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" # Placeholder user_id
+        "user_id": str(test_user.id) # Use the ID from the test_user fixture
     }
     payload_str = json.dumps(webhook_payload)
     secret = "your-super-secret-key" # This should match the secret in your .env file

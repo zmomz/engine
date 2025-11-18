@@ -41,8 +41,8 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
     ])
     total_capital_usd = Decimal("10000")
 
-    async def session_factory():
-        yield db_session
+    def session_factory():
+        return db_session
 
     grid_calculator_service = GridCalculatorService()
     execution_pool_manager = ExecutionPoolManager(

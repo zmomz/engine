@@ -43,7 +43,7 @@ class PositionGroup(Base):
 
     # Identity
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
-    user_id = Column(GUID, nullable=False)  # ForeignKey("users.id")
+    user_id = Column(GUID, ForeignKey("users.id"), nullable=False)
     exchange = Column(String, nullable=False)  # "binance", "bybit", etc.
     symbol = Column(String, nullable=False)  # "BTCUSDT"
     timeframe = Column(Integer, nullable=False)  # in minutes (e.g., 15, 60, 240)
@@ -51,18 +51,9 @@ class PositionGroup(Base):
 
     # Status tracking
     status = Column(
-        SQLAlchemyEnum(
-            "waiting",
-            "live",
-            "partially_filled",
-            "active",
-            "closing",
-            "closed",
-            "failed",
-            name="group_status_enum",
-        ),
+        SQLAlchemyEnum(PositionGroupStatus, name="group_status_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
-        default="waiting",
+        default=PositionGroupStatus.WAITING.value,
     )
 
     # Pyramid tracking

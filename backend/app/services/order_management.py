@@ -40,7 +40,7 @@ class OrderService:
                 )
 
                 dca_order.exchange_order_id = exchange_order_data["id"]
-                dca_order.status = OrderStatus.OPEN
+                dca_order.status = OrderStatus.OPEN.value
                 dca_order.submitted_at = datetime.utcnow()
                 
                 await self.dca_order_repository.update(dca_order)
@@ -51,15 +51,15 @@ class OrderService:
                     print(f"Attempt {attempt + 1} failed due to connection error. Retrying in {delay} seconds...")
                     await asyncio.sleep(delay)
                 else:
-                    dca_order.status = OrderStatus.FAILED
+                    dca_order.status = OrderStatus.FAILED.value
                     await self.dca_order_repository.update(dca_order)
                     raise APIError(f"Failed to submit order after {max_retries} attempts: {e}") from e
             except APIError as e:
-                dca_order.status = OrderStatus.FAILED
+                dca_order.status = OrderStatus.FAILED.value
                 await self.dca_order_repository.update(dca_order)
                 raise e
             except Exception as e:
-                dca_order.status = OrderStatus.FAILED
+                dca_order.status = OrderStatus.FAILED.value
                 await self.dca_order_repository.update(dca_order)
                 raise APIError(f"Failed to submit order: {e}") from e
 
@@ -76,17 +76,17 @@ class OrderService:
                 symbol=dca_order.symbol
             )
 
-            dca_order.status = OrderStatus.CANCELLED
+            dca_order.status = OrderStatus.CANCELLED.value
             dca_order.cancelled_at = datetime.utcnow()
             
             await self.dca_order_repository.update(dca_order)
             return dca_order
         except APIError as e:
-            dca_order.status = OrderStatus.FAILED
+            dca_order.status = OrderStatus.FAILED.value
             await self.dca_order_repository.update(dca_order)
             raise e
         except Exception as e:
-            dca_order.status = OrderStatus.FAILED
+            dca_order.status = OrderStatus.FAILED.value
             await self.dca_order_repository.update(dca_order)
             raise APIError(f"Failed to cancel order: {e}") from e
 
@@ -105,7 +105,7 @@ class OrderService:
 
             exchange_status = exchange_order_data["status"]
             if exchange_status == "canceled":
-                new_status = OrderStatus.CANCELLED
+                new_status = OrderStatus.CANCELLED.value
             else:
                 new_status = OrderStatus(exchange_status)
             # Check if any relevant fields have changed before updating
@@ -129,7 +129,7 @@ class OrderService:
             if new_status == OrderStatus.FILLED and dca_order.filled_at is None:
                 dca_order.filled_at = datetime.utcnow()
                 changed = True
-            elif new_status == OrderStatus.CANCELLED and dca_order.cancelled_at is None:
+            elif new_status == OrderStatus.CANCELLED.value and dca_order.cancelled_at is None:
                 dca_order.cancelled_at = datetime.utcnow()
                 changed = True
             

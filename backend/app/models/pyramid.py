@@ -18,6 +18,16 @@ from app.db.types import GUID
 from .base import Base
 
 
+from enum import Enum
+
+
+class PyramidStatus(str, Enum):
+    PENDING = "pending"
+    SUBMITTED = "submitted"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+
+
 class Pyramid(Base):
     """
     Represents a single pyramid entry within a PositionGroup.
@@ -34,11 +44,9 @@ class Pyramid(Base):
     signal_id = Column(String)  # TradingView signal ID
 
     status = Column(
-        SQLAlchemyEnum(
-            "pending", "submitted", "filled", "cancelled", name="pyramid_status_enum"
-        ),
+        SQLAlchemyEnum(PyramidStatus, name="pyramid_status_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
-        default="pending",
+        default=PyramidStatus.PENDING,
     )
     dca_config = Column(JSON, nullable=False)
 
