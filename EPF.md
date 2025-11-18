@@ -90,7 +90,7 @@ This phase establishes the architectural backbone of the application.
     5.  [x] **Build `PnlCard` Widget:**
         - Display key PnL metrics from `dataStore`.
         - Use green/red coloring for positive/negative values.
-    6.  **Build `EquityCurveChart`:**
+    6.  [x] **Build `EquityCurveChart`:**
         - Integrate a lightweight charting library (e.g., `Recharts` or `Chart.js`).
         - Create a placeholder component that will eventually be fed historical PnL data.
 

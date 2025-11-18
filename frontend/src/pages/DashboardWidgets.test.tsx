@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import PoolUsageWidget from './PoolUsageWidget';
 import SystemStatusWidget from './SystemStatusWidget';
 import PnlCard from './PnlCard';
+import EquityCurveChart from './EquityCurveChart';
 import { useDataStore } from '../store/dataStore';
 import { useSystemStore } from '../store/systemStore';
 
@@ -69,6 +70,13 @@ describe('Dashboard Widgets', () => {
       expect(screen.getByTestId('realized-pnl')).toHaveStyle('color: red');
       expect(screen.getByText(/total pnl: \$55\.56/i)).toBeInTheDocument();
       expect(screen.getByTestId('total-pnl')).toHaveStyle('color: green');
+    });
+  });
+
+  describe('EquityCurveChart', () => {
+    it('renders the equity curve chart placeholder', () => {
+      render(<EquityCurveChart />);
+      expect(screen.getByText(/equity curve chart/i)).toBeInTheDocument();
     });
   });
 });

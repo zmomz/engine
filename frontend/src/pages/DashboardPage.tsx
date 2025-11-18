@@ -20,6 +20,9 @@ const DashboardPage: React.FC = () => {
         <Grid item xs={12} md={4}>
           <PnlCard />
         </Grid>
+        <Grid item xs={12}>
+          <EquityCurveChart />
+        </Grid>
       </Grid>
     </div>
   );
