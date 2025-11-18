@@ -80,11 +80,11 @@ This phase establishes the architectural backbone of the application.
 - **Steps:**
     1.  [x] **Create Tests:** Write tests for the `DashboardPage` and all its child widget components.
     2.  [x] **Build `DashboardPage` Layout:** Create a grid-based layout using MUI's `<Grid>` component to arrange the widgets as per the wireframe in `EP.md`.
-    3.  **Build `PoolUsageWidget`:**
+    3.  [x] **Build `PoolUsageWidget`:**
         - Create a component that subscribes to `dataStore`.
         - Display "X / Y" active positions.
         - Use MUI's `<LinearProgress>` or `<CircularProgress>` component to visualize the pool usage.
-    4.  **Build `SystemStatusWidget`:**
+    4.  [x] **Build `SystemStatusWidget`:**
         - Display `engineStatus`, `riskEngineStatus`, and `lastWebhookTimestamp` from `systemStore`.
         - Use color-coded MUI `<Chip>` components for status indicators (e.g., green for "Running", red for "Error").
     5.  **Build `PnlCard` Widget:**

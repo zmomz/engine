@@ -6,8 +6,12 @@ import PnlCard from './PnlCard';
 import { useDataStore } from '../store/dataStore';
 import { useSystemStore } from '../store/systemStore';
 
-jest.mock('../store/dataStore');
-jest.mock('../store/systemStore');
+jest.mock('../store/dataStore', () => ({
+  useDataStore: jest.fn(),
+}));
+jest.mock('../store/systemStore', () => ({
+  useSystemStore: jest.fn(),
+}));
 
 describe('Dashboard Widgets', () => {
   afterEach(() => {
@@ -15,18 +19,19 @@ describe('Dashboard Widgets', () => {
   });
 
   describe('PoolUsageWidget', () => {
-    it('renders the pool usage data', () => {
+    it('renders the pool usage data and a progress bar', () => {
       (useDataStore as jest.Mock).mockReturnValue({
         poolUsage: { active: 5, max: 10 },
       });
       render(<PoolUsageWidget />);
       expect(screen.getByText(/pool usage/i)).toBeInTheDocument();
       expect(screen.getByText(/5 \/ 10/i)).toBeInTheDocument();
+      expect(screen.getByRole('progressbar')).toBeInTheDocument();
     });
   });
 
   describe('SystemStatusWidget', () => {
-    it('renders the system status data', () => {
+    it('renders the system status data with color-coded chips', () => {
       (useSystemStore as jest.Mock).mockReturnValue({
         engineStatus: 'Running',
         riskEngineStatus: 'Monitoring',
@@ -34,9 +39,17 @@ describe('Dashboard Widgets', () => {
       });
       render(<SystemStatusWidget />);
       expect(screen.getByText(/system status/i)).toBeInTheDocument();
-      expect(screen.getByText(/engine: running/i)).toBeInTheDocument();
-      expect(screen.getByText(/risk engine: monitoring/i)).toBeInTheDocument();
+      expect(screen.getByText((content, element) => {
+        return element?.tagName.toLowerCase() === 'p' && content.startsWith('Engine:');
+      })).toBeInTheDocument();
+      expect(screen.getByText(/running/i)).toBeInTheDocument();
+      expect(screen.getByText((content, element) => {
+        return element?.tagName.toLowerCase() === 'p' && content.startsWith('Risk Engine:');
+      })).toBeInTheDocument();
+      expect(screen.getByText(/monitoring/i)).toBeInTheDocument();
       expect(screen.getByText(/last signal: 2025-11-18t12:00:00z/i)).toBeInTheDocument();
+      expect(screen.getByTestId('engine-status-chip')).toHaveAttribute('data-color', 'success');
+      expect(screen.getByTestId('risk-engine-status-chip')).toHaveAttribute('data-color', 'info');
     });
   });
 
