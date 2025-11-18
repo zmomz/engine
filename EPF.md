@@ -98,8 +98,8 @@ This phase establishes the architectural backbone of the application.
 
 - **Objectives:** Build the core data-heavy pages for monitoring positions and the queue, and integrate WebSocket for real-time updates.
 - **Steps:**
-    1.  **Create Tests:** Write Jest and React Testing Library tests for `PositionsPage`, `QueuePage`, and the WebSocket integration.
-    2.  **Implement WebSocket Service:**
+    1.  [x] **Create Tests:** Write Jest and React Testing Library tests for `PositionsPage`, `QueuePage`, and the WebSocket integration.
+    2.  [x] **Implement WebSocket Service:**
         - Create `services/websocket.ts` to manage the WebSocket connection.
         - Implement automatic reconnection logic with exponential backoff.
         - On message receipt, parse the data and call the appropriate `dataStore` action to update the state.
