@@ -54,7 +54,7 @@ describe('Dashboard Widgets', () => {
   });
 
   describe('PnlCard', () => {
-    it('renders the PnL data', () => {
+    it('renders the PnL data with color-coded values', () => {
       (useDataStore as jest.Mock).mockReturnValue({
         pnlMetrics: {
           unrealized_pnl: 123.45,
@@ -64,8 +64,11 @@ describe('Dashboard Widgets', () => {
       });
       render(<PnlCard />);
       expect(screen.getByText(/unrealized pnl: \$123\.45/i)).toBeInTheDocument();
+      expect(screen.getByTestId('unrealized-pnl')).toHaveStyle('color: green');
       expect(screen.getByText(/realized pnl: \$-67\.89/i)).toBeInTheDocument();
+      expect(screen.getByTestId('realized-pnl')).toHaveStyle('color: red');
       expect(screen.getByText(/total pnl: \$55\.56/i)).toBeInTheDocument();
+      expect(screen.getByTestId('total-pnl')).toHaveStyle('color: green');
     });
   });
 });

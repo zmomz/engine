@@ -87,7 +87,7 @@ This phase establishes the architectural backbone of the application.
     4.  [x] **Build `SystemStatusWidget`:**
         - Display `engineStatus`, `riskEngineStatus`, and `lastWebhookTimestamp` from `systemStore`.
         - Use color-coded MUI `<Chip>` components for status indicators (e.g., green for "Running", red for "Error").
-    5.  **Build `PnlCard` Widget:**
+    5.  [x] **Build `PnlCard` Widget:**
         - Display key PnL metrics from `dataStore`.
         - Use green/red coloring for positive/negative values.
     6.  **Build `EquityCurveChart`:**
