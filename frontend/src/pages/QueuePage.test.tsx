@@ -9,7 +9,7 @@ jest.mock('../store/dataStore', () => ({
 
 describe('QueuePage', () => {
   beforeEach(() => {
-    (useDataStore as jest.Mock).mockReturnValue({
+    (useDataStore as any).mockReturnValue({
       queuedSignals: [
         {
           id: '1',

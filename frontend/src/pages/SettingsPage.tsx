@@ -5,7 +5,7 @@ import { useForm, FormProvider } from 'react-hook-form';
 import ExchangeApiSettings from '../components/ExchangeApiSettings';
 import RiskEngineSettings from '../components/RiskEngineSettings';
 import ExecutionPoolSettings from '../components/ExecutionPoolSettings';
-import { api } from '../services/api';
+import api from '../services/api';
 import useAuthStore from '../store/authStore';
 
 interface TabPanelProps {
@@ -36,7 +36,7 @@ function TabPanel(props: TabPanelProps) {
 
 const SettingsPage: React.FC = () => {
   const [value, setValue] = useState(0);
-  const { user, token } = useAuthStore();
+  const { user } = useAuthStore();
   const methods = useForm();
 
   useEffect(() => {

@@ -10,7 +10,7 @@ describe('RegistrationPage', () => {
   const mockRegister = jest.fn();
 
   beforeEach(() => {
-    (useAuthStore as jest.Mock).mockReturnValue({
+    (useAuthStore as any).mockReturnValue({
       register: mockRegister,
     });
   });

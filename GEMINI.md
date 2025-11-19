@@ -76,7 +76,7 @@ To prevent getting stuck in repetitive, failing loops, the following debugging p
 
 - **Run Backend Tests:**
   ```bash
-  docker compose -f docker-compose.test.yml run --rm app pytest -v
+  docker compose -f docker-compose.test.yml run --rm app poetry run pytest -v
   ```
 - **Run Backend Test Coverage:**
   ```bash
@@ -102,6 +102,14 @@ To prevent getting stuck in repetitive, failing loops, the following debugging p
 ---
 
 ## Lessons Learned (Live Log)
+
+- **Frontend Build Failures (`CI=true`):** The frontend Docker build failed because the `CI=true` environment variable treats all ESLint warnings (like `no-unused-vars`) as build-breaking errors. The fix was to resolve all linting warnings in the React code, which is a better practice than disabling the check.
+- **Cascading Backend Import Errors:** A series of tests failed during the `conftest.py` loading phase due to a cascade of `ImportError` and `NameError` issues. This was caused by code refactoring where classes and functions were renamed or moved (`TradingViewSignal` -> `WebhookPayload`, `UserPublic` -> `UserRead`, `get_current_user` removal). This highlights the importance of ensuring dependency changes are propagated through all services that import them. The fix involved methodically tracing the import chain from the test entry point (`conftest.py` -> `app.main` -> ...) and correcting each file one by one.
+- **Pytest Mocking Precision:** Tests for `OrderFillMonitorService` failed because the mock was not set up correctly.
+    1.  **Missing Dependency:** The service's `__init__` required a `user_repository_class`, which was not provided in the test fixture, causing a `TypeError`.
+    2.  **Incorrect Method Name:** The test was mocking `get_open_and_partially_filled_orders` when the service actually calls `get_open_and_partially_filled_orders_for_user`.
+    3.  **Incomplete Mock Logic:** The final failure was because the `user_repository_class` mock was configured to return an empty list of users. The service logic correctly skipped running the order check because there were no users to check for. The fix was to configure the mock to return a mock user, allowing the service's logic to proceed.
+- **Docker Volume Mounts vs. Rebuilding:** It is not necessary to run `docker compose build` after every code change. The `docker-compose.test.yml` file correctly mounts the local source code directory into the container (`volumes: - .:/app`). Changes are reflected instantly. Rebuilding should only be done when changing dependencies in `pyproject.toml` or altering the `Dockerfile` itself. Avoiding unnecessary rebuilds drastically speeds up the development cycle.
 
 - **SQLAlchemy 2.0 Async Mocking:** Unit tests for services using `db.execute()` require a specific mocking pattern. The mock for `db.execute` must *not* be an `asyncio.Future` itself. Instead, it should be a `MagicMock` instance whose `scalars()` and `all()` methods are pre-configured. The application code's `await result.scalars().all()` will then resolve correctly without needing the mock to be a future.
   - **Correct Pattern:** `mock_result = MagicMock(); mock_result.scalars.return_value.all.return_value = [...]; mock_db_session.execute.return_value = mock_result`

@@ -5,7 +5,6 @@ import { TextField, Box, Typography, Checkbox, FormControlLabel } from '@mui/mat
 const ExchangeApiSettings: React.FC = () => {
   const {
     control,
-    formState: { errors },
   } = useFormContext();
 
   return (

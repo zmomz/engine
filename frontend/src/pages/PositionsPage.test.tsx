@@ -9,7 +9,7 @@ jest.mock('../store/dataStore', () => ({
 
 describe('PositionsPage', () => {
   beforeEach(() => {
-    (useDataStore as jest.Mock).mockReturnValue({
+    (useDataStore as any).mockReturnValue({
       positionGroups: [
         {
           id: '1',
@@ -52,13 +52,14 @@ describe('PositionsPage', () => {
     const btcRow = within(grid).getByText(/btc\/usd/i).closest('div[role="row"]');
     expect(btcRow).not.toBeNull();
     if (btcRow) {
-      expect(within(btcRow).getByText(/binance/i)).toBeInTheDocument();
-      expect(within(btcRow).getByText(/long/i)).toBeInTheDocument();
-      expect(within(btcRow).getByText(/active/i)).toBeInTheDocument();
-      expect(within(btcRow).getByText('0.1')).toBeInTheDocument();
-      expect(within(btcRow).getByText('20,000')).toBeInTheDocument();
-      expect(within(btcRow).getByText('$500.00')).toBeInTheDocument();
-      expect(within(btcRow).getByText('2.50%')).toBeInTheDocument();
+      const btcRowWithin = within(btcRow as HTMLElement);
+      expect(btcRowWithin.getByText(/binance/i)).toBeInTheDocument();
+      expect(btcRowWithin.getByText(/long/i)).toBeInTheDocument();
+      expect(btcRowWithin.getByText(/active/i)).toBeInTheDocument();
+      expect(btcRowWithin.getByText('0.1')).toBeInTheDocument();
+      expect(btcRowWithin.getByText('20,000')).toBeInTheDocument();
+      expect(btcRowWithin.getByText('$500.00')).toBeInTheDocument();
+      expect(btcRowWithin.getByText('2.50%')).toBeInTheDocument();
     }
 
 
@@ -66,13 +67,14 @@ describe('PositionsPage', () => {
     const ethRow = within(grid).getByText(/eth\/usd/i).closest('div[role="row"]');
     expect(ethRow).not.toBeNull();
     if (ethRow) {
-      expect(within(ethRow).getByText(/bybit/i)).toBeInTheDocument();
-      expect(within(ethRow).getByText(/short/i)).toBeInTheDocument();
-      expect(within(ethRow).getByText(/closed/i)).toBeInTheDocument();
-      expect(within(ethRow).getByText('0.5')).toBeInTheDocument();
-      expect(within(ethRow).getByText('1,500')).toBeInTheDocument();
-      expect(within(ethRow).getByText('$-100.00')).toBeInTheDocument();
-      expect(within(ethRow).getByText('-1.00%')).toBeInTheDocument();
+      const ethRowWithin = within(ethRow as HTMLElement);
+      expect(ethRowWithin.getByText(/bybit/i)).toBeInTheDocument();
+      expect(ethRowWithin.getByText(/short/i)).toBeInTheDocument();
+      expect(ethRowWithin.getByText(/closed/i)).toBeInTheDocument();
+      expect(ethRowWithin.getByText('0.5')).toBeInTheDocument();
+      expect(ethRowWithin.getByText('1,500')).toBeInTheDocument();
+      expect(ethRowWithin.getByText('$-100.00')).toBeInTheDocument();
+      expect(ethRowWithin.getByText('-1.00%')).toBeInTheDocument();
     }
   });
 });

@@ -4,6 +4,8 @@ from decimal import Decimal
 from typing import Dict, Any
 import uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.repositories.dca_order import DCAOrderRepository
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType

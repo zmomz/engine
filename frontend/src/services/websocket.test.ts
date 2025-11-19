@@ -19,14 +19,20 @@ describe('WebSocketService', () => {
       close: jest.fn(),
       addEventListener: jest.fn(),
       removeEventListener: jest.fn(),
-      readyState: WebSocket.OPEN,
+      readyState: 1, // WebSocket.OPEN
       onopen: null,
       onmessage: null,
       onerror: null,
       onclose: null,
     } as any;
 
-    global.WebSocket = jest.fn(() => mockWebSocket) as jest.Mock;
+    const mockWebSocketConstructor = jest.fn(() => mockWebSocket) as any;
+    mockWebSocketConstructor.CONNECTING = 0;
+    mockWebSocketConstructor.OPEN = 1;
+    mockWebSocketConstructor.CLOSING = 2;
+    mockWebSocketConstructor.CLOSED = 3;
+
+    global.WebSocket = mockWebSocketConstructor;
 
     mockUpdatePositionGroups = jest.fn();
     mockUpdateQueuedSignals = jest.fn();

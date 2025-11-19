@@ -88,6 +88,7 @@ describe('useAuthStore', () => {
         localStorage.removeItem('user');
         set({ token: null, user: null, isAuthenticated: false });
       },
+      register: jest.fn(),
     }));
 
     const { token, user, isAuthenticated } = newStore.getState();

@@ -10,7 +10,7 @@ describe('SettingsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole('heading', { name: /settings/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /settings/i, level: 4 })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /exchange api/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /risk engine/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /execution pool/i })).toBeInTheDocument();

@@ -17,7 +17,7 @@ describe('App Routing', () => {
       login: mockLogin,
       isAuthenticated,
     };
-    (useAuthStore as jest.Mock).mockImplementation((selector?: (state: any) => any) => {
+    (useAuthStore as any).mockImplementation((selector?: (state: any) => any) => {
       if (selector) {
         return selector(mockState);
       }
@@ -112,7 +112,7 @@ describe('App Routing', () => {
         <App />
       </MemoryRouter>
     );
-    expect(screen.getByRole('heading', { name: /settings/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings', level: 4 })).toBeInTheDocument();
   });
 
   test('renders DashboardPage for default protected route (/) when authenticated', () => {

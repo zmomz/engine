@@ -21,7 +21,7 @@ describe('Dashboard Widgets', () => {
 
   describe('PoolUsageWidget', () => {
     it('renders the pool usage data and a progress bar', () => {
-      (useDataStore as jest.Mock).mockReturnValue({
+      (useDataStore as any).mockReturnValue({
         poolUsage: { active: 5, max: 10 },
       });
       render(<PoolUsageWidget />);
@@ -33,7 +33,7 @@ describe('Dashboard Widgets', () => {
 
   describe('SystemStatusWidget', () => {
     it('renders the system status data with color-coded chips', () => {
-      (useSystemStore as jest.Mock).mockReturnValue({
+      (useSystemStore as any).mockReturnValue({
         engineStatus: 'Running',
         riskEngineStatus: 'Monitoring',
         lastWebhookTimestamp: '2025-11-18T12:00:00Z',
@@ -56,7 +56,7 @@ describe('Dashboard Widgets', () => {
 
   describe('PnlCard', () => {
     it('renders the PnL data with color-coded values', () => {
-      (useDataStore as jest.Mock).mockReturnValue({
+      (useDataStore as any).mockReturnValue({
         pnlMetrics: {
           unrealized_pnl: 123.45,
           realized_pnl: -67.89,

@@ -10,7 +10,7 @@ from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.queued_signal import QueuedSignal
 from app.repositories.position_group import PositionGroupRepository
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
-from app.schemas.webhook_payloads import TradingViewSignal
+from app.schemas.webhook_payloads import WebhookPayload
 from app.services.grid_calculator import GridCalculatorService
 from app.services.order_management import OrderService
 

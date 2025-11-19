@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
-import { TextField, Button, Container, Typography, Box } from '@mui/material';
+import { TextField, Button, Container, Typography, Box, Alert } from '@mui/material';
 import useAuthStore from '../store/authStore';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useNavigate } from 'react-router-dom';
 
 const schema = z.object({
   email: z.string().email('Invalid email address').min(1, 'Email is required'),
@@ -14,10 +15,12 @@ type RegistrationFormInputs = z.infer<typeof schema>;
 
 const RegistrationPage: React.FC = () => {
   const { register } = useAuthStore();
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
   const {
     control,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<RegistrationFormInputs>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -26,9 +29,13 @@ const RegistrationPage: React.FC = () => {
     },
   });
 
-  const onSubmit = (data: RegistrationFormInputs) => {
-    if (register) {
-      register(data.email, data.password);
+  const onSubmit = async (data: RegistrationFormInputs) => {
+    setError(null);
+    try {
+      await register(data.email, data.password);
+      navigate('/dashboard'); // Redirect to a protected route on success
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'An unexpected error occurred.');
     }
   };
 
@@ -46,6 +53,7 @@ const RegistrationPage: React.FC = () => {
           Sign Up
         </Typography>
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
+          {error && <Alert severity="error">{error}</Alert>}
           <Controller
             name="email"
             control={control}
@@ -88,10 +96,11 @@ const RegistrationPage: React.FC = () => {
             type="submit"
             fullWidth
             variant="contained"
+            disabled={isSubmitting}
             sx={{ mt: 3, mb: 2 }}
           >
-            Sign Up
-          </Button>.
+            {isSubmitting ? 'Signing Up...' : 'Sign Up'}
+          </Button>
         </Box>
       </Box>
     </Container>

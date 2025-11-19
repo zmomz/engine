@@ -25,7 +25,7 @@ const ExecutionPoolSettings: React.FC = () => {
             fullWidth
             type="number"
             error={!!errors.maxOpenGroups}
-            helperText={errors.maxOpenGroups?.message}
+            helperText={String(errors.maxOpenGroups?.message || '')}
             onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
           />
         )}

@@ -12,12 +12,22 @@ from app.services.order_management import OrderService
 from app.repositories.dca_order import DCAOrderRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.models.dca_order import DCAOrder, OrderStatus
+from app.repositories.user import UserRepository
 
 @pytest.fixture
 def mock_dca_order_repository_class():
     mock_instance = MagicMock(spec=DCAOrderRepository)
-    mock_instance.get_open_and_partially_filled_orders = AsyncMock()
+    mock_instance.get_open_and_partially_filled_orders_for_user = AsyncMock()
     mock_class = MagicMock(spec=DCAOrderRepository, return_value=mock_instance)
+    return mock_class
+
+@pytest.fixture
+def mock_user_repository_class():
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_instance = MagicMock(spec=UserRepository)
+    mock_instance.get_all = AsyncMock(return_value=[mock_user]) # Mock get_all to return a list with one mock user
+    mock_class = MagicMock(spec=UserRepository, return_value=mock_instance)
     return mock_class
 
 @pytest.fixture
@@ -47,10 +57,12 @@ def order_fill_monitor_service(
     mock_dca_order_repository_class,
     mock_order_service_class,
     mock_exchange_connector,
-    mock_session_factory
+    mock_session_factory,
+    mock_user_repository_class
 ):
     return OrderFillMonitorService(
         dca_order_repository_class=mock_dca_order_repository_class,
+        user_repository_class=mock_user_repository_class,
         order_service_class=mock_order_service_class,
         exchange_connector=mock_exchange_connector,
         session_factory=mock_session_factory # Pass session factory directly
@@ -87,7 +99,7 @@ async def test_monitor_loop_checks_orders(order_fill_monitor_service, mock_dca_o
         status=OrderStatus.OPEN, exchange_order_id="exchange_order_1"
     )
     
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders.return_value = [mock_order]
+    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.return_value = [mock_order]
     mock_order_service_class.return_value.check_order_status.return_value = mock_order
     order_fill_monitor_service.polling_interval_seconds = 0.01 # Shorten interval for testing
     await order_fill_monitor_service.start_monitoring()
@@ -99,7 +111,7 @@ async def test_monitor_loop_checks_orders(order_fill_monitor_service, mock_dca_o
     order_fill_monitor_service._monitor_task.cancel()
     await asyncio.sleep(0.2)
 
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders.assert_called()
+    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.assert_called()
     mock_order_service_class.return_value.check_order_status.assert_called_with(mock_order)
 
 @pytest.mark.asyncio
@@ -114,7 +126,7 @@ async def test_monitor_loop_handles_exceptions(order_fill_monitor_service, mock_
         status=OrderStatus.OPEN, exchange_order_id="exchange_order_1"
     )
     
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders.return_value = [mock_order]
+    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.return_value = [mock_order]
     mock_order_service_class.return_value.check_order_status.side_effect = Exception("Test exception")
 
     order_fill_monitor_service.polling_interval_seconds = 0.01 # Shorten interval for testing
@@ -127,7 +139,7 @@ async def test_monitor_loop_handles_exceptions(order_fill_monitor_service, mock_
     order_fill_monitor_service._monitor_task.cancel()
     await asyncio.sleep(0.2)
 
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders.assert_called()
+    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.assert_called()
     mock_order_service_class.return_value.check_order_status.assert_called_with(mock_order)
     # Expect the loop to continue despite the exception
     # assert mock_sleep.call_count > 0 # Removed as mock_sleep is no longer patched

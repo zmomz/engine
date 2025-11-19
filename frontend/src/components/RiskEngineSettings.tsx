@@ -9,7 +9,7 @@ const schema = z.object({
   ageThresholdMinutes: z.number().min(0),
   requireFullPyramids: z.boolean(),
   postFullWaitMinutes: z.number().min(0),
-  timerStartCondition: z.enum(['after_5_pyramids', 'after_all_dca_submitted', 'after_all_dca_filled']),
+  timerStartCondition: z.string(),
 });
 
 type RiskEngineFormInputs = z.infer<typeof schema>;
