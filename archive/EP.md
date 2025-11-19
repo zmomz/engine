@@ -129,7 +129,7 @@ class PositionGroup(Base):
     # Identity
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    exchange = Column(String, nullable=False)  # "binance", "bybit", etc.
+    exchange = Column(String, nullable=False)  # "binance", "bybit", "okx", "kucoin"
     symbol = Column(String, nullable=False)  # "BTCUSDT"
     timeframe = Column(Integer, nullable=False)  # in minutes (e.g., 15, 60, 240)
     side = Column(SQLAlchemyEnum("long", "short", name="position_side_enum"), nullable=False)
@@ -1094,6 +1094,14 @@ EXCHANGE_TYPE=mock
     "bybit": {
       "api_key": "YOUR_BYBIT_API_KEY",
       "secret_key": "YOUR_BYBIT_SECRET_KEY"
+    },
+    "okx": {
+      "api_key": "YOUR_OKX_API_KEY",
+      "secret_key": "YOUR_OKX_SECRET_KEY"
+    },
+    "kucoin": {
+      "api_key": "YOUR_KUCOIN_API_KEY",
+      "secret_key": "YOUR_KUCOIN_SECRET_KEY"
     }
   },
   "risk_engine": {
@@ -1191,7 +1199,7 @@ Build a secure and robust pipeline for ingesting, validating, and routing Tradin
 ### Phase 3: Exchange Abstraction Layer (In Progress - Stub Only)
 
 #### Objectives
-Create a flexible and extensible exchange integration layer that can support multiple exchanges (Binance, Bybit initially), with robust error handling and precision management.
+Create a flexible and extensible exchange integration layer that can support multiple exchanges (Binance, Bybit, OKX, KuCoin), with robust error handling and precision management.
 
 #### Steps
 0.  **Create Tests:** Write unit tests for the `ExchangeInterface`, connector factory, and error mapping. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
@@ -1199,9 +1207,11 @@ Create a flexible and extensible exchange integration layer that can support mul
 2.  **Implement Connector Factory:** Create a factory function or class that returns the correct connector instance (e.g., `BinanceConnector`) based on the user's configuration. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 3.  **Implement `BinanceConnector`:** Implement the `ExchangeInterface` for the Binance exchange using the `ccxt` library. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 4.  **Implement `BybitConnector`:** Implement the `ExchangeInterface` for the Bybit exchange. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-5.  **Implement Precision Service:** Create a background service (`PrecisionService`) that periodically (e.g., every 60 minutes) fetches and caches precision rules for all symbols for all configured user exchanges. Implement an in-memory cache with a Time-To-Live (TTL). (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-6.  **Standardize Data Models:** Create internal Pydantic models for `Order`, `Fill`, and `Precision` to standardize the data returned from all connectors, decoupling the application from `ccxt`'s specific data structures. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
-7.  **Implement Error Mapping:** Create a decorator or utility to wrap all `ccxt` calls. This wrapper will catch `ccxt` exceptions and map them to the custom application exceptions defined in the **Logic Annex**. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+5.  **Implement `OkxConnector`:** Implement the `ExchangeInterface` for the OKX exchange. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+6.  **Implement `KucoinConnector`:** Implement the `ExchangeInterface` for the KuCoin exchange. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+7.  **Implement Precision Service:** Create a background service (`PrecisionService`) that periodically (e.g., every 60 minutes) fetches and caches precision rules for all symbols for all configured user exchanges. Implement an in-memory cache with a Time-To-Live (TTL). (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+8.  **Standardize Data Models:** Create internal Pydantic models for `Order`, `Fill`, and `Precision` to standardize the data returned from all connectors, decoupling the application from `ccxt`'s specific data structures. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
+9.  **Implement Error Mapping:** Create a decorator or utility to wrap all `ccxt` calls. This wrapper will catch `ccxt` exceptions and map them to the custom application exceptions defined in the **Logic Annex**. (updating EP5.md with progress, updating GEMINI.md with learned lessons, staging+committing changes to git)
 
 #### Acceptance Criteria
 - **Functional:** ✅ The system can place orders, check status, and fetch precision on both Binance and Bybit testnets. ✅ Precision rules are fetched and cached automatically.

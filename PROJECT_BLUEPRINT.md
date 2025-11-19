@@ -32,7 +32,7 @@ The backend is a story of strong foundations and a critical missing link.
 
 -   **Exchange Abstraction Layer (20% Complete): CRITICAL FAILURE.**
     -   The architecture (`Interface`, `Factory`) is sound.
-    -   However, the only concrete implementation, `BinanceConnector`, is a **stub.** It imports `ccxt` but none of the methods (`place_order`, `get_order_status`) are implemented. They are all marked with `TODO`.
+    -   However, the only concrete implementation started, `BinanceConnector`, is a **stub.** It imports `ccxt` but none of the methods (`place_order`, `get_order_status`) are implemented. They are all marked with `TODO`.
     -   **Conclusion:** The backend has no ability to communicate with any crypto exchange.
 
 ---
@@ -58,11 +58,12 @@ This plan supersedes all previous development plans. It prioritizes the most cri
 
 **Objective:** Enable the engine to execute a trade on an exchange based on a signal. This is the highest priority.
 
-1.  **Implement `BinanceConnector`:**
-    -   Flesh out all methods in `backend/app/services/exchange_abstraction/binance_connector.py`.
+1.  **Implement Exchange Connectors (Starting with Binance):**
+    -   Flesh out all methods in `backend/app/services/exchange_abstraction/binance_connector.py` as the first implementation.
+    -   The architecture must support Binance, Bybit, OKX, and KuCoin.
     -   Implement `place_order`, `get_order_status`, `cancel_order`, and `get_current_price` using the `ccxt` library.
     -   Implement the `map_exchange_errors` decorator to catch `ccxt` exceptions and raise the standardized application exceptions.
-    -   Write unit tests for the connector using mock `ccxt` responses.
+    -   Write unit tests for the connector using mock `ccxt` responses, ensuring the test structure can be reused for other exchanges.
 
 2.  **Complete `PositionManagerService`:**
     -   In `backend/app/services/position_manager.py`, remove the placeholder logic.
