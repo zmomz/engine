@@ -74,7 +74,7 @@ This phase establishes the architectural backbone of the application.
         - The `AppBar` will contain the theme toggle button and a user menu with a logout option.
         - The `Drawer` will contain navigation links to all main pages (Dashboard, Positions, etc.).
 
-### Phase 3: Dashboard & Data Visualization (Complete)
+### Phase 3: Dashboard & Data Visualization (In Progress - UI Only)
 
 - **Objectives:** Implement the main Dashboard page, providing a high-level overview of the engine's status and performance.
 - **Steps:**
@@ -94,7 +94,7 @@ This phase establishes the architectural backbone of the application.
         - Integrate a lightweight charting library (e.g., `Recharts` or `Chart.js`).
         - Create a placeholder component that will eventually be fed historical PnL data.
 
-### Phase 4: Real-time Data Tables & Interactions (Complete)
+### Phase 4: Real-time Data Tables & Interactions (In Progress - UI Only)
 
 - **Objectives:** Build the core data-heavy pages for monitoring positions and the queue, and integrate WebSocket for real-time updates.
 - **Steps:**
@@ -115,7 +115,7 @@ This phase establishes the architectural backbone of the application.
         - Add action buttons to each row (`Promote`, `Force Add`).
         - Implement the confirmation modal micro-interaction as defined in `EP.md` for the "Force Add" action, including loading and feedback states.
 
-### Phase 5: Configuration & Utility Pages (Complete)
+### Phase 5: Configuration & Utility Pages (In Progress - UI Only)
 
 - **Objectives:** Build the pages for managing settings and viewing logs.
 - **Steps:**
@@ -130,16 +130,3 @@ This phase establishes the architectural backbone of the application.
         - Add MUI `<TextField>` and `<Select>` components for filtering logs by text and severity level.
 
 ### Phase 6: Final Polish & Error Handling (In Progress)
-
-- **Objectives:** Ensure the application is robust, provides clear feedback for all states, and is visually polished.
-- **Steps:**
-    1.  [x] **Create Tests:** Write Jest and React Testing Library tests for global error boundaries, loading indicators, and responsiveness.
-    2.  [x] **Implement Global Error Handling:**
-        - Create a global `ErrorBoundary` component to catch rendering errors and display a fallback UI.
-        - Implement a standardized way to display API errors to the user using MUI's `<Snackbar>` for non-critical notifications and `<Dialog>` for critical errors.
-    3.  [x] **Implement Loading States:**
-        - Use MUI `<Skeleton>` components to provide a good user experience on initial page loads while data is being fetched.
-        - Use MUI `<CircularProgress>` indicators on buttons and within components during API calls or actions.
-    4.  [x] **Responsiveness:** Review all pages and ensure they are usable on tablet-sized screens (down to 768px width). Adjust layouts as needed using MUI's grid system and responsive helpers.
-    5.  [x] **Final UX Review:** Conduct a full application walkthrough to identify and fix any confusing workflows, missing feedback, or visual inconsistencies.
-    6.  **[In Progress] Resolve Build Failures:** Debug and fix any issues preventing the production frontend from building successfully (e.g., linting errors in a CI environment).
