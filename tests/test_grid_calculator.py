@@ -26,6 +26,26 @@ def sample_precision_rules() -> Dict:
         "min_notional": Decimal("10.0")
     }
 
+@pytest.fixture
+def grid_calculator():
+    return GridCalculatorService()
+
+def test_calculate_pyramid_levels_long(grid_calculator):
+    base_price = Decimal("50000")
+    gap = Decimal("2.0")
+    precision_rules = {"tick_size": "0.01"}
+    
+    result = grid_calculator.calculate_pyramid_levels(base_price, gap, "long", precision_rules)
+    assert result["entry_price"] == Decimal("51000.00")
+
+def test_calculate_pyramid_levels_short(grid_calculator):
+    base_price = Decimal("50000")
+    gap = Decimal("2.0")
+    precision_rules = {"tick_size": "0.01"}
+    
+    result = grid_calculator.calculate_pyramid_levels(base_price, gap, "short", precision_rules)
+    assert result["entry_price"] == Decimal("49000.00")
+
 # --- Tests for calculate_dca_levels ---
 
 def test_calculate_dca_levels_long(sample_dca_config, sample_precision_rules):

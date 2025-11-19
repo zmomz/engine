@@ -7,7 +7,6 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.api import health, webhooks, risk, positions, queue, users, settings
 from app.rate_limiter import limiter
 from app.services.order_fill_monitor import OrderFillMonitorService
-from app.services.take_profit_service import TakeProfitService
 from app.services.order_management import OrderService
 from app.repositories.dca_order import DCAOrderRepository
 from app.repositories.position_group import PositionGroupRepository
@@ -47,24 +46,14 @@ async def startup_event():
 
     # OrderFillMonitorService
     app.state.order_fill_monitor = OrderFillMonitorService(
+        session_factory=AsyncSessionLocal,
         dca_order_repository_class=DCAOrderRepository,
-        user_repository_class=UserRepository,
-        order_service_class=OrderService,
-        exchange_connector=exchange_connector,
-        session_factory=AsyncSessionLocal
-    )
-    await app.state.order_fill_monitor.start_monitoring()
-
-    # TakeProfitService
-    app.state.take_profit_service = TakeProfitService(
         position_group_repository_class=PositionGroupRepository,
-        dca_order_repository_class=DCAOrderRepository,
-        user_repository_class=UserRepository,
-        order_service_class=OrderService,
         exchange_connector=exchange_connector,
-        session_factory=AsyncSessionLocal
+        order_service_class=OrderService,
+        position_manager_service_class=PositionManagerService
     )
-    await app.state.take_profit_service.start_monitoring()
+    await app.state.order_fill_monitor.start_monitoring_task()
 
     # GridCalculatorService is stateless, so it can be initialized at startup
     app.state.grid_calculator_service = GridCalculatorService()
@@ -72,8 +61,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    await app.state.order_fill_monitor.stop_monitoring()
-    await app.state.take_profit_service.stop_monitoring()
+    await app.state.order_fill_monitor.stop_monitoring_task()
 
 
 app.include_router(health.router, prefix="/api/v1/health", tags=["Health Check"])
