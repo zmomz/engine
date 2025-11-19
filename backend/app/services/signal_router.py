@@ -11,6 +11,9 @@ from app.repositories.position_group import PositionGroupRepository
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from decimal import Decimal
 from app.services.order_management import OrderService
+from app.services.risk_engine import RiskEngineService
+from app.repositories.risk_action import RiskActionRepository
+from app.repositories.dca_order import DCAOrderRepository
 
 class SignalRouterService:
     """
@@ -52,6 +55,16 @@ class SignalRouterService:
             exchange_connector=exchange_connector
         )
 
+        risk_engine_service = RiskEngineService(
+            session_factory=lambda: db_session,
+            position_group_repository_class=PositionGroupRepository,
+            risk_action_repository_class=RiskActionRepository,
+            dca_order_repository_class=DCAOrderRepository,
+            exchange_connector=exchange_connector,
+            order_service_class=OrderService,
+            risk_engine_config=risk_engine_config
+        )
+
         queue_manager_service = QueueManagerService(
             session=db_session,
             user=self.user,
@@ -60,6 +73,7 @@ class SignalRouterService:
             exchange_connector=exchange_connector,
             execution_pool_manager=execution_pool_manager,
             position_manager_service=position_manager_service,
+            risk_engine_service=risk_engine_service,
             grid_calculator_service=grid_calculator_service,
             order_service_class=OrderService,
             risk_engine_config=risk_engine_config,

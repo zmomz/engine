@@ -19,6 +19,7 @@ from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.position_manager import PositionManagerService
 from app.services.grid_calculator import GridCalculatorService
 from app.services.order_management import OrderService
+from app.services.risk_engine import RiskEngineService
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.schemas.webhook_payloads import WebhookPayload
 
@@ -54,6 +55,7 @@ class QueueManagerService:
         exchange_connector: ExchangeInterface,
         execution_pool_manager: ExecutionPoolManager,
         position_manager_service: PositionManagerService,
+        risk_engine_service: RiskEngineService,
         grid_calculator_service: GridCalculatorService,
         order_service_class: type[OrderService],
         risk_engine_config: RiskEngineConfig,
@@ -67,6 +69,7 @@ class QueueManagerService:
         self.exchange_connector = exchange_connector
         self.execution_pool_manager = execution_pool_manager
         self.position_manager_service = position_manager_service
+        self.risk_engine_service = risk_engine_service
         self.risk_engine_config = risk_engine_config
         self.dca_grid_config = dca_grid_config
         self.total_capital_usd = total_capital_usd
@@ -133,6 +136,18 @@ class QueueManagerService:
         selected_signal, _ = prioritized[0]
 
         is_pyramid_continuation = find_active_group(active_groups, selected_signal.symbol, selected_signal.timeframe) is not None
+
+        # --- Pre-Trade Risk Check ---
+        risk_passed = await self.risk_engine_service.validate_pre_trade_risk(
+            signal=selected_signal,
+            active_positions=active_groups,
+            allocated_capital_usd=self.total_capital_usd, # Or whatever logic defines per-position cap
+            is_pyramid_continuation=is_pyramid_continuation
+        )
+
+        if not risk_passed:
+            logger.info(f"Signal {selected_signal.id} failed pre-trade risk check. Skipping promotion.")
+            return # Skip promotion for this cycle
 
         if await self.execution_pool_manager.request_slot(is_pyramid_continuation=is_pyramid_continuation):
             logger.info(f"Promoting signal {selected_signal.id} for {selected_signal.symbol}")

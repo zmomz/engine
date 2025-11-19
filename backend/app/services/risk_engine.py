@@ -14,6 +14,7 @@ from sqlalchemy import select, func
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.risk_action import RiskAction, RiskActionType
+from app.models.queued_signal import QueuedSignal
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.risk_action import RiskActionRepository
 from app.repositories.dca_order import DCAOrderRepository
@@ -181,6 +182,37 @@ class RiskEngineService:
         self.config = risk_engine_config
         self._running = False
         self._monitor_task = None
+
+    async def validate_pre_trade_risk(
+        self,
+        signal: QueuedSignal,
+        active_positions: List[PositionGroup],
+        allocated_capital_usd: Decimal,
+        is_pyramid_continuation: bool = False
+    ) -> bool:
+        """
+        Performs pre-trade risk checks before promoting a signal.
+        """
+        # 1. Max Open Positions Per Symbol
+        # If it's a pyramid continuation, we are adding to an existing group, so we don't count against "new" positions per symbol
+        if not is_pyramid_continuation:
+            symbol_positions = [p for p in active_positions if p.symbol == signal.symbol]
+            if len(symbol_positions) >= self.config.max_open_positions_per_symbol:
+                logger.info(f"Risk Check Failed: Max positions for {signal.symbol} reached ({len(symbol_positions)}/{self.config.max_open_positions_per_symbol})")
+                return False
+
+        # 2. Max Total Exposure
+        current_exposure = sum(p.total_invested_usd for p in active_positions)
+        if (current_exposure + allocated_capital_usd) > self.config.max_total_exposure_usd:
+             logger.info(f"Risk Check Failed: Max exposure reached ({current_exposure + allocated_capital_usd} > {self.config.max_total_exposure_usd})")
+             return False
+
+        # 3. Daily Loss Limit (Circuit Breaker) - Placeholder
+        # TODO: Implement daily loss calculation from closed positions/risk actions
+        # daily_loss = await self.risk_action_repository.get_daily_loss(...)
+        # if daily_loss > self.config.max_daily_loss_usd: return False
+        
+        return True
 
     async def _evaluate_positions(self):
         """

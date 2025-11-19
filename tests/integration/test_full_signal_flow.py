@@ -77,16 +77,21 @@ async def test_full_signal_flow_new_position(
     from app.services.queue_manager import QueueManagerService
     from app.repositories.queued_signal import QueuedSignalRepository
     from app.repositories.position_group import PositionGroupRepository
+    from app.repositories.risk_action import RiskActionRepository
+    from app.repositories.dca_order import DCAOrderRepository
     from app.services.exchange_abstraction.factory import get_exchange_connector
     from app.services.execution_pool_manager import ExecutionPoolManager
     from app.services.position_manager import PositionManagerService
     from app.services.grid_calculator import GridCalculatorService
     from app.services.order_management import OrderService
+    from app.services.risk_engine import RiskEngineService
     from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
     from decimal import Decimal
 
     exchange_connector = get_exchange_connector("mock")
     grid_calculator_service = GridCalculatorService()
+    risk_engine_config = RiskEngineConfig()
+    
     execution_pool_manager = ExecutionPoolManager(
         session=db_session,
         position_group_repository_class=PositionGroupRepository
@@ -99,6 +104,18 @@ async def test_full_signal_flow_new_position(
         order_service_class=OrderService,
         exchange_connector=exchange_connector
     )
+    
+    # Instantiate RiskEngineService
+    risk_engine_service = RiskEngineService(
+        session_factory=lambda: db_session, # Not used for sync validation check
+        position_group_repository_class=PositionGroupRepository,
+        risk_action_repository_class=RiskActionRepository,
+        dca_order_repository_class=DCAOrderRepository,
+        exchange_connector=exchange_connector,
+        order_service_class=OrderService,
+        risk_engine_config=risk_engine_config
+    )
+    
     queue_manager = QueueManagerService(
         session=db_session,
         user=test_user,
@@ -107,9 +124,10 @@ async def test_full_signal_flow_new_position(
         exchange_connector=exchange_connector,
         execution_pool_manager=execution_pool_manager,
         position_manager_service=position_manager_service,
+        risk_engine_service=risk_engine_service,
         grid_calculator_service=grid_calculator_service,
         order_service_class=OrderService,
-        risk_engine_config=RiskEngineConfig(),
+        risk_engine_config=risk_engine_config,
         dca_grid_config=DCAGridConfig.model_validate([
             {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
             {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},

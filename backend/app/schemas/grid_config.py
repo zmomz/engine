@@ -25,6 +25,13 @@ class DCAGridConfig(RootModel[List[DCALevelConfig]]):
         return self
 
 class RiskEngineConfig(BaseModel):
+    # Pre-trade Risk Checks
+    max_open_positions_global: int = 10
+    max_open_positions_per_symbol: int = 1
+    max_total_exposure_usd: Decimal = Decimal("10000")
+    max_daily_loss_usd: Decimal = Decimal("500") # Circuit breaker
+
+    # Post-trade Risk Management
     loss_threshold_percent: Decimal = Decimal("-1.5")
     timer_start_condition: str = "after_all_dca_filled"
     post_full_wait_minutes: int = 15
@@ -39,7 +46,7 @@ class RiskEngineConfig(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def convert_floats_to_decimals(cls, values):
-        for key in ['loss_threshold_percent']:
+        for key in ['loss_threshold_percent', 'max_total_exposure_usd', 'max_daily_loss_usd', 'min_close_notional']:
             if key in values and isinstance(values[key], float):
                 values[key] = Decimal(str(values[key]))
         return values

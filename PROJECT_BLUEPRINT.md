@@ -56,11 +56,12 @@
 5.  [x] **Integration Test:** End-to-end flow (Webhook -> DB -> Mock Exchange).
 6.  [x] **Stage 2 Integration:** Live Testnet Validation (Binance Spot).
 
-### Phase 2: The Risk Engine (Core Value)
-1.  [ ] Implement `RiskService`.
-2.  [ ] Add Pre-trade checks (Max Positions, Daily Loss).
-3.  [ ] Add "Circuit Breaker" logic.
-4.  [ ] Unit Tests for Risk Logic.
+### Phase 2: The Risk Engine (In Progress)
+1.  [x] Define `RiskEngineService` structure and interface.
+2.  [x] Integrate `RiskEngine` into `QueueManager` (Pre-trade hook).
+3.  [ ] Implement Pre-trade logic (Max Positions, Max Exposure).
+4.  [ ] Add "Circuit Breaker" (Daily Loss Limit).
+5.  [ ] Unit/Integration Tests for Risk Logic.
 
 ### Phase 3: DCA & Pyramiding Logic
 1.  [ ] Implement `GridCalculator` (calculate price levels/sizes).
@@ -78,5 +79,5 @@
 3.  [ ] Settings Page: API Keys, Risk Config.
 
 ## 6. Current Task
-**Focus:** Phase 2 (Risk Engine implementation).
-**Next:** Implement `RiskService` and basic pre-trade checks.
+**Focus:** Phase 2 (Risk Engine Logic).
+**Next:** Implement the actual checking logic for `max_open_positions` and `max_total_exposure_usd` inside `RiskEngineService`.

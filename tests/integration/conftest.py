@@ -15,6 +15,10 @@ from decimal import Decimal
 from app.models.user import User
 from app.services.order_management import OrderService
 
+from app.services.risk_engine import RiskEngineService
+from app.repositories.risk_action import RiskActionRepository
+from app.repositories.dca_order import DCAOrderRepository
+
 @pytest.fixture(scope="function")
 async def http_client() -> AsyncClient:
     async with AsyncClient(app=app, base_url="http://test") as client:
@@ -56,6 +60,16 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
         exchange_connector=exchange_connector
     )
     
+    risk_engine_service = RiskEngineService(
+        session_factory=lambda: db_session,
+        position_group_repository_class=PositionGroupRepository,
+        risk_action_repository_class=RiskActionRepository,
+        dca_order_repository_class=DCAOrderRepository,
+        exchange_connector=exchange_connector,
+        order_service_class=OrderService,
+        risk_engine_config=risk_engine_config
+    )
+    
     app.state.queue_manager_service = QueueManagerService(
         session=db_session,
         user=test_user,
@@ -63,7 +77,8 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
         position_group_repository_class=PositionGroupRepository,
         exchange_connector=exchange_connector,
         execution_pool_manager=execution_pool_manager,
-        position_manager_service=PositionManagerService,
+        position_manager_service=position_manager_service,
+        risk_engine_service=risk_engine_service,
         grid_calculator_service=grid_calculator_service,
         order_service_class=OrderService,
         risk_engine_config=risk_engine_config,
