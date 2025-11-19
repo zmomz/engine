@@ -6,6 +6,7 @@
 *   **Data Types:** `decimal.Decimal` types must be explicitly handled when serializing to JSON for database `JSON` columns (e.g., `dca_config` in `Pyramid` model). SQLAlchemy/Asyncpg/Pydantic usually handle this, but manual `json.dumps` requires a custom encoder or converting Decimals to floats/strings first.
 *   **Integrity Errors:** Always handle `IntegrityError` (duplicate keys) gracefully, especially in high-concurrency scenarios like webhook ingestion.
 *   **Date Queries:** When querying by date (e.g., "daily loss"), explicitly construct the start (`00:00:00`) and end (`23:59:59`) timestamps for the target day using `datetime.combine`, rather than relying on implicit date casting which might fail or behave unexpectedly across different DB drivers.
+*   **Circular Dependencies:** Avoid importing services that import each other (e.g., `OrderService` needing `PositionManager` and vice versa). Use simplified interfaces or pass instances/classes as arguments where necessary.
 
 ## 2. Testing & Mocking
 *   **Mock Exchange vs. Real Testnet:**

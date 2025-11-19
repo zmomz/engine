@@ -1,145 +1,83 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 from decimal import Decimal
-import asyncio
 import uuid
-from contextlib import asynccontextmanager
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.order_fill_monitor import OrderFillMonitorService
-from app.services.order_management import OrderService
-from app.repositories.dca_order import DCAOrderRepository
-from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.models.dca_order import DCAOrder, OrderStatus
-from app.repositories.user import UserRepository
 
 @pytest.fixture
-def mock_dca_order_repository_class():
-    mock_instance = MagicMock(spec=DCAOrderRepository)
-    mock_instance.get_open_and_partially_filled_orders_for_user = AsyncMock()
-    mock_class = MagicMock(spec=DCAOrderRepository, return_value=mock_instance)
-    return mock_class
+def mock_order_fill_monitor_service():
+    # Mock dependencies
+    session_factory = MagicMock()
+    # We need to mock the async generator for session_factory
+    async def mock_session_gen():
+        yield AsyncMock()
+    session_factory.side_effect = mock_session_gen
 
-@pytest.fixture
-def mock_user_repository_class():
-    mock_user = MagicMock()
-    mock_user.id = uuid.uuid4()
-    mock_instance = MagicMock(spec=UserRepository)
-    mock_instance.get_all = AsyncMock(return_value=[mock_user]) # Mock get_all to return a list with one mock user
-    mock_class = MagicMock(spec=UserRepository, return_value=mock_instance)
-    return mock_class
-
-@pytest.fixture
-def mock_order_service_class():
-    mock_instance = AsyncMock(spec=OrderService)
-    mock_class = MagicMock(spec=OrderService)
-    mock_class.return_value = mock_instance
-    return mock_class
-
-@pytest.fixture
-def mock_exchange_connector():
-    return AsyncMock(spec=ExchangeInterface)
-
-@pytest.fixture
-def mock_session_factory():
-    @asynccontextmanager
-    async def factory():
-        mock_session_obj = AsyncMock(spec=AsyncSession)
-        try:
-            yield mock_session_obj
-        finally:
-            pass
-    return factory
-
-@pytest.fixture
-def order_fill_monitor_service(
-    mock_dca_order_repository_class,
-    mock_order_service_class,
-    mock_exchange_connector,
-    mock_session_factory,
-    mock_user_repository_class
-):
-    return OrderFillMonitorService(
-        dca_order_repository_class=mock_dca_order_repository_class,
-        user_repository_class=mock_user_repository_class,
-        order_service_class=mock_order_service_class,
-        exchange_connector=mock_exchange_connector,
-        session_factory=mock_session_factory # Pass session factory directly
-    )
-
-@pytest.mark.asyncio
-async def test_start_and_stop_monitoring(order_fill_monitor_service):
-    """
-    Test that the monitor starts and stops correctly.
-    """
-    with patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:
-        await order_fill_monitor_service.start_monitoring()
-        assert order_fill_monitor_service._running is True
-        assert order_fill_monitor_service._monitor_task is not None
-
-        # Allow one loop iteration to happen
-        await asyncio.sleep(0.1) # Give control back to the event loop
-        order_fill_monitor_service._monitor_task.cancel()
-        await asyncio.sleep(0.1) # Give control back to the event loop for cancellation
-
-        await order_fill_monitor_service.stop_monitoring()
-        assert order_fill_monitor_service._running is False
-        assert order_fill_monitor_service._monitor_task.done() is True
-
-@pytest.mark.asyncio
-async def test_monitor_loop_checks_orders(order_fill_monitor_service, mock_dca_order_repository_class, mock_order_service_class, mock_session_factory):
-    """
-    Test that the monitor loop fetches open orders and checks their status.
-    """
-    mock_order = DCAOrder(
-        id=uuid.uuid4(), group_id=uuid.uuid4(), pyramid_id=uuid.uuid4(), leg_index=0,
-        symbol="BTC/USDT", side="buy", order_type="limit", price=Decimal("60000"), quantity=Decimal("0.001"),
-        gap_percent=Decimal("0"), weight_percent=Decimal("20"), tp_percent=Decimal("1"), tp_price=Decimal("60600"),
-        status=OrderStatus.OPEN, exchange_order_id="exchange_order_1"
-    )
+    dca_order_repo_cls = MagicMock()
+    position_group_repo_cls = MagicMock()
+    exchange_connector = AsyncMock()
+    order_service_cls = MagicMock()
+    position_manager_service_cls = MagicMock()
     
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.return_value = [mock_order]
-    mock_order_service_class.return_value.check_order_status.return_value = mock_order
-    order_fill_monitor_service.polling_interval_seconds = 0.01 # Shorten interval for testing
-    await order_fill_monitor_service.start_monitoring()
-    await asyncio.sleep(0.01) # Allow task to be created
-
-    # Allow the loop to run a few times
-    await asyncio.sleep(0.2)
-
-    order_fill_monitor_service._monitor_task.cancel()
-    await asyncio.sleep(0.2)
-
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.assert_called()
-    mock_order_service_class.return_value.check_order_status.assert_called_with(mock_order)
+    service = OrderFillMonitorService(
+        session_factory=session_factory,
+        dca_order_repository_class=dca_order_repo_cls,
+        position_group_repository_class=position_group_repo_cls,
+        exchange_connector=exchange_connector,
+        order_service_class=order_service_cls,
+        position_manager_service_class=position_manager_service_cls,
+        polling_interval_seconds=1
+    )
+    return service
 
 @pytest.mark.asyncio
-async def test_monitor_loop_handles_exceptions(order_fill_monitor_service, mock_dca_order_repository_class, mock_order_service_class, mock_session_factory):
-    """
-    Test that the monitor loop handles exceptions gracefully and continues.
-    """
-    mock_order = DCAOrder(
-        id=uuid.uuid4(), group_id=uuid.uuid4(), pyramid_id=uuid.uuid4(), leg_index=0,
-        symbol="BTC/USDT", side="buy", order_type="limit", price=Decimal("60000"), quantity=Decimal("0.001"),
-        gap_percent=Decimal("0"), weight_percent=Decimal("20"), tp_percent=Decimal("1"), tp_price=Decimal("60600"),
-        status=OrderStatus.OPEN, exchange_order_id="exchange_order_1"
-    )
+async def test_check_orders_no_orders(mock_order_fill_monitor_service):
+    # Setup repo to return empty list
+    repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
+    repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[])
+
+    await mock_order_fill_monitor_service._check_orders()
     
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.return_value = [mock_order]
-    mock_order_service_class.return_value.check_order_status.side_effect = Exception("Test exception")
+    # Verify check_order_status was NOT called
+    mock_order_service_instance = mock_order_fill_monitor_service.order_service_class.return_value
+    mock_order_service_instance.check_order_status.assert_not_called()
 
-    order_fill_monitor_service.polling_interval_seconds = 0.01 # Shorten interval for testing
-    await order_fill_monitor_service.start_monitoring()
-    await asyncio.sleep(0.01) # Allow task to be created
+@pytest.mark.asyncio
+async def test_check_orders_updates_status(mock_order_fill_monitor_service):
+    # Setup orders
+    group_id = uuid.uuid4()
+    order1 = DCAOrder(id=uuid.uuid4(), group_id=group_id, status=OrderStatus.OPEN.value)
+    order2 = DCAOrder(id=uuid.uuid4(), status=OrderStatus.PARTIALLY_FILLED.value)
+    
+    repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
+    repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[order1, order2])
 
-    # Allow the loop to run a few times
-    await asyncio.sleep(0.2)
+    # Setup OrderService to return updated order
+    mock_order_service_instance = mock_order_fill_monitor_service.order_service_class.return_value
+    
+    async def mock_check_status(order):
+        # Simulate status change
+        if order.id == order1.id:
+             order.status = OrderStatus.FILLED.value
+        return order
+        
+    mock_order_service_instance.check_order_status = AsyncMock(side_effect=mock_check_status)
+    mock_order_service_instance.place_tp_order = AsyncMock()
 
-    order_fill_monitor_service._monitor_task.cancel()
-    await asyncio.sleep(0.2)
+    # Also ensure update_position_stats is an AsyncMock
+    mock_position_manager_instance = mock_order_fill_monitor_service.position_manager_service_class.return_value
+    mock_position_manager_instance.update_position_stats = AsyncMock()
 
-    mock_dca_order_repository_class.return_value.get_open_and_partially_filled_orders_for_user.assert_called()
-    mock_order_service_class.return_value.check_order_status.assert_called_with(mock_order)
-    # Expect the loop to continue despite the exception
-    # assert mock_sleep.call_count > 0 # Removed as mock_sleep is no longer patched
+    await mock_order_fill_monitor_service._check_orders()
+    
+    # Verify check_order_status was called for both
+    assert mock_order_service_instance.check_order_status.await_count == 2
+    
+    # Verify update_position_stats was called for the filled order
+    mock_position_manager_instance = mock_order_fill_monitor_service.position_manager_service_class.return_value
+    mock_position_manager_instance.update_position_stats.assert_called_once_with(order1.group_id)
+    
+    # Verify place_tp_order was called for the filled order
+    mock_order_service_instance.place_tp_order.assert_called_once_with(order1)

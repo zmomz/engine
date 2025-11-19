@@ -317,4 +317,48 @@ class PositionManagerService:
             logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
+    async def update_position_stats(self, group_id: uuid.UUID):
+        """
+        Recalculates total filled quantity and weighted average entry price for a position group.
+        """
+        position_group = await self.repo.get(group_id)
+        if not position_group:
+            logger.error(f"PositionGroup {group_id} not found for stats update.")
+            return
+
+        # Re-fetch DCA orders to ensure we have the latest status
+        # Ideally we should use a join or specific query, but lazy load might work if session is active.
+        # To be safe and robust, let's use the order repo or refresh the relationship.
+        await self.session.refresh(position_group, attribute_names=["dca_orders"])
+        
+        filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
+        
+        total_qty = sum(o.filled_quantity for o in filled_orders)
+        total_cost = sum(o.filled_quantity * (o.avg_fill_price or o.price) for o in filled_orders)
+        
+        if total_qty > 0:
+            weighted_avg = total_cost / total_qty
+            position_group.total_filled_quantity = total_qty
+            position_group.total_invested_usd = total_cost
+            position_group.weighted_avg_entry = weighted_avg
+            
+            # Update filled leg count
+            position_group.filled_dca_legs = len(filled_orders)
+            
+            # Check if status needs update (e.g. from LIVE to PARTIALLY_FILLED or ACTIVE)
+            if position_group.status == PositionGroupStatus.LIVE:
+                 if len(filled_orders) == len(position_group.dca_orders):
+                     position_group.status = PositionGroupStatus.ACTIVE
+                 else:
+                     position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+            elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
+                 if len(filled_orders) == len(position_group.dca_orders):
+                     position_group.status = PositionGroupStatus.ACTIVE
+
+            await self.repo.update(position_group)
+            await self.session.commit()
+            logger.info(f"Updated stats for PositionGroup {group_id}: Qty={total_qty}, AvgEntry={weighted_avg}")
+        else:
+            logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
+
     # TODO: Add methods for updating position group PnL, status, etc.

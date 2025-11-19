@@ -99,6 +99,41 @@ class OrderService:
             await self.dca_order_repository.update(dca_order)
             raise APIError(f"Failed to cancel order: {e}") from e
 
+    async def place_tp_order(self, dca_order: DCAOrder) -> DCAOrder:
+        """
+        Places a Take-Profit order for a filled DCA order.
+        """
+        if dca_order.status != OrderStatus.FILLED:
+            raise APIError("Cannot place TP order for unfilled order.")
+            
+        if dca_order.tp_order_id:
+             # TP order already exists
+             return dca_order
+
+        try:
+            # Determine TP side
+            tp_side = "SELL" if dca_order.side.upper() == "BUY" else "BUY"
+            
+            # Use the calculated tp_price from the order record
+            tp_price = dca_order.tp_price
+            
+            # Place limit order for TP
+            exchange_order_data = await self.exchange_connector.place_order(
+                symbol=dca_order.symbol,
+                order_type="LIMIT",
+                side=tp_side,
+                quantity=dca_order.filled_quantity,
+                price=tp_price
+            )
+            
+            dca_order.tp_order_id = exchange_order_data["id"]
+            await self.dca_order_repository.update(dca_order)
+            return dca_order
+        except Exception as e:
+             print(f"Failed to place TP order for {dca_order.id}: {e}")
+             # We don't raise here to avoid crashing the monitor loop, just log
+             return dca_order
+
     async def check_order_status(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Fetches the latest status of a DCA order from the exchange and updates the database.
