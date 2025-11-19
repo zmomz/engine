@@ -68,9 +68,10 @@ class PositionManagerService:
         symbol_precision = precision_rules.get(signal.symbol, {})
 
         # 3. Calculate DCA levels and quantities
+        # Pass the full configuration object; the service handles extraction
         dca_levels = self.grid_calculator_service.calculate_dca_levels(
             base_price=signal.entry_price,
-            dca_config=dca_grid_config.root,
+            dca_config=dca_grid_config, 
             side=signal.side,
             precision_rules=symbol_precision
         )
@@ -167,22 +168,96 @@ class PositionManagerService:
         dca_grid_config: DCAGridConfig,
         total_capital_usd: Decimal
     ) -> PositionGroup:
-        # Increment pyramid count
-        existing_position_group.pyramid_count += 1
-        existing_position_group.replacement_count += 1 # Also increment replacement count
+        # 1. Get user and decrypt API keys
+        user = await self.session.get(User, user_id)
+        if not user:
+            raise Exception("User not found")
+        
+        encryption_service = EncryptionService() 
+        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+        exchange_connector = get_exchange_connector(
+            exchange_type=signal.exchange,
+            api_key=api_key,
+            secret_key=secret_key
+        )
 
+        # 2. Fetch precision rules
+        precision_rules = await exchange_connector.get_precision_rules()
+        symbol_precision = precision_rules.get(signal.symbol, {})
+
+        # 3. Calculate DCA levels for this NEW pyramid
+        # The signal entry price is the base for this new pyramid layer
+        dca_levels = self.grid_calculator_service.calculate_dca_levels(
+            base_price=signal.entry_price,
+            dca_config=dca_grid_config,
+            side=signal.side,
+            precision_rules=symbol_precision
+        )
+        dca_levels = self.grid_calculator_service.calculate_order_quantities(
+            dca_levels=dca_levels,
+            total_capital_usd=total_capital_usd,
+            precision_rules=symbol_precision
+        )
+
+        # 4. Update PositionGroup Stats
+        existing_position_group.pyramid_count += 1
+        existing_position_group.replacement_count += 1
+        existing_position_group.total_dca_legs += len(dca_levels)
+        
         # Reset risk timer if configured
-        if risk_config.reset_timer_on_replacement and existing_position_group.risk_timer_expires:
+        if risk_config.reset_timer_on_replacement:
             existing_position_group.risk_timer_start = datetime.utcnow()
             existing_position_group.risk_timer_expires = existing_position_group.risk_timer_start + timedelta(minutes=risk_config.post_full_wait_minutes)
 
-        # TODO: Generate new DCA orders for the new pyramid
-        # This will involve calling GridCalculatorService again with the new pyramid's base price
-        # and associating the new DCA orders with the existing_position_group and a new Pyramid model
+        # 5. Create New Pyramid
+        new_pyramid = Pyramid(
+            group_id=existing_position_group.id,
+            pyramid_index=existing_position_group.pyramid_count, # approx index
+            entry_price=signal.entry_price,
+            status=PyramidStatus.PENDING,
+            dca_config=json.loads(dca_grid_config.json())
+        )
+        self.session.add(new_pyramid)
+        await self.session.flush()
 
-        await self.position_group_repo.update(existing_position_group)
+        # 6. Instantiate OrderService
+        order_service = self.order_service_class(
+            session=self.session,
+            user=user,
+            exchange_connector=exchange_connector
+        )
+
+        # 7. Create DCAOrder objects
+        orders_to_submit = []
+        # Map signal side
+        order_side = "buy" if signal.side == "long" else "sell"
+        
+        for i, level in enumerate(dca_levels):
+            dca_order = DCAOrder(
+                group_id=existing_position_group.id,
+                pyramid_id=new_pyramid.id,
+                leg_index=i,
+                symbol=signal.symbol,
+                side=order_side,
+                order_type="limit",
+                price=level['price'],
+                quantity=level['quantity'],
+                status=OrderStatus.PENDING,
+                gap_percent=level.get('gap_percent', Decimal("0")),
+                weight_percent=level.get('weight_percent', Decimal("0")),
+                tp_percent=level.get('tp_percent', Decimal("0")),
+                tp_price=level.get('tp_price', Decimal("0")),
+            )
+            self.session.add(dca_order)
+            orders_to_submit.append(dca_order)
+
+        # 8. Commit and Submit
         await self.session.commit()
-        logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}")
+        
+        for order in orders_to_submit:
+            await order_service.submit_order(order)
+
+        logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
         return existing_position_group
 
     async def handle_exit_signal(self, position_group: PositionGroup):

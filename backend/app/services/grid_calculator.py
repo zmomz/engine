@@ -75,6 +75,29 @@ class GridCalculatorService:
         return dca_levels
 
     @staticmethod
+    def calculate_pyramid_levels(
+        base_price: Decimal,
+        pyramid_gap_percent: Decimal,
+        side: Literal["long", "short"],
+        precision_rules: Dict
+    ) -> Dict:
+        """
+        Calculate the next pyramid entry price.
+        """
+        tick_size = Decimal(str(precision_rules["tick_size"]))
+        
+        if side == "long":
+            entry_price = base_price * (Decimal("1") + pyramid_gap_percent / Decimal("100"))
+        else:
+            entry_price = base_price * (Decimal("1") - pyramid_gap_percent / Decimal("100"))
+            
+        entry_price = round_to_tick_size(entry_price, tick_size)
+        
+        return {
+            "entry_price": entry_price
+        }
+
+    @staticmethod
     def calculate_order_quantities(
         dca_levels: List[Dict],
         total_capital_usd: Decimal,

@@ -63,15 +63,15 @@
 4.  [x] Add "Circuit Breaker" (Daily Loss Limit).
 5.  [x] Unit Tests for Risk Logic.
 
-### Phase 3: DCA & Pyramiding Logic
-1.  [ ] Implement `GridCalculator` (calculate price levels/sizes).
-2.  [ ] Logic for placing batch limit orders (DCA).
-3.  [ ] Logic for "Pyramiding" (adding to winners).
+### Phase 3: DCA & Pyramiding Logic (Completed)
+1.  [x] Implement `GridCalculator` (calculate price levels/sizes).
+2.  [x] Integrate `GridCalculator` into `PositionManager` for signal creation.
+3.  [x] Implement `handle_pyramid_continuation` logic.
 
-### Phase 4: Execution & Monitoring
-1.  [ ] Integrate CCXT (Binance Futures).
-2.  [ ] WebSocket Listener (User Data Stream) for order updates.
-3.  [ ] Reconciliation Worker (Sync DB with Exchange).
+### Phase 4: Execution & Monitoring (In Progress)
+1.  [ ] **Reconciliation Worker:** Poll exchange for order status updates (Fills, Cancellations).
+2.  [ ] **State Management:** Update DB state based on order updates (e.g., calculate PnL when orders fill).
+3.  [ ] **Take-Profit Management:** Place/Update TP orders when DCA orders fill.
 
 ### Phase 5: Frontend Dashboard
 1.  [ ] React setup.
@@ -79,5 +79,5 @@
 3.  [ ] Settings Page: API Keys, Risk Config.
 
 ## 6. Current Task
-**Focus:** Phase 3 (DCA & Pyramiding Logic).
-**Next:** Implement `GridCalculator` to properly calculate DCA levels based on user configuration.
+**Focus:** Phase 4 (Execution & Monitoring).
+**Next:** Implement `OrderFillMonitor` service to poll and update order statuses.
