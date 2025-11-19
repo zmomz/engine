@@ -18,6 +18,7 @@
 *   **Parameter Naming:** CCXT's `create_order` uses `amount` for quantity. Our internal models use `quantity`. Consistency in the connector layer mapping is key.
 *   **Testnet Configuration:** Binance Testnet requires a specific URL or `exchange.set_sandbox_mode(True)`. It implies a different set of API keys.
 *   **Error Handling:** CCXT errors (`OrderNotFound`, `AuthenticationError`) should be mapped to internal application exceptions for consistent handling.
+*   **Precision Rules:** `load_markets()` returns precision as decimal places (int) for Binance, but `GridCalculator` expects step sizes (float/decimal). Conversion logic is required in the connector.
 
 ## 4. Pydantic & Configuration
 *   **Validation:** `model_validate` is strict. When defining test data fixtures, ensure all fields (like `weight_percent` summing to 100) meet the validation rules defined in the schemas.

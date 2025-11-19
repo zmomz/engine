@@ -193,6 +193,14 @@ class RiskEngineService:
         """
         Performs pre-trade risk checks before promoting a signal.
         """
+        # 0. Max Open Positions Global
+        # If it's a pyramid continuation, we are adding to an existing group, so we don't count against "new" positions
+        if not is_pyramid_continuation:
+            active_groups_count = len(active_positions)
+            if active_groups_count >= self.config.max_open_positions_global:
+                logger.info(f"Risk Check Failed: Max global positions reached ({active_groups_count}/{self.config.max_open_positions_global})")
+                return False
+
         # 1. Max Open Positions Per Symbol
         # If it's a pyramid continuation, we are adding to an existing group, so we don't count against "new" positions per symbol
         if not is_pyramid_continuation:

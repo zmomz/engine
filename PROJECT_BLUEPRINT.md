@@ -59,7 +59,7 @@
 ### Phase 2: The Risk Engine (In Progress)
 1.  [x] Define `RiskEngineService` structure and interface.
 2.  [x] Integrate `RiskEngine` into `QueueManager` (Pre-trade hook).
-3.  [ ] Implement Pre-trade logic (Max Positions, Max Exposure).
+3.  [x] Implement Pre-trade logic (Max Positions, Max Exposure).
 4.  [ ] Add "Circuit Breaker" (Daily Loss Limit).
 5.  [ ] Unit/Integration Tests for Risk Logic.
 
@@ -79,5 +79,5 @@
 3.  [ ] Settings Page: API Keys, Risk Config.
 
 ## 6. Current Task
-**Focus:** Phase 2 (Risk Engine Logic).
-**Next:** Implement the actual checking logic for `max_open_positions` and `max_total_exposure_usd` inside `RiskEngineService`.
+**Focus:** Phase 2 (Risk Engine - Daily Loss Limit).
+**Next:** Implement `RiskActionRepository` query for daily loss and integrate into `validate_pre_trade_risk`.
