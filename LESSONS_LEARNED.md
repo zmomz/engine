@@ -5,6 +5,7 @@
     *   **Solution:** Avoid parallel execution (`asyncio.gather`) for DB-write operations sharing a session. Use sequential `for` loops or give each task its own independent session.
 *   **Data Types:** `decimal.Decimal` types must be explicitly handled when serializing to JSON for database `JSON` columns (e.g., `dca_config` in `Pyramid` model). SQLAlchemy/Asyncpg/Pydantic usually handle this, but manual `json.dumps` requires a custom encoder or converting Decimals to floats/strings first.
 *   **Integrity Errors:** Always handle `IntegrityError` (duplicate keys) gracefully, especially in high-concurrency scenarios like webhook ingestion.
+*   **Date Queries:** When querying by date (e.g., "daily loss"), explicitly construct the start (`00:00:00`) and end (`23:59:59`) timestamps for the target day using `datetime.combine`, rather than relying on implicit date casting which might fail or behave unexpectedly across different DB drivers.
 
 ## 2. Testing & Mocking
 *   **Mock Exchange vs. Real Testnet:**
@@ -12,6 +13,7 @@
     *   **Real Testnet (Stage 2):** Crucial for verifying connector implementations, authentication, API signatures, and handling of real-world data types (e.g., CCXT returning strings vs floats).
 *   **Dependency Injection in Tests:** Overriding dependencies via `app.dependency_overrides` is powerful but requires careful setup of the override fixtures to match the signature of the real dependencies exactly (e.g., `QueueManager` needing `RiskEngineService`).
 *   **Environment Variables:** Use `os.environ` patches in tests to toggle behavior (e.g., switching `EXCHANGE_TESTNET=true` for integration tests) without changing code.
+*   **Mocking Async Methods:** Use `AsyncMock` for mocking asynchronous methods (like `repository.get_daily_realized_pnl`) to ensure `await` works correctly in tests.
 
 ## 3. Exchange Integration (CCXT)
 *   **Order Types:** Binance (and many exchanges) expect uppercase order types (`LIMIT`, `MARKET`) and sides (`BUY`, `SELL`). CCXT might handle some normalization, but explicit uppercase is safer.

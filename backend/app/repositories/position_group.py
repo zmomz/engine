@@ -1,6 +1,8 @@
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, date
 import uuid
+from decimal import Decimal
 
 from app.models import PositionGroup
 from app.repositories.base import BaseRepository
@@ -55,3 +57,25 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
             select(self.model).where(self.model.user_id == user_id, self.model.id == group_id)
         )
         return result.scalars().first()
+
+    async def get_daily_realized_pnl(self, user_id: uuid.UUID, query_date: date = None) -> Decimal:
+        """
+        Calculates the total realized PnL for a user on a specific date (UTC).
+        Defaults to current UTC date if not provided.
+        """
+        if query_date is None:
+            query_date = datetime.utcnow().date()
+        
+        start_of_day = datetime.combine(query_date, datetime.min.time())
+        end_of_day = datetime.combine(query_date, datetime.max.time())
+
+        result = await self.session.execute(
+            select(func.sum(self.model.realized_pnl_usd))
+            .where(
+                self.model.user_id == user_id,
+                self.model.closed_at >= start_of_day,
+                self.model.closed_at <= end_of_day
+            )
+        )
+        total_pnl = result.scalar()
+        return total_pnl if total_pnl is not None else Decimal("0")

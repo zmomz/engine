@@ -188,6 +188,7 @@ class RiskEngineService:
         signal: QueuedSignal,
         active_positions: List[PositionGroup],
         allocated_capital_usd: Decimal,
+        session: AsyncSession,
         is_pyramid_continuation: bool = False
     ) -> bool:
         """
@@ -215,10 +216,14 @@ class RiskEngineService:
              logger.info(f"Risk Check Failed: Max exposure reached ({current_exposure + allocated_capital_usd} > {self.config.max_total_exposure_usd})")
              return False
 
-        # 3. Daily Loss Limit (Circuit Breaker) - Placeholder
-        # TODO: Implement daily loss calculation from closed positions/risk actions
-        # daily_loss = await self.risk_action_repository.get_daily_loss(...)
-        # if daily_loss > self.config.max_daily_loss_usd: return False
+        # 3. Daily Loss Limit (Circuit Breaker)
+        position_group_repo = self.position_group_repository_class(session)
+        daily_pnl = await position_group_repo.get_daily_realized_pnl(user_id=signal.user_id)
+        
+        # If daily_pnl is negative and its absolute value exceeds max_daily_loss_usd
+        if daily_pnl < 0 and abs(daily_pnl) >= self.config.max_daily_loss_usd:
+             logger.info(f"Risk Check Failed: Daily loss limit reached ({daily_pnl} USD). Max loss allowed: {self.config.max_daily_loss_usd}")
+             return False
         
         return True
 

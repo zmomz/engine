@@ -142,6 +142,7 @@ class QueueManagerService:
             signal=selected_signal,
             active_positions=active_groups,
             allocated_capital_usd=self.total_capital_usd, # Or whatever logic defines per-position cap
+            session=self.session,
             is_pyramid_continuation=is_pyramid_continuation
         )
 
