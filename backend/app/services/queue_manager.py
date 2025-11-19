@@ -17,6 +17,8 @@ from app.repositories.position_group import PositionGroupRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.position_manager import PositionManagerService
+from app.services.grid_calculator import GridCalculatorService
+from app.services.order_management import OrderService
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.schemas.webhook_payloads import WebhookPayload
 
@@ -52,6 +54,8 @@ class QueueManagerService:
         exchange_connector: ExchangeInterface,
         execution_pool_manager: ExecutionPoolManager,
         position_manager_service: PositionManagerService,
+        grid_calculator_service: GridCalculatorService,
+        order_service_class: type[OrderService],
         risk_engine_config: RiskEngineConfig,
         dca_grid_config: DCAGridConfig,
         total_capital_usd: Decimal
@@ -84,7 +88,7 @@ class QueueManagerService:
         if existing_signal:
             existing_signal.replacement_count += 1
             existing_signal.entry_price = Decimal(str(signal.tv.entry_price))
-            existing_signal.signal_payload = signal.model_dump()
+            existing_signal.signal_payload = signal.model_dump_json()
             existing_signal.queued_at = datetime.utcnow()
             await self.queued_signal_repo.update(existing_signal)
             await self.session.commit()
@@ -97,9 +101,9 @@ class QueueManagerService:
                 timeframe=signal.tv.timeframe,
                 side=position_side,
                 entry_price=Decimal(str(signal.tv.entry_price)),
-                signal_payload=signal.model_dump(),
-                status=QueueStatus.QUEUED.value,
-                queued_at=datetime.utcnow()
+                signal_payload=signal.model_dump(mode='json'),
+                queued_at=datetime.utcnow(),
+                status="queued"
             )
             await self.queued_signal_repo.create(new_signal)
             await self.session.commit()

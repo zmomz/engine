@@ -15,9 +15,14 @@ class UserRepository(BaseRepository[User]):
         result = await self.session.execute(select(User).filter(User.username == username))
         return result.scalars().first()
 
-    async def get_by_email(self, email: str) -> Optional[User]:
-        result = await self.session.execute(select(User).filter(User.email == email))
+    async def get_by_email(self, email: str) -> User | None:
+        result = await self.session.execute(select(User).where(User.email == email))
         return result.scalars().first()
+
+    async def get_by_id(self, user_id: str) -> User | None:
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        return result.scalars().first()
+
 
     async def create(self, user_in: UserCreate, hashed_password: str) -> User:
         db_user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_password)

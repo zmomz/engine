@@ -2,17 +2,24 @@ import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 import uuid
+import asyncio
+import json
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.dca_order import DCAOrder, OrderStatus
+from app.models.pyramid import Pyramid, PyramidStatus
 from app.models.queued_signal import QueuedSignal
+from app.models.user import User
 from app.repositories.position_group import PositionGroupRepository
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.schemas.webhook_payloads import WebhookPayload
 from app.services.grid_calculator import GridCalculatorService
 from app.services.order_management import OrderService
+from app.services.exchange_abstraction.interface import ExchangeInterface
+from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.core.security import EncryptionService
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +27,19 @@ class PositionManagerService:
     def __init__(
         self,
         session: AsyncSession,
+        user: "User",
         position_group_repository_class: type[PositionGroupRepository],
         grid_calculator_service: GridCalculatorService,
-        order_service_class: type[OrderService]
+        order_service_class: type[OrderService],
+        exchange_connector: ExchangeInterface
     ):
         self.session = session
-        self.position_group_repository_class = position_group_repository_class
+        self.user = user
+        self.repo = position_group_repository_class(session)
         self.grid_calculator_service = grid_calculator_service
         self.order_service_class = order_service_class
-        self.position_group_repo = self.position_group_repository_class(self.session)
+        self.order_service = order_service_class(session=session, user=self.user, exchange_connector=exchange_connector)
+        self.exchange_connector = exchange_connector
 
     async def create_position_group_from_signal(
         self,
@@ -38,22 +49,38 @@ class PositionManagerService:
         dca_grid_config: DCAGridConfig,
         total_capital_usd: Decimal
     ) -> PositionGroup:
-        # Calculate DCA levels and quantities
-        # Assuming signal.entry_price is the base price for the first leg
-        precision_rules = {} # TODO: Fetch actual precision rules from exchange abstraction
+        # 1. Get user and decrypt API keys to instantiate exchange connector
+        user = await self.session.get(User, user_id)
+        if not user:
+            raise Exception("User not found") # TODO: use a more specific exception
+        
+        # TODO: This is not the final way we will handle encryption/exchange conn
+        encryption_service = EncryptionService() 
+        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+        exchange_connector = get_exchange_connector(
+            exchange_type=signal.exchange,
+            api_key=api_key,
+            secret_key=secret_key
+        )
+
+        # 2. Fetch precision rules
+        precision_rules = await exchange_connector.get_precision_rules()
+        symbol_precision = precision_rules.get(signal.symbol, {})
+
+        # 3. Calculate DCA levels and quantities
         dca_levels = self.grid_calculator_service.calculate_dca_levels(
             base_price=signal.entry_price,
             dca_config=dca_grid_config.root,
             side=signal.side,
-            precision_rules=precision_rules # Placeholder
+            precision_rules=symbol_precision
         )
         dca_levels = self.grid_calculator_service.calculate_order_quantities(
             dca_levels=dca_levels,
             total_capital_usd=total_capital_usd,
-            precision_rules=precision_rules # Placeholder
+            precision_rules=symbol_precision
         )
 
-        # Create PositionGroup
+        # 4. Create PositionGroup
         risk_timer_start = datetime.utcnow()
         risk_timer_expires = risk_timer_start + timedelta(minutes=risk_config.post_full_wait_minutes)
         
@@ -63,23 +90,72 @@ class PositionManagerService:
             symbol=signal.symbol,
             timeframe=signal.timeframe,
             side=signal.side,
-            status=PositionGroupStatus.LIVE, # Or WAITING, depending on further logic
+            status=PositionGroupStatus.LIVE,
             total_dca_legs=len(dca_levels),
             base_entry_price=signal.entry_price,
-            weighted_avg_entry=signal.entry_price, # Initial
-            total_invested_usd=Decimal("0"), # Will be updated on fills
-            total_filled_quantity=Decimal("0"), # Will be updated on fills
+            weighted_avg_entry=signal.entry_price,
             tp_mode="per_leg", # TODO: Get from user config
             pyramid_count=0,
             max_pyramids=5, # TODO: Get from user config
             risk_timer_start=risk_timer_start,
             risk_timer_expires=risk_timer_expires
         )
+        self.session.add(new_position_group)
+        await self.session.flush() # Flush to get the ID for the position group
         
-        await self.position_group_repo.create(new_position_group)
+        # 5. Create Initial Pyramid
+        new_pyramid = Pyramid(
+            group_id=new_position_group.id,
+            pyramid_index=0,
+            entry_price=signal.entry_price,
+            status=PyramidStatus.PENDING,
+            dca_config=json.loads(dca_grid_config.json()) # Store full config or relevant part
+        )
+        self.session.add(new_pyramid)
+        await self.session.flush()
+
+        # 6. Instantiate OrderService
+        order_service = self.order_service_class(
+            session=self.session,
+            user=user,
+            exchange_connector=exchange_connector
+        )
+
+        # 7. Create DCAOrder objects
+        orders_to_submit = []
+        # Map signal side (long/short) to order side (buy/sell)
+        order_side = "buy" if signal.side == "long" else "sell"
+        
+        for i, level in enumerate(dca_levels):
+            dca_order = DCAOrder(
+                group_id=new_position_group.id,
+                pyramid_id=new_pyramid.id,
+                leg_index=i,
+                symbol=signal.symbol,
+                side=order_side,
+                order_type="limit",
+                price=level['price'],
+                quantity=level['quantity'],
+                status=OrderStatus.PENDING,
+                # TODO: Fill these from the level dict
+                gap_percent=level.get('gap_percent', Decimal("0")),
+                weight_percent=level.get('weight_percent', Decimal("0")),
+                tp_percent=level.get('tp_percent', Decimal("0")),
+                tp_price=level.get('tp_price', Decimal("0")),
+            )
+            self.session.add(dca_order)
+            orders_to_submit.append(dca_order)
+        
+        # 8. Commit the new orders to get IDs
         await self.session.commit()
         
-        logger.info(f"Created new PositionGroup {new_position_group.id} from signal {signal.id}")
+        # 9. Asynchronously submit all orders
+        # We iterate sequentially to avoid "Session is already flushing" errors with the shared session
+        for order in orders_to_submit:
+            await order_service.submit_order(order)
+
+        logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
+        
         return new_position_group
 
     async def handle_pyramid_continuation(

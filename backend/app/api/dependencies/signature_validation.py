@@ -17,11 +17,8 @@ async def get_webhook_payload(request: Request) -> WebhookPayload:
         )
 
 class SignatureValidator:
-    def __init__(self, db_session: AsyncSession = Depends(get_db_session)):
-        self.db_session = db_session
-        self.user_repo = UserRepository(db_session)
-
-    async def __call__(self, request: Request, payload: WebhookPayload = Depends(get_webhook_payload)):
+    async def __call__(self, user_id: str, request: Request, payload: WebhookPayload = Depends(get_webhook_payload), db_session: AsyncSession = Depends(get_db_session)):
+        user_repo = UserRepository(db_session)
         signature = request.headers.get("X-Signature")
         if not signature:
             raise HTTPException(
@@ -29,7 +26,7 @@ class SignatureValidator:
                 detail="Missing signature.",
             )
 
-        user = await self.user_repo.get_by_id(payload.user_id)
+        user = await user_repo.get_by_id(user_id)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

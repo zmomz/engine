@@ -10,13 +10,17 @@ app = FastAPI()
 mock_db = {}
 
 class Order(BaseModel):
-    id: str
+    id: Optional[str] = None
     symbol: str
     side: str
     type: str
     price: float
     quantity: float
     status: str = "open"
+
+@app.get("/orders", response_model=List[Order])
+async def get_all_orders():
+    return list(mock_db.values())
 
 @app.post("/orders", response_model=Order)
 async def create_order(order: Order):
@@ -61,3 +65,15 @@ async def get_balance():
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+# Test-only endpoints for TDD
+@app.get("/test/orders", response_model=List[Order], include_in_schema=False)
+async def get_test_orders():
+    """Returns all orders in the mock_db for testing purposes."""
+    return list(mock_db.values())
+
+@app.delete("/test/orders", status_code=204, include_in_schema=False)
+async def clear_test_orders():
+    """Clears all orders from the mock_db for testing purposes."""
+    mock_db.clear()
+    return {}

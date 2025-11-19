@@ -36,11 +36,15 @@ class OrderService:
 
         for attempt in range(max_retries):
             try:
+                # Ensure Enums are converted to their values and uppercase
+                order_type_value = (dca_order.order_type.value if hasattr(dca_order.order_type, 'value') else str(dca_order.order_type)).upper()
+                side_value = (dca_order.side.value if hasattr(dca_order.side, 'value') else str(dca_order.side)).upper()
+
                 exchange_order_data = await self.exchange_connector.place_order(
                     symbol=dca_order.symbol,
-                    type=dca_order.order_type,
-                    side=dca_order.side,
-                    amount=dca_order.quantity,
+                    order_type=order_type_value,
+                    side=side_value,
+                    quantity=dca_order.quantity,
                     price=dca_order.price
                 )
 

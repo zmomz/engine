@@ -11,7 +11,6 @@ router = APIRouter()
 
 @router.post("/{user_id}/tradingview", status_code=status.HTTP_202_ACCEPTED)
 async def tradingview_webhook(
-    user_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db_session),
     user: User = Depends(SignatureValidator()),

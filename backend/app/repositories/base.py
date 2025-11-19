@@ -2,6 +2,7 @@ from typing import Generic, Type, TypeVar
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.sql import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Base

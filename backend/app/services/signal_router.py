@@ -10,6 +10,7 @@ from app.repositories.queued_signal import QueuedSignalRepository
 from app.repositories.position_group import PositionGroupRepository
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from decimal import Decimal
+from app.services.order_management import OrderService
 
 class SignalRouterService:
     """
@@ -44,9 +45,11 @@ class SignalRouterService:
 
         position_manager_service = PositionManagerService(
             session=db_session,
+            user=self.user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=grid_calculator_service,
-            order_service_class=None  # OrderService needs to be refactored
+            order_service_class=OrderService,
+            exchange_connector=exchange_connector
         )
 
         queue_manager_service = QueueManagerService(
@@ -57,6 +60,8 @@ class SignalRouterService:
             exchange_connector=exchange_connector,
             execution_pool_manager=execution_pool_manager,
             position_manager_service=position_manager_service,
+            grid_calculator_service=grid_calculator_service,
+            order_service_class=OrderService,
             risk_engine_config=risk_engine_config,
             dca_grid_config=dca_grid_config,
             total_capital_usd=total_capital_usd

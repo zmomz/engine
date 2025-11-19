@@ -1,6 +1,3 @@
-import uuid
-from datetime import datetime
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -18,7 +15,9 @@ from app.db.types import GUID
 from .base import Base
 
 
+import uuid
 from enum import Enum
+from datetime import datetime
 
 
 class QueueStatus(str, Enum):

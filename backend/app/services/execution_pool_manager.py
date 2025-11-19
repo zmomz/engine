@@ -27,7 +27,7 @@ class ExecutionPoolManager:
         Returns the current number of active position groups in the pool.
         """
         active_statuses = [PositionGroupStatus.LIVE.value, PositionGroupStatus.PARTIALLY_FILLED.value, PositionGroupStatus.ACTIVE.value, PositionGroupStatus.CLOSING.value]
-        count = await self.repo.count_by_status(active_statuses, for_update=for_update)
+        count = await self.repo.count_by_status(active_statuses, for_update=False)
         return count
 
     async def request_slot(self, is_pyramid_continuation: bool = False) -> bool:

@@ -12,6 +12,7 @@ from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.grid_calculator import GridCalculatorService
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from decimal import Decimal
+from app.models.user import User
 from app.services.order_management import OrderService
 
 @pytest.fixture(scope="function")
@@ -20,7 +21,7 @@ async def http_client() -> AsyncClient:
         yield client
 
 @pytest.fixture(scope="function", autouse=True)
-async def override_get_db_session_for_integration_tests(db_session: AsyncSession):
+async def override_get_db_session_for_integration_tests(db_session: AsyncSession, test_user: User):
     """Overrides the get_db_session dependency for integration tests and initializes services."""
     app.dependency_overrides = {}
     
@@ -41,28 +42,30 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
     ])
     total_capital_usd = Decimal("10000")
 
-    def session_factory():
-        return db_session
-
     grid_calculator_service = GridCalculatorService()
     execution_pool_manager = ExecutionPoolManager(
-        session_factory=session_factory,
+        session=db_session,
         position_group_repository_class=PositionGroupRepository
     )
     position_manager_service = PositionManagerService(
-        session_factory=session_factory,
+        session=db_session,
+        user=test_user,
         position_group_repository_class=PositionGroupRepository,
         grid_calculator_service=grid_calculator_service,
-        order_service_class=OrderService
+        order_service_class=OrderService,
+        exchange_connector=exchange_connector
     )
     
     app.state.queue_manager_service = QueueManagerService(
-        session_factory=session_factory,
+        session=db_session,
+        user=test_user,
         queued_signal_repository_class=QueuedSignalRepository,
         position_group_repository_class=PositionGroupRepository,
         exchange_connector=exchange_connector,
         execution_pool_manager=execution_pool_manager,
-        position_manager_service=position_manager_service,
+        position_manager_service=PositionManagerService,
+        grid_calculator_service=grid_calculator_service,
+        order_service_class=OrderService,
         risk_engine_config=risk_engine_config,
         dca_grid_config=dca_grid_config,
         total_capital_usd=total_capital_usd

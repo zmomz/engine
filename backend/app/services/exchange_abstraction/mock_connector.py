@@ -10,10 +10,16 @@ class MockConnector(ExchangeInterface):
         self.base_url = base_url
         self.client = httpx.AsyncClient()
 
-    async def get_precision_rules(self, symbol: str) -> Dict:
-        response = await self.client.get(f"{self.base_url}/symbols/{symbol}/precision")
-        response.raise_for_status()
-        return response.json()
+    async def get_precision_rules(self) -> Dict:
+        # Return a hardcoded set for testing purposes, matching the flat structure expected by GridCalculatorService
+        return {
+            "BTCUSDT": {
+                "tick_size": 0.01,
+                "step_size": 0.001,
+                "min_qty": 0.001,
+                "min_notional": 10.0,
+            }
+        }
 
     async def place_order(self, symbol: str, side: str, order_type: str, quantity: Decimal, price: Optional[Decimal] = None) -> Dict:
         order_data = {
