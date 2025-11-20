@@ -5,23 +5,62 @@ from decimal import Decimal
 import uuid
 import asyncio
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.order_management import OrderService
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.repositories.dca_order import DCAOrderRepository
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType
+from app.models.user import User # Added User import
+from app.models.user import User # Added User import
 from app.exceptions import APIError, ExchangeConnectionError
+
+@pytest.fixture
+async def user_id_fixture(db_session: AsyncMock):
+    user = User(
+        id=uuid.uuid4(),
+        username="testuser_om",
+        email="test_om@example.com",
+        hashed_password="hashedpassword",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user.id
 
 @pytest.fixture
 def mock_exchange_connector():
     return AsyncMock(spec=ExchangeInterface)
 
 @pytest.fixture
-def mock_dca_order_repository():
-    return AsyncMock(spec=DCAOrderRepository)
+def mock_dca_order_repository(db_session: AsyncMock):
+    return AsyncMock(spec=DCAOrderRepository, return_value=DCAOrderRepository(db_session))
 
 @pytest.fixture
-def order_service(mock_exchange_connector, mock_dca_order_repository):
-    return OrderService(mock_exchange_connector, mock_dca_order_repository)
+async def order_service(db_session: AsyncMock, user_id_fixture, mock_exchange_connector, mock_dca_order_repository):
+    # Fetch a dummy user object to pass to OrderService
+    user = await db_session.get(User, user_id_fixture)
+    if user is None:
+        # Create a dummy user if not found (should be created by user_id_fixture)
+        user = User(
+            id=user_id_fixture,
+            username="testuser_om_service",
+            email="test_om_service@example.com",
+            hashed_password="hashedpassword",
+            exchange="mock",
+            webhook_secret="mock_secret"
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+    
+    # Patch the repository class where it is imported/used in order_management.py
+    with patch('app.services.order_management.DCAOrderRepository', return_value=mock_dca_order_repository):
+        yield OrderService(
+            session=db_session,
+            user=user,
+            exchange_connector=mock_exchange_connector
+        )
 
 @pytest.mark.asyncio
 async def test_submit_order_success(order_service, mock_exchange_connector, mock_dca_order_repository):
@@ -66,9 +105,9 @@ async def test_submit_order_success(order_service, mock_exchange_connector, mock
 
     mock_exchange_connector.place_order.assert_awaited_once_with(
         symbol="BTC/USDT",
-        type="limit",
-        side="buy",
-        amount=Decimal("0.001"),
+        order_type=OrderType.LIMIT.value.upper(),
+        side=mock_dca_order.side.upper(),
+        quantity=Decimal("0.001"),
         price=Decimal("60000")
     )
     mock_dca_order_repository.update.assert_awaited_once()

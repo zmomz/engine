@@ -44,9 +44,7 @@ def mock_grid_calculator_service():
     ]
     return mock
 
-@pytest.fixture
-def mock_session():
-    return AsyncMock()
+
 
 @pytest.fixture
 def mock_order_service_class():
@@ -66,17 +64,50 @@ def mock_position_group_repository_class():
     return mock_class
 
 @pytest.fixture
-def position_manager_service(
-    mock_session,
+def mock_exchange_connector():
+    return AsyncMock()
+
+@pytest.fixture
+def mock_db_session():
+    session = AsyncMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_session_factory(mock_db_session):
+    def factory():
+        return mock_db_session
+    return factory
+
+@pytest.fixture
+async def position_manager_service(
+    mock_session_factory,
     mock_position_group_repository_class,
     mock_grid_calculator_service,
     mock_order_service_class,
+    mock_exchange_connector,
+    user_id_fixture,
+    mock_db_session 
 ):
+    # Configure mock_db_session to return a dummy user
+    user = User(
+        id=user_id_fixture,
+        username="testuser_pm_service",
+        email="test_pm_service@example.com",
+        hashed_password="hashedpassword",
+        exchange="mock",
+        webhook_secret="mock_secret"
+    )
+    mock_db_session.get.return_value = user
+    
     return PositionManagerService(
-        session=mock_session,
+        session_factory=mock_session_factory, 
+        user=user, 
         position_group_repository_class=mock_position_group_repository_class,
         grid_calculator_service=mock_grid_calculator_service,
         order_service_class=mock_order_service_class,
+        exchange_connector=mock_exchange_connector
     )
 
 # --- Test Data ---
@@ -147,7 +178,7 @@ def sample_position_group(sample_risk_config, user_id_fixture):
 @pytest.mark.asyncio
 async def test_create_position_group_from_signal_new_position(
     position_manager_service,
-    mock_session,
+    mock_db_session, 
     mock_position_group_repository_class,
     sample_queued_signal,
     sample_risk_config,
@@ -157,7 +188,7 @@ async def test_create_position_group_from_signal_new_position(
     """Test creating a new PositionGroup from a queued signal with correct timer settings."""
     mock_user = MagicMock(spec=User)
     mock_user.encrypted_api_keys = {'data': 'test'}
-    mock_session.get.return_value = mock_user
+    mock_db_session.get.return_value = mock_user 
 
     with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
         mock_connector = MagicMock()
@@ -165,6 +196,7 @@ async def test_create_position_group_from_signal_new_position(
         mock_get_connector.return_value = mock_connector
 
         created_pg = await position_manager_service.create_position_group_from_signal(
+            session=mock_db_session, 
             user_id=sample_queued_signal.user_id,
             signal=sample_queued_signal,
             risk_config=sample_risk_config,
@@ -184,7 +216,7 @@ async def test_create_position_group_from_signal_new_position(
 @pytest.mark.asyncio
 async def test_create_position_group_submits_orders(
     position_manager_service,
-    mock_session,
+    mock_db_session, 
     mock_order_service_class,
     mock_grid_calculator_service,
     sample_queued_signal,
@@ -196,7 +228,7 @@ async def test_create_position_group_submits_orders(
     # Arrange
     mock_user = MagicMock(spec=User)
     mock_user.encrypted_api_keys = {'data': 'test'}
-    mock_session.get.return_value = mock_user
+    mock_db_session.get.return_value = mock_user 
 
     dca_levels = [
         {"price": Decimal("100"), "quantity": Decimal("1.0"), "gap_percent": Decimal("1"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")},
@@ -211,6 +243,7 @@ async def test_create_position_group_submits_orders(
 
         # Act
         await position_manager_service.create_position_group_from_signal(
+            session=mock_db_session, 
             user_id=sample_queued_signal.user_id,
             signal=sample_queued_signal,
             risk_config=sample_risk_config,
@@ -234,7 +267,7 @@ async def test_create_position_group_submits_orders(
 @pytest.mark.asyncio
 async def test_handle_pyramid_continuation_increment_count(
     position_manager_service,
-    mock_session,
+    mock_db_session, 
     mock_position_group_repository_class,
     sample_queued_signal,
     sample_risk_config,
@@ -245,28 +278,33 @@ async def test_handle_pyramid_continuation_increment_count(
     """Test handling a pyramid continuation increments pyramid_count and replacement_count."""
     mock_user = MagicMock(spec=User)
     mock_user.encrypted_api_keys = {'data': 'test'}
-    mock_session.get.return_value = mock_user
+    mock_db_session.get.return_value = mock_user 
 
     initial_pyramid_count = sample_position_group.pyramid_count
     initial_replacement_count = sample_position_group.replacement_count
 
-    updated_pg = await position_manager_service.handle_pyramid_continuation(
-        user_id=sample_queued_signal.user_id,
-        signal=sample_queued_signal,
-        existing_position_group=sample_position_group,
-        risk_config=sample_risk_config,
-        dca_grid_config=sample_dca_grid_config,
-        total_capital_usd=sample_total_capital_usd
-    )
+    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+        mock_connector = MagicMock()
+        mock_connector.get_precision_rules = AsyncMock(return_value={})
+        mock_get_connector.return_value = mock_connector
 
-    mock_position_group_repository_class.return_value.update.assert_called_once()
+        updated_pg = await position_manager_service.handle_pyramid_continuation(
+            session=mock_db_session, 
+            user_id=sample_queued_signal.user_id,
+            signal=sample_queued_signal,
+            existing_position_group=sample_position_group,
+            risk_config=sample_risk_config,
+            dca_grid_config=sample_dca_grid_config,
+            total_capital_usd=sample_total_capital_usd
+        )
+
     assert updated_pg.pyramid_count == initial_pyramid_count + 1
     assert updated_pg.replacement_count == initial_replacement_count + 1
 
 @pytest.mark.asyncio
 async def test_handle_pyramid_continuation_reset_timer(
     position_manager_service,
-    mock_session,
+    mock_db_session, 
     mock_position_group_repository_class,
     sample_queued_signal,
     sample_risk_config,
@@ -277,21 +315,26 @@ async def test_handle_pyramid_continuation_reset_timer(
     """Test handling a pyramid continuation resets the timer when configured."""
     mock_user = MagicMock(spec=User)
     mock_user.encrypted_api_keys = {'data': 'test'}
-    mock_session.get.return_value = mock_user
+    mock_db_session.get.return_value = mock_user 
 
     sample_risk_config.reset_timer_on_replacement = True # Set config to reset timer
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    updated_pg = await position_manager_service.handle_pyramid_continuation(
-        user_id=sample_queued_signal.user_id,
-        signal=sample_queued_signal,
-        existing_position_group=sample_position_group,
-        risk_config=sample_risk_config,
-        dca_grid_config=sample_dca_grid_config,
-        total_capital_usd=sample_total_capital_usd
-    )
+    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+        mock_connector = MagicMock()
+        mock_connector.get_precision_rules = AsyncMock(return_value={})
+        mock_get_connector.return_value = mock_connector
 
-    mock_position_group_repository_class.return_value.update.assert_called_once()
+        updated_pg = await position_manager_service.handle_pyramid_continuation(
+            session=mock_db_session, 
+            user_id=sample_queued_signal.user_id,
+            signal=sample_queued_signal,
+            existing_position_group=sample_position_group,
+            risk_config=sample_risk_config,
+            dca_grid_config=sample_dca_grid_config,
+            total_capital_usd=sample_total_capital_usd
+        )
+
     assert updated_pg.risk_timer_start is not None
     assert updated_pg.risk_timer_expires is not None
     expected_expiry = updated_pg.risk_timer_start + timedelta(minutes=sample_risk_config.post_full_wait_minutes)
@@ -300,7 +343,7 @@ async def test_handle_pyramid_continuation_reset_timer(
 @pytest.mark.asyncio
 async def test_handle_pyramid_continuation_no_reset_timer(
     position_manager_service,
-    mock_session,
+    mock_db_session, 
     mock_position_group_repository_class,
     sample_queued_signal,
     sample_risk_config,
@@ -311,22 +354,27 @@ async def test_handle_pyramid_continuation_no_reset_timer(
     """Test handling a pyramid continuation does not reset the timer when not configured."""
     mock_user = MagicMock(spec=User)
     mock_user.encrypted_api_keys = {'data': 'test'}
-    mock_session.get.return_value = mock_user
+    mock_db_session.get.return_value = mock_user 
 
     sample_risk_config.reset_timer_on_replacement = False # Set config to NOT reset timer
     initial_timer_start = sample_position_group.risk_timer_start
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    updated_pg = await position_manager_service.handle_pyramid_continuation(
-        user_id=sample_queued_signal.user_id,
-        signal=sample_queued_signal,
-        existing_position_group=sample_position_group,
-        risk_config=sample_risk_config,
-        dca_grid_config=sample_dca_grid_config,
-        total_capital_usd=sample_total_capital_usd
-    )
+    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+        mock_connector = MagicMock()
+        mock_connector.get_precision_rules = AsyncMock(return_value={})
+        mock_get_connector.return_value = mock_connector
 
-    mock_position_group_repository_class.return_value.update.assert_called_once()
+        updated_pg = await position_manager_service.handle_pyramid_continuation(
+            session=mock_db_session, 
+            user_id=sample_queued_signal.user_id,
+            signal=sample_queued_signal,
+            existing_position_group=sample_position_group,
+            risk_config=sample_risk_config,
+            dca_grid_config=sample_dca_grid_config,
+            total_capital_usd=sample_total_capital_usd
+        )
+
     assert updated_pg.risk_timer_start == initial_timer_start # Timer should NOT have been reset
     assert updated_pg.risk_timer_expires == initial_timer_expires # Timer should NOT have been reset
 
@@ -400,11 +448,11 @@ async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_
 
     # Assert
     mock_position_group_repository_class.return_value.update.assert_called_once()
-    updated_data = mock_position_group_repository_class.return_value.update.call_args[0][1]
-    assert "risk_timer_expires" in updated_data
+    updated_pg = mock_position_group_repository_class.return_value.update.call_args[0][0]
+    assert updated_pg.risk_timer_expires is not None
     expected_expiry = now + timedelta(minutes=60)
-    assert updated_data["risk_timer_expires"] > now
-    assert updated_data["risk_timer_expires"] < expected_expiry + timedelta(seconds=1)
+    assert updated_pg.risk_timer_expires > now
+    assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
 
 
 @pytest.mark.asyncio
@@ -445,11 +493,11 @@ async def test_risk_timer_start_after_all_dca_submitted(position_manager_service
 
     # Assert
     mock_position_group_repository_class.return_value.update.assert_called_once()
-    updated_data = mock_position_group_repository_class.return_value.update.call_args[0][1]
-    assert "risk_timer_expires" in updated_data
+    updated_pg = mock_position_group_repository_class.return_value.update.call_args[0][0]
+    assert updated_pg.risk_timer_expires is not None
     expected_expiry = now + timedelta(minutes=30)
-    assert updated_data["risk_timer_expires"] > now
-    assert updated_data["risk_timer_expires"] < expected_expiry + timedelta(seconds=1)
+    assert updated_pg.risk_timer_expires > now
+    assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
 
 
 @pytest.mark.asyncio
@@ -490,10 +538,10 @@ async def test_risk_timer_start_after_all_dca_filled(position_manager_service, m
 
     # Assert
     mock_position_group_repository_class.return_value.update.assert_called_once()
-    updated_data = mock_position_group_repository_class.return_value.update.call_args[0][1]
-    assert "risk_timer_expires" in updated_data
+    updated_pg = mock_position_group_repository_class.return_value.update.call_args[0][0]
+    assert updated_pg.risk_timer_expires is not None
     expected_expiry = now + timedelta(minutes=15)
-    assert updated_data["risk_timer_expires"] > now
-    assert updated_data["risk_timer_expires"] < expected_expiry + timedelta(seconds=1)
+    assert updated_pg.risk_timer_expires > now
+    assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
 
 

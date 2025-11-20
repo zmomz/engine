@@ -45,12 +45,11 @@ async def test_request_slot_available(execution_pool_manager_service, mock_posit
     Test that a slot is granted when the number of active groups is below the max limit.
     """
     execution_pool_manager_service.get_current_pool_size = AsyncMock(return_value=0)
-    mock_session = AsyncMock(spec=AsyncSession)
     
-    slot_granted = await execution_pool_manager_service.request_slot(mock_session)
+    slot_granted = await execution_pool_manager_service.request_slot()
     
     assert slot_granted is True
-    execution_pool_manager_service.get_current_pool_size.assert_called_once_with(mock_session, for_update=True)
+    execution_pool_manager_service.get_current_pool_size.assert_called_once_with(for_update=True)
 
 @pytest.mark.asyncio
 async def test_request_slot_not_available(execution_pool_manager_service, mock_position_group_repository_class):
@@ -58,12 +57,11 @@ async def test_request_slot_not_available(execution_pool_manager_service, mock_p
     Test that a slot is NOT granted when the number of active groups is at or above the max limit.
     """
     execution_pool_manager_service.get_current_pool_size = AsyncMock(return_value=3) # Pool is full
-    mock_session = AsyncMock(spec=AsyncSession)
     
-    slot_granted = await execution_pool_manager_service.request_slot(mock_session)
+    slot_granted = await execution_pool_manager_service.request_slot()
     
     assert slot_granted is False
-    execution_pool_manager_service.get_current_pool_size.assert_called_once_with(mock_session, for_update=True)
+    execution_pool_manager_service.get_current_pool_size.assert_called_once_with(for_update=True)
 
 @pytest.mark.asyncio
 async def test_request_slot_pyramid_continuation_bypasses_limit(execution_pool_manager_service, mock_position_group_repository_class):
@@ -72,9 +70,8 @@ async def test_request_slot_pyramid_continuation_bypasses_limit(execution_pool_m
     """
     # Even if the pool is full, a pyramid continuation should be granted a slot
     execution_pool_manager_service.get_current_pool_size = AsyncMock(return_value=3) # Pool is full
-    mock_session = AsyncMock(spec=AsyncSession)
     
-    slot_granted = await execution_pool_manager_service.request_slot(mock_session, is_pyramid_continuation=True)
+    slot_granted = await execution_pool_manager_service.request_slot(is_pyramid_continuation=True)
     
     assert slot_granted is True
     # get_current_pool_size should NOT be called for pyramid continuations

@@ -140,11 +140,11 @@ async def test_binance_live_flow(
         exchange_connector = get_exchange_connector("binance", BINANCE_TESTNET_API_KEY, BINANCE_TESTNET_SECRET_KEY, default_type="spot")
 
         grid_calculator_service = GridCalculatorService()
-        execution_pool_manager = ExecutionPoolManager(session=db_session, position_group_repository_class=PositionGroupRepository)
+        execution_pool_manager = ExecutionPoolManager(session_factory=lambda: db_session, position_group_repository_class=PositionGroupRepository)
         risk_engine_config = RiskEngineConfig()
 
         position_manager_service = PositionManagerService(
-            session=db_session,
+            session_factory=lambda: db_session,
             user=test_user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=grid_calculator_service,
@@ -163,7 +163,7 @@ async def test_binance_live_flow(
         )
 
         queue_manager = QueueManagerService(
-            session=db_session,
+            session_factory=lambda: db_session,
             user=test_user,
             queued_signal_repository_class=QueuedSignalRepository,
             position_group_repository_class=PositionGroupRepository,

@@ -44,7 +44,7 @@ async def db_session(test_db_engine):
 
 @pytest.fixture(scope="function")
 async def test_user(db_session: AsyncSession):
-    user = User(username="testuser", email="test@example.com", hashed_password="hashedpassword", exchange="mock")
+    user = User(username="testuser", email="test@example.com", hashed_password="hashedpassword", exchange="binance")
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)

@@ -72,12 +72,13 @@
 1.  [x] **Reconciliation Worker:** Poll exchange for order status updates (Fills, Cancellations) via `OrderFillMonitorService`.
 2.  [x] **State Management:** Update DB stats (qty, avg entry) when orders fill via `PositionManagerService`.
 3.  [x] **Take-Profit Management:** Automatically place Limit TP orders when DCA orders fill via `OrderService`.
+4.  [x] **Final Backend Verification:** Full Integration Tests Passed (Mock Exchange).
 
 ### Phase 5: Frontend Dashboard (Pending)
-1.  [ ] React setup.
+1.  [ ] React setup (Scaffold, Docker).
 2.  [ ] Dashboard: Active Positions, Equity Curve, Signal Log.
 3.  [ ] Settings Page: API Keys, Risk Config.
 
 ## 6. Current Task
-**Focus:** Project Stabilized. Ready for Frontend or Deployment.
-**Next:** Setup React Frontend or run extensive simulation tests.
+**Focus:** Backend verified. Starting Phase 5: Frontend Development.
+**Next:** Setup React Frontend application structure.

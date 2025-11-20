@@ -5,6 +5,8 @@ import uuid
 import asyncio
 import json
 
+from typing import Callable, List, Optional, Tuple # Added Callable
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.position_group import PositionGroup, PositionGroupStatus
@@ -26,23 +28,25 @@ logger = logging.getLogger(__name__)
 class PositionManagerService:
     def __init__(
         self,
-        session: AsyncSession,
+        session_factory: Callable[..., AsyncSession], # Changed to session_factory
         user: "User",
         position_group_repository_class: type[PositionGroupRepository],
         grid_calculator_service: GridCalculatorService,
         order_service_class: type[OrderService],
         exchange_connector: ExchangeInterface
     ):
-        self.session = session
+        self.session_factory = session_factory # Stored session_factory
         self.user = user
-        self.repo = position_group_repository_class(session)
+        self.position_group_repository_class = position_group_repository_class # Stored class
         self.grid_calculator_service = grid_calculator_service
         self.order_service_class = order_service_class
-        self.order_service = order_service_class(session=session, user=self.user, exchange_connector=exchange_connector)
         self.exchange_connector = exchange_connector
+        # Defer order_service instantiation, will be created per session or as needed
+        self.order_service = None
 
     async def create_position_group_from_signal(
         self,
+        session: AsyncSession, # Added session
         user_id: uuid.UUID,
         signal: QueuedSignal,
         risk_config: RiskEngineConfig,
@@ -50,7 +54,7 @@ class PositionManagerService:
         total_capital_usd: Decimal
     ) -> PositionGroup:
         # 1. Get user and decrypt API keys to instantiate exchange connector
-        user = await self.session.get(User, user_id)
+        user = await session.get(User, user_id) # Use passed session
         if not user:
             raise Exception("User not found") # TODO: use a more specific exception
         
@@ -101,8 +105,8 @@ class PositionManagerService:
             risk_timer_start=risk_timer_start,
             risk_timer_expires=risk_timer_expires
         )
-        self.session.add(new_position_group)
-        await self.session.flush() # Flush to get the ID for the position group
+        session.add(new_position_group) # Use passed session
+        await session.flush() # Flush to get the ID for the position group
         
         # 5. Create Initial Pyramid
         new_pyramid = Pyramid(
@@ -112,12 +116,12 @@ class PositionManagerService:
             status=PyramidStatus.PENDING,
             dca_config=json.loads(dca_grid_config.json()) # Store full config or relevant part
         )
-        self.session.add(new_pyramid)
-        await self.session.flush()
+        session.add(new_pyramid) # Use passed session
+        await session.flush()
 
         # 6. Instantiate OrderService
         order_service = self.order_service_class(
-            session=self.session,
+            session=session, # Use passed session
             user=user,
             exchange_connector=exchange_connector
         )
@@ -144,11 +148,12 @@ class PositionManagerService:
                 tp_percent=level.get('tp_percent', Decimal("0")),
                 tp_price=level.get('tp_price', Decimal("0")),
             )
-            self.session.add(dca_order)
+            session.add(dca_order) # Use passed session
             orders_to_submit.append(dca_order)
         
         # 8. Commit the new orders to get IDs
-        await self.session.commit()
+        # Note: The commit is handled by the caller (QueueManagerService)
+        # Await session.commit() # Removed as caller commits
         
         # 9. Asynchronously submit all orders
         # We iterate sequentially to avoid "Session is already flushing" errors with the shared session
@@ -161,6 +166,7 @@ class PositionManagerService:
 
     async def handle_pyramid_continuation(
         self,
+        session: AsyncSession, # Added session
         user_id: uuid.UUID,
         signal: QueuedSignal,
         existing_position_group: PositionGroup,
@@ -169,7 +175,7 @@ class PositionManagerService:
         total_capital_usd: Decimal
     ) -> PositionGroup:
         # 1. Get user and decrypt API keys
-        user = await self.session.get(User, user_id)
+        user = await session.get(User, user_id) # Use passed session
         if not user:
             raise Exception("User not found")
         
@@ -217,12 +223,12 @@ class PositionManagerService:
             status=PyramidStatus.PENDING,
             dca_config=json.loads(dca_grid_config.json())
         )
-        self.session.add(new_pyramid)
-        await self.session.flush()
+        session.add(new_pyramid) # Use passed session
+        await session.flush()
 
         # 6. Instantiate OrderService
         order_service = self.order_service_class(
-            session=self.session,
+            session=session, # Use passed session
             user=user,
             exchange_connector=exchange_connector
         )
@@ -248,11 +254,12 @@ class PositionManagerService:
                 tp_percent=level.get('tp_percent', Decimal("0")),
                 tp_price=level.get('tp_price', Decimal("0")),
             )
-            self.session.add(dca_order)
+            session.add(dca_order) # Use passed session
             orders_to_submit.append(dca_order)
 
         # 8. Commit and Submit
-        await self.session.commit()
+        # Note: The commit is handled by the caller (QueueManagerService)
+        # Await session.commit() # Removed as caller commits
         
         for order in orders_to_submit:
             await order_service.submit_order(order)
@@ -266,99 +273,107 @@ class PositionManagerService:
         1. Cancels all open DCA orders.
         2. Places a market order to close the total filled quantity.
         """
-        # The OrderService needs its own session and repositories
-        order_service = self.order_service_class(self.session) # Assuming OrderService can be instantiated like this
+        async with self.session_factory() as session:
+            # The OrderService needs its own session and repositories
+            # Assuming user is available in the instance or passed. For now, using self.user.
+            order_service = self.order_service_class(session=session, user=self.user, exchange_connector=self.exchange_connector)
 
-        # 1. Cancel open orders
-        await order_service.cancel_open_orders_for_group(position_group.id)
-        logger.info(f"Cancelled open orders for PositionGroup {position_group.id}")
+            # 1. Cancel open orders
+            await order_service.cancel_open_orders_for_group(position_group.id)
+            logger.info(f"Cancelled open orders for PositionGroup {position_group.id}")
 
-        # 2. Calculate total filled quantity
-        total_filled_quantity = sum(
-            order.filled_quantity 
-            for order in position_group.dca_orders 
-            if order.status == OrderStatus.FILLED
-        )
-
-        if total_filled_quantity > 0:
-            # 3. Close the position
-            await order_service.close_position_market(
-                position_group=position_group,
-                quantity_to_close=total_filled_quantity
+            # 2. Calculate total filled quantity
+            total_filled_quantity = sum(
+                order.filled_quantity 
+                for order in position_group.dca_orders 
+                if order.status == OrderStatus.FILLED
             )
-            logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
-        else:
-            logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
 
-        # TODO: Update PositionGroup status to CLOSING/CLOSED
-        # position_group.status = PositionGroupStatus.CLOSING
-        # await position_group_repo.update(position_group)
-        # await self.session.commit()
+            if total_filled_quantity > 0:
+                # 3. Close the position
+                await order_service.close_position_market(
+                    position_group=position_group,
+                    quantity_to_close=total_filled_quantity
+                )
+                logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
+            else:
+                logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
+
+            # TODO: Update PositionGroup status to CLOSING/CLOSED
+            # position_group.status = PositionGroupStatus.CLOSING
+            # await position_group_repo.update(position_group)
+            # await session.commit() # Use local session for commit
 
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig):
-        position_group = await self.position_group_repo.get_by_id(position_group_id)
+        async with self.session_factory() as session:
+            position_group_repo = self.position_group_repository_class(session) # Instantiate repo with session
+            position_group = await position_group_repo.get_by_id(position_group_id)
 
-        if not position_group:
-            return
+            if not position_group:
+                return
 
-        timer_started = False
-        if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
-            timer_started = True
-        elif risk_config.timer_start_condition == "after_all_dca_submitted" and position_group.pyramid_count >= 5:
-            # This condition is met when all pyramids are present, assuming dca are submitted with them
-            timer_started = True
-        elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
-            timer_started = True
+            timer_started = False
+            if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
+                timer_started = True
+            elif risk_config.timer_start_condition == "after_all_dca_submitted" and position_group.pyramid_count >= 5:
+                # This condition is met when all pyramids are present, assuming dca are submitted with them
+                timer_started = True
+            elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
+                timer_started = True
 
-        if timer_started:
-            expires_at = datetime.utcnow() + timedelta(minutes=risk_config.post_full_wait_minutes)
-            await self.position_group_repo.update(position_group_id, {"risk_timer_expires": expires_at})
-            logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
+            if timer_started:
+                expires_at = datetime.utcnow() + timedelta(minutes=risk_config.post_full_wait_minutes)
+                position_group.risk_timer_expires = expires_at
+                await position_group_repo.update(position_group) # Update the object, not ID and dict
+                await session.commit()
+                logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
     async def update_position_stats(self, group_id: uuid.UUID):
         """
         Recalculates total filled quantity and weighted average entry price for a position group.
         """
-        position_group = await self.repo.get(group_id)
-        if not position_group:
-            logger.error(f"PositionGroup {group_id} not found for stats update.")
-            return
+        async with self.session_factory() as session:
+            position_group_repo = self.position_group_repository_class(session) # Instantiate repo with session
+            position_group = await position_group_repo.get(group_id)
+            if not position_group:
+                logger.error(f"PositionGroup {group_id} not found for stats update.")
+                return
 
-        # Re-fetch DCA orders to ensure we have the latest status
-        # Ideally we should use a join or specific query, but lazy load might work if session is active.
-        # To be safe and robust, let's use the order repo or refresh the relationship.
-        await self.session.refresh(position_group, attribute_names=["dca_orders"])
-        
-        filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
-        
-        total_qty = sum(o.filled_quantity for o in filled_orders)
-        total_cost = sum(o.filled_quantity * (o.avg_fill_price or o.price) for o in filled_orders)
-        
-        if total_qty > 0:
-            weighted_avg = total_cost / total_qty
-            position_group.total_filled_quantity = total_qty
-            position_group.total_invested_usd = total_cost
-            position_group.weighted_avg_entry = weighted_avg
+            # Re-fetch DCA orders to ensure we have the latest status
+            # Ideally we should use a join or specific query, but lazy load might work if session is active.
+            # To be safe and robust, let's use the order repo or refresh the relationship.
+            await session.refresh(position_group, attribute_names=["dca_orders"]) # Use local session for refresh
             
-            # Update filled leg count
-            position_group.filled_dca_legs = len(filled_orders)
+            filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
             
-            # Check if status needs update (e.g. from LIVE to PARTIALLY_FILLED or ACTIVE)
-            if position_group.status == PositionGroupStatus.LIVE:
-                 if len(filled_orders) == len(position_group.dca_orders):
-                     position_group.status = PositionGroupStatus.ACTIVE
-                 else:
-                     position_group.status = PositionGroupStatus.PARTIALLY_FILLED
-            elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
-                 if len(filled_orders) == len(position_group.dca_orders):
-                     position_group.status = PositionGroupStatus.ACTIVE
+            total_qty = sum(o.filled_quantity for o in filled_orders)
+            total_cost = sum(o.filled_quantity * (o.avg_fill_price or o.price) for o in filled_orders)
+            
+            if total_qty > 0:
+                weighted_avg = total_cost / total_qty
+                position_group.total_filled_quantity = total_qty
+                position_group.total_invested_usd = total_cost
+                position_group.weighted_avg_entry = weighted_avg
+                
+                # Update filled leg count
+                position_group.filled_dca_legs = len(filled_orders)
+                
+                # Check if status needs update (e.g. from LIVE to PARTIALLY_FILLED or ACTIVE)
+                if position_group.status == PositionGroupStatus.LIVE:
+                     if len(filled_orders) == len(position_group.dca_orders):
+                         position_group.status = PositionGroupStatus.ACTIVE
+                     else:
+                         position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+                elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
+                     if len(filled_orders) == len(position_group.dca_orders):
+                         position_group.status = PositionGroupStatus.ACTIVE
 
-            await self.repo.update(position_group)
-            await self.session.commit()
-            logger.info(f"Updated stats for PositionGroup {group_id}: Qty={total_qty}, AvgEntry={weighted_avg}")
-        else:
-            logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
+                await position_group_repo.update(position_group)
+                await session.commit()
+                logger.info(f"Updated stats for PositionGroup {group_id}: Qty={total_qty}, AvgEntry={weighted_avg}")
+            else:
+                logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
 
     # TODO: Add methods for updating position group PnL, status, etc.

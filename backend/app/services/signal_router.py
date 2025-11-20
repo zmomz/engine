@@ -42,12 +42,12 @@ class SignalRouterService:
         grid_calculator_service = GridCalculatorService()
 
         execution_pool_manager = ExecutionPoolManager(
-            session=db_session,
+            session_factory=lambda: db_session, # Changed to session_factory
             position_group_repository_class=PositionGroupRepository
         )
 
         position_manager_service = PositionManagerService(
-            session=db_session,
+            session_factory=lambda: db_session, # Changed to session_factory
             user=self.user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=grid_calculator_service,
@@ -66,7 +66,7 @@ class SignalRouterService:
         )
 
         queue_manager_service = QueueManagerService(
-            session=db_session,
+            session_factory=lambda: db_session, # Changed to session_factory
             user=self.user,
             queued_signal_repository_class=QueuedSignalRepository,
             position_group_repository_class=PositionGroupRepository,

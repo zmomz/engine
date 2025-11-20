@@ -26,3 +26,8 @@
 ## 4. Pydantic & Configuration
 *   **Validation:** `model_validate` is strict. When defining test data fixtures, ensure all fields (like `weight_percent` summing to 100) meet the validation rules defined in the schemas.
 *   **Field Types:** Be careful with `Decimal` vs `float` in Pydantic models. Explicit type coercion (e.g., `@model_validator`) is often needed when data comes from mixed sources (JSON payloads vs DB).
+
+## 5. Docker & Integration Testing
+*   **Hostname Resolution:** When running tests inside a Docker container (e.g., `pytest` in `app` service), ensure the database hostname (`db`) matches the service name in `docker-compose.yml`. `socket.gaierror` usually indicates the container cannot resolve the hostname, often due to network isolation or race conditions during startup.
+*   **Service Dependencies:** Using `depends_on: condition: service_healthy` is robust but requires a valid `healthcheck` in the dependency service. If the healthcheck is missing or misconfigured, the dependent service (app/tests) might fail to start or timeout.
+*   **Virtual Environments:** When running commands via `docker-compose run`, ensure you are using the correct python environment (`poetry run` or `.venv/bin/python`).

@@ -113,8 +113,8 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
     
     # Create user directly in database
     await db_session.execute(
-        text("INSERT INTO users (id, username, email, hashed_password) VALUES (:id, :username, :email, :password)"),
-        {"id": user_id, "username": "testuser_group", "email": "test_group@example.com", "password": "hashedpassword"}
+        text("INSERT INTO users (id, username, email, hashed_password, exchange, webhook_secret) VALUES (:id, :username, :email, :password, :exchange, :webhook_secret)"),
+        {"id": user_id, "username": "testuser_group", "email": "test_group@example.com", "password": "hashedpassword", "exchange": "binance", "webhook_secret": "secret"}
     )
     
     # Create position group using repository
@@ -180,22 +180,12 @@ async def test_get_position_group_not_found_integration(db_session: AsyncSession
 # --- Tests for /queue endpoints ---
 
 @pytest.mark.asyncio
-async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession):
-    user = User(
-        id=uuid.uuid4(),
-        username="testuser_queue",
-        email="test_queue@example.com",
-        hashed_password="hashedpassword",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-
-    user_id = user.id
+async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession, test_user: User):
+    user_id = test_user.id
     # Create some queued signals directly in the database
     qs1 = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=user.id,
+        user_id=user_id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -210,7 +200,7 @@ async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSign
     )
     qs2 = QueuedSignal(
         id=uuid.uuid4(),
-        user_id=user.id,
+        user_id=user_id,
         exchange="bybit",
         symbol="ETHUSDT",
         timeframe=60,
@@ -237,22 +227,12 @@ async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSign
     assert response_data[1]["symbol"] == "ETHUSDT"
 
 @pytest.mark.asyncio
-async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession):
-    user = User(
-        id=uuid.uuid4(),
-        username="testuser_remove_queue",
-        email="test_remove_queue@example.com",
-        hashed_password="hashedpassword",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-
-    user_id = user.id
+async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession, test_user: User):
+    user_id = test_user.id
     signal_id = uuid.uuid4()
     qs = QueuedSignal(
         id=signal_id,
-        user_id=user.id,
+        user_id=user_id,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,

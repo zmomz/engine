@@ -24,11 +24,13 @@ class BaseRepository(Generic[ModelType]):
         await self.session.refresh(instance)
         return instance
 
-    async def delete(self, pk: UUID) -> None:
+    async def delete(self, pk: UUID) -> bool:
         instance = await self.get(pk)
         if instance:
             await self.session.delete(instance)
             await self.session.flush()
+            return True
+        return False
 
     async def update(self, instance: ModelType) -> ModelType:
         self.session.add(instance)  # Re-add the instance to the session to track changes

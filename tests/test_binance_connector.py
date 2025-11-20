@@ -60,12 +60,20 @@ async def test_get_precision_rules_success(mock_ccxt_binance):
             'precision': {
                 'amount': 8,
                 'price': 2
+            },
+            'limits': {
+                'amount': {'min': 0.00001},
+                'cost': {'min': 5.0}
             }
         },
         'ETH/USDT': {
             'precision': {
                 'amount': 6,
                 'price': 2
+            },
+            'limits': {
+                'amount': {'min': 0.0001},
+                'cost': {'min': 5.0}
             }
         }
     }
@@ -77,7 +85,27 @@ async def test_get_precision_rules_success(mock_ccxt_binance):
         rules = await connector.get_precision_rules()
         
         mock_ccxt_binance.load_markets.assert_awaited_once()
-        assert rules == mock_markets_response
+        
+        expected_rules = {
+            'BTC/USDT': {
+                'tick_size': 0.01,
+                'step_size': 1e-08,
+                'min_qty': 1e-05,
+                'min_notional': 5.0
+            },
+            'ETH/USDT': {
+                'tick_size': 0.01,
+                'step_size': 1e-06,
+                'min_qty': 0.0001,
+                'min_notional': 5.0
+            }
+        }
+        # We expect keys for both symbol name and ID if they differ, but here they might overlap or be just one.
+        # The connector logic adds both 'symbol' and 'id' keys.
+        # In the mock, 'BTC/USDT' is the key. If 'id' is missing in the mock market value, it only adds the key.
+        # Let's verify the values for the known keys.
+        assert rules['BTC/USDT'] == expected_rules['BTC/USDT']
+        assert rules['ETH/USDT'] == expected_rules['ETH/USDT']
 
 @pytest.mark.asyncio
 async def test_place_order_success(mock_ccxt_binance):
@@ -102,7 +130,7 @@ async def test_place_order_success(mock_ccxt_binance):
             symbol='BTC/USDT',
             order_type='limit',
             side='buy',
-            amount=0.1,
+            quantity=0.1,
             price=50000.0
         )
         

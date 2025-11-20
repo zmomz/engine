@@ -197,6 +197,7 @@ class OrderService:
         for order in open_orders_in_db:
             try:
                 await self.check_order_status(order)
+                await self.session.commit() # Commit changes
                 print(f"OrderService: Reconciled order {order.id}. New status: {order.status}")
             except APIError as e:
                 print(f"OrderService: Failed to reconcile order {order.id}: {e}")

@@ -13,8 +13,6 @@ services:
       - DATABASE_URL=postgresql+asyncpg://tv_user:your_password@db:5432/tv_engine_db_test
       - EXCHANGE_TYPE=mock
     depends_on:
-      db:
-        condition: service_started
       mock-exchange:
         condition: service_healthy
     command: >
