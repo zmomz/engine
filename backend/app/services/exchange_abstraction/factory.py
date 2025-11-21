@@ -28,3 +28,9 @@ def get_exchange_connector(exchange_type: str, api_key: str = "", secret_key: st
         return BybitConnector(api_key=api_key, secret_key=secret_key)
     else:
         raise UnsupportedExchangeError(f"Exchange type '{exchange_type}' is not supported.")
+
+def get_supported_exchanges() -> list[str]:
+    """
+    Returns a list of supported exchange IDs.
+    """
+    return ["binance", "bybit", "mock"]

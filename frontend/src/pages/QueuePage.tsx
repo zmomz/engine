@@ -1,95 +1,83 @@
-import React, { useState } from 'react';
-import {
-  Box,
-  Typography,
-  Button,
-  Stack,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-} from '@mui/material';
+import React, { useEffect } from 'react';
+import { Box, Typography, Button } from '@mui/material';
 import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
-import { useDataStore } from '../store/dataStore';
+import useQueueStore from '../store/queueStore';
 
 const QueuePage: React.FC = () => {
-  const { queuedSignals } = useDataStore();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedSignal, setSelectedSignal] = useState<any>(null);
+  const { queuedSignals, loading, error, fetchQueuedSignals, promoteSignal, removeSignal } = useQueueStore();
 
-  const handleForceAddClick = (signal: any) => {
-    setSelectedSignal(signal);
-    setModalOpen(true);
+  useEffect(() => {
+    fetchQueuedSignals();
+    const interval = setInterval(fetchQueuedSignals, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, [fetchQueuedSignals]);
+
+  const handlePromote = async (signalId: string) => {
+    if (window.confirm('Are you sure you want to promote this signal?')) {
+      await promoteSignal(signalId);
+    }
   };
 
-  const handleModalClose = () => {
-    setModalOpen(false);
-    setSelectedSignal(null);
-  };
-
-  const handleConfirm = () => {
-    // TODO: Implement the actual force add logic
-    console.log('Force adding signal:', selectedSignal);
-    handleModalClose();
+  const handleRemove = async (signalId: string) => {
+    if (window.confirm('Are you sure you want to remove this signal from the queue?')) {
+      await removeSignal(signalId);
+    }
   };
 
   const columns: GridColDef[] = [
-    { field: 'symbol', headerName: 'Symbol', width: 120 },
-    { field: 'exchange', headerName: 'Exchange', width: 100 },
-    { field: 'direction', headerName: 'Direction', width: 90 },
-    { field: 'status', headerName: 'Status', width: 90 },
-    { field: 'created_at', headerName: 'Created At', width: 180 },
+    { field: 'symbol', headerName: 'Symbol', width: 150 },
+    { field: 'side', headerName: 'Side', width: 100 },
+    { field: 'signal_type', headerName: 'Type', width: 150 },
+    { field: 'priority_score', headerName: 'Priority', type: 'number', width: 120 },
+    { field: 'created_at', headerName: 'Received At', width: 200 },
     {
       field: 'actions',
       headerName: 'Actions',
       width: 200,
       renderCell: (params: GridRenderCellParams) => (
-        <Stack direction="row" spacing={1}>
-          <Button variant="contained" size="small" color="primary">
+        <Box>
+          <Button
+            variant="contained"
+            color="primary"
+            size="small"
+            onClick={() => handlePromote(params.row.id)}
+            sx={{ mr: 1 }}
+          >
             Promote
           </Button>
           <Button
-            variant="contained"
+            variant="outlined"
+            color="error"
             size="small"
-            color="secondary"
-            onClick={() => handleForceAddClick(params.row)}
+            onClick={() => handleRemove(params.row.id)}
           >
-            Force Add
+            Remove
           </Button>
-        </Stack>
+        </Box>
       ),
     },
   ];
 
   return (
-    <Box sx={{ height: 600, width: '100%' }}>
+    <Box sx={{ flexGrow: 1, p: 3 }}>
       <Typography variant="h4" gutterBottom>
         Queued Signals
       </Typography>
-      <DataGrid
-        rows={queuedSignals}
-        columns={columns}
-        pageSizeOptions={[5, 10, 20, 100]}
-        checkboxSelection
-        disableRowSelectionOnClick
-      />
-      <Dialog open={modalOpen} onClose={handleModalClose}>
-        <DialogTitle>Confirm Force Add</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Are you sure you want to force add the signal for{' '}
-            {selectedSignal?.symbol}? This will override the execution pool
-            limit.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleModalClose}>Cancel</Button>
-          <Button onClick={handleConfirm} color="primary">
-            Confirm
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {error && <Typography color="error">Error: {error}</Typography>}
+      <div style={{ height: 400, width: '100%' }}>
+        <DataGrid
+          rows={queuedSignals}
+          columns={columns}
+          getRowId={(row) => row.id}
+          loading={loading}
+          pageSizeOptions={[5, 10, 20]}
+          initialState={{
+            pagination: {
+              paginationModel: { pageSize: 10, page: 0 },
+            },
+          }}
+        />
+      </div>
     </Box>
   );
 };

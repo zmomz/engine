@@ -89,6 +89,7 @@ describe('useAuthStore', () => {
         set({ token: null, user: null, isAuthenticated: false });
       },
       register: jest.fn(),
+      initializeAuth: jest.fn(),
     }));
 
     const { token, user, isAuthenticated } = newStore.getState();

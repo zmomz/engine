@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 
 const schema = z.object({
+  username: z.string().min(3, 'Username must be at least 3 characters').min(1, 'Username is required'),
   email: z.string().email('Invalid email address').min(1, 'Email is required'),
   password: z.string().min(6, 'Password must be at least 6 characters').min(1, 'Password is required'),
 });
@@ -24,6 +25,7 @@ const RegistrationPage: React.FC = () => {
   } = useForm<RegistrationFormInputs>({
     resolver: zodResolver(schema),
     defaultValues: {
+      username: '',
       email: '',
       password: '',
     },
@@ -32,7 +34,7 @@ const RegistrationPage: React.FC = () => {
   const onSubmit = async (data: RegistrationFormInputs) => {
     setError(null);
     try {
-      await register(data.email, data.password);
+      await register(data.username, data.email, data.password);
       navigate('/dashboard'); // Redirect to a protected route on success
     } catch (err: any) {
       setError(err.response?.data?.detail || 'An unexpected error occurred.');
@@ -55,6 +57,25 @@ const RegistrationPage: React.FC = () => {
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
           <Controller
+            name="username"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                margin="normal"
+                required
+                fullWidth
+                id="username"
+                label="Username"
+                name="username"
+                autoComplete="username"
+                autoFocus
+                error={!!errors.username}
+                helperText={errors.username?.message}
+              />
+            )}
+          />
+          <Controller
             name="email"
             control={control}
             render={({ field }) => (
@@ -67,7 +88,6 @@ const RegistrationPage: React.FC = () => {
                 label="Email Address"
                 name="email"
                 autoComplete="email"
-                autoFocus
                 error={!!errors.email}
                 helperText={errors.email?.message}
               />
@@ -100,6 +120,13 @@ const RegistrationPage: React.FC = () => {
             sx={{ mt: 3, mb: 2 }}
           >
             {isSubmitting ? 'Signing Up...' : 'Sign Up'}
+          </Button>
+          <Button
+            fullWidth
+            variant="text"
+            onClick={() => navigate('/login')}
+          >
+            Already have an account? Sign In
           </Button>
         </Box>
       </Box>

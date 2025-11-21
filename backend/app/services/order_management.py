@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.repositories.dca_order import DCAOrderRepository
+from app.repositories.position_group import PositionGroupRepository # New import
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType
+from app.models.position_group import PositionGroup, PositionGroupStatus # New import
 from app.exceptions import APIError, ExchangeConnectionError
 
 class OrderService:
@@ -25,6 +27,7 @@ class OrderService:
         self.user = user
         self.exchange_connector = exchange_connector
         self.dca_order_repository = DCAOrderRepository(self.session)
+        self.position_group_repository = PositionGroupRepository(self.session) # New repository instance
 
     async def submit_order(self, dca_order: DCAOrder) -> DCAOrder:
         """
@@ -204,3 +207,81 @@ class OrderService:
                 # Log the error but continue with other orders
             except Exception as e:
                 print(f"OrderService: Unexpected error during reconciliation for order {order.id}: {e}")
+
+    async def execute_force_close(self, group_id: uuid.UUID) -> PositionGroup:
+        """
+        Initiates the force-closing process for a given position group.
+        Updates the position status to 'CLOSING'.
+        """
+        position_group = await self.position_group_repository.get(group_id)
+        if not position_group:
+            raise APIError(f"PositionGroup with ID {group_id} not found.", status_code=404)
+
+        if position_group.status == PositionGroupStatus.CLOSED.value:
+            raise APIError(f"PositionGroup {group_id} is already closed.", status_code=400)
+
+        position_group.status = PositionGroupStatus.CLOSING.value
+        await self.position_group_repository.update(position_group)
+        return position_group
+
+    async def place_market_order(
+        self,
+        user_id: uuid.UUID,
+        exchange: str,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        position_group_id: uuid.UUID = None
+    ) -> Dict[str, Any]:
+        """
+        Places a market order directly on the exchange.
+        Used for risk engine offsets and force closes.
+        """
+        try:
+            # Ensure side is uppercase
+            side_value = side.upper()
+            
+            exchange_order_data = await self.exchange_connector.place_order(
+                symbol=symbol,
+                order_type="MARKET",
+                side=side_value,
+                quantity=quantity,
+                price=None # Market orders don't have a price
+            )
+            
+            # TODO: Optionally record this as a distinct "MarketOrder" entity if needed for audit trails
+            # For now, we just return the exchange data so the caller can log it.
+            return exchange_order_data
+
+        except APIError as e:
+             raise e
+        except Exception as e:
+             raise APIError(f"Failed to place market order: {e}") from e
+
+    async def cancel_open_orders_for_group(self, group_id: uuid.UUID):
+        """
+        Cancels all open and partially filled DCA orders for a specific position group.
+        """
+        orders = await self.dca_order_repository.get_open_orders_by_group_id(group_id)
+        for order in orders:
+            try:
+                await self.cancel_order(order)
+            except Exception as e:
+                print(f"Failed to cancel order {order.id} in group {group_id}: {e}")
+
+    async def close_position_market(self, position_group: PositionGroup, quantity_to_close: Decimal):
+        """
+        Closes a position (or partial quantity) using a market order.
+        Determines the correct side (opposite of position side) automatically.
+        """
+        close_side = "SELL" if position_group.side == "long" else "BUY"
+        
+        await self.place_market_order(
+            user_id=position_group.user_id,
+            exchange=position_group.exchange,
+            symbol=position_group.symbol,
+            side=close_side,
+            quantity=quantity_to_close,
+            position_group_id=position_group.id
+        )
+

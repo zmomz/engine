@@ -39,12 +39,14 @@ docker exec "${DB_CONTAINER}" createdb -U "${DB_USER}" "${DB_NAME}"
 # Restore the database from the backup file
 docker exec -i "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" < "${BACKUP_FILE}"
 
-# Apply Alembic migrations to ensure schema is up-to-date after restore
-echo "Applying Alembic migrations after restore..."
-docker compose exec app alembic upgrade head
-
 # Start the application service again
 echo "Starting app service..."
 docker compose start app
+
+# Apply Alembic migrations to ensure schema is up-to-date after restore
+# We must wait for the app container to be ready or just use 'run' if exec fails, 
+# but since we just started it, exec should work once it's up.
+echo "Applying Alembic migrations after restore..."
+docker compose exec app alembic upgrade head
 
 echo "Database restore complete from ${BACKUP_FILE}"

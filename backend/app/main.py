@@ -4,7 +4,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api import health, webhooks, risk, positions, queue, users, settings
+from app.api import health, webhooks, risk, positions, queue, users, settings, dashboard, logs
 from app.rate_limiter import limiter
 from app.services.order_fill_monitor import OrderFillMonitorService
 from app.services.order_management import OrderService
@@ -21,6 +21,7 @@ from app.services.grid_calculator import GridCalculatorService
 from app.services.risk_engine import RiskEngineService # Added RiskEngineService import
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.models.user import User # Added User import
+from app.core.logging_config import setup_logging # Added logging setup
 import uuid # Added uuid import
 from decimal import Decimal
 
@@ -42,6 +43,9 @@ app.add_middleware(SlowAPIMiddleware)
 
 @app.on_event("startup")
 async def startup_event():
+    # Setup Logging
+    setup_logging()
+    
     # Initialize exchange connector
     app.state.exchange_connector = get_exchange_connector("mock")
 
@@ -149,3 +153,5 @@ app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"]
 app.include_router(queue.router, prefix="/api/v1/queue", tags=["Queue"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
+app.include_router(logs.router, prefix="/api/v1/logs", tags=["Logs"])

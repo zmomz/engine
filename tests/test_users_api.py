@@ -9,15 +9,15 @@ from app.repositories.user import UserRepository
 @pytest.mark.asyncio
 async def test_register_user_success(client: AsyncClient, db_session: AsyncSession):
     user_data = {
-        "username": "testuser",
-        "email": "test@example.com",
+        "username": "success_user",
+        "email": "success@example.com",
         "password": "securepassword"
     }
     response = await client.post("/api/v1/users/register", json=user_data)
     assert response.status_code == 201
     data = response.json()
-    assert data["username"] == "testuser"
-    assert data["email"] == "test@example.com"
+    assert data["username"] == "success_user"
+    assert data["email"] == "success@example.com"
     
     assert "id" in data
     assert data["is_active"] is True
@@ -25,9 +25,9 @@ async def test_register_user_success(client: AsyncClient, db_session: AsyncSessi
 
     # Verify user is in DB
     user_repo = UserRepository(db_session)
-    user_in_db = await user_repo.get_by_username("testuser")
+    user_in_db = await user_repo.get_by_username("success_user")
     assert user_in_db is not None
-    assert user_in_db.email == "test@example.com"
+    assert user_in_db.email == "success@example.com"
 
 @pytest.mark.asyncio
 async def test_register_user_duplicate_username(client: AsyncClient, db_session: AsyncSession):

@@ -1,37 +1,35 @@
-import React from 'react';
-import { useForm, Controller } from 'react-hook-form';
-import { TextField, Button, Container, Typography, Box } from '@mui/material';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-
-const schema = z.object({
-  email: z.string().email('Invalid email address').min(1, 'Email is required'),
-  password: z.string().min(6, 'Password must be at least 6 characters').min(1, 'Password is required'),
-});
-
-type LoginFormInputs = z.infer<typeof schema>;
+import axios from 'axios';
+import { Container, TextField, Button, Typography, Box, Alert } from '@mui/material';
 
 const LoginPage: React.FC = () => {
-  const { login } = useAuthStore();
-  const {
-    control,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<LoginFormInputs>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
-  });
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const login = useAuthStore((state) => state.login);
 
-  const onSubmit = (data: LoginFormInputs) => {
-    login(data.email, data.password);
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    try {
+      const response = await axios.post('/api/login', {
+        username,
+        password,
+      });
+      // Assuming the backend returns a token and user info upon successful login
+      const { access_token, user } = response.data;
+      login(access_token, user);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Login failed');
+    }
   };
 
   return (
-    <Container component="main" maxWidth="xs">
+    <Container maxWidth="xs">
       <Box
         sx={{
           marginTop: 8,
@@ -41,46 +39,32 @@ const LoginPage: React.FC = () => {
         }}
       >
         <Typography component="h1" variant="h5">
-          Sign In
+          Sign in
         </Typography>
-        <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate sx={{ mt: 1 }}>
-          <Controller
-            name="email"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                margin="normal"
-                required
-                fullWidth
-                id="email"
-                label="Email Address"
-                name="email"
-                autoComplete="email"
-                autoFocus
-                error={!!errors.email}
-                helperText={errors.email?.message}
-              />
-            )}
+        <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
+          <TextField
+            margin="normal"
+            required
+            fullWidth
+            id="username"
+            label="Username"
+            name="username"
+            autoComplete="username"
+            autoFocus
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
           />
-          <Controller
+          <TextField
+            margin="normal"
+            required
+            fullWidth
             name="password"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                margin="normal"
-                required
-                fullWidth
-                name="password"
-                label="Password"
-                type="password"
-                id="password"
-                autoComplete="current-password"
-                error={!!errors.password}
-                helperText={errors.password?.message}
-              />
-            )}
+            label="Password"
+            type="password"
+            id="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
           />
           <Button
             type="submit"
@@ -89,6 +73,14 @@ const LoginPage: React.FC = () => {
             sx={{ mt: 3, mb: 2 }}
           >
             Sign In
+          </Button>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Button
+            fullWidth
+            variant="text"
+            onClick={() => navigate('/register')}
+          >
+            Don't have an account? Sign Up
           </Button>
         </Box>
       </Box>

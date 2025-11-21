@@ -11,8 +11,7 @@ from app.services.order_management import OrderService
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.repositories.dca_order import DCAOrderRepository
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType
-from app.models.user import User # Added User import
-from app.models.user import User # Added User import
+from app.models.user import User 
 from app.exceptions import APIError, ExchangeConnectionError
 
 @pytest.fixture
@@ -336,3 +335,103 @@ async def test_startup_reconciliation(order_service, mock_exchange_connector, mo
     assert db_order_2.filled_quantity == Decimal("0.01")
     assert db_order_2.avg_fill_price == Decimal("3000")
     assert db_order_3.status == OrderStatus.CANCELLED
+
+# --- New Tests ---
+
+@pytest.mark.asyncio
+async def test_submit_order_max_retries_exceeded(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """
+    Test that submit_order fails after max retries and updates order status to FAILED.
+    """
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.PENDING,
+    )
+
+    # Always raise ExchangeConnectionError
+    mock_exchange_connector.place_order.side_effect = ExchangeConnectionError("Connection refused")
+
+    with patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:
+        with pytest.raises(APIError) as exc_info:
+            await order_service.submit_order(mock_dca_order)
+        
+        assert "Failed to submit order after 3 attempts" in str(exc_info.value)
+        assert mock_exchange_connector.place_order.call_count == 3
+        mock_dca_order_repository.update.assert_awaited_once()
+        assert mock_dca_order.status == OrderStatus.FAILED.value
+
+@pytest.mark.asyncio
+async def test_check_order_status_api_error(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """
+    Test checking order status when API error occurs (should re-raise APIError, NOT mark as failed).
+    """
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.OPEN,
+        exchange_order_id="exchange_order_123"
+    )
+
+    mock_exchange_connector.get_order_status.side_effect = APIError("Exchange error")
+
+    with pytest.raises(APIError) as exc_info:
+        await order_service.check_order_status(mock_dca_order)
+    
+    assert "Exchange error" in str(exc_info.value)
+    mock_dca_order_repository.update.assert_not_awaited() # Should not update status
+    assert mock_dca_order.status == OrderStatus.OPEN
+
+@pytest.mark.asyncio
+async def test_check_order_status_unknown_error(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """
+    Test checking order status when unknown error occurs (should raise APIError).
+    """
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.OPEN,
+        exchange_order_id="exchange_order_123"
+    )
+
+    mock_exchange_connector.get_order_status.side_effect = Exception("Something went wrong")
+
+    with pytest.raises(APIError) as exc_info:
+        await order_service.check_order_status(mock_dca_order)
+    
+    assert "Failed to check order status: Something went wrong" in str(exc_info.value)
+    mock_dca_order_repository.update.assert_not_awaited()
+    assert mock_dca_order.status == OrderStatus.OPEN

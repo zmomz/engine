@@ -4,6 +4,7 @@ import uuid
 from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import text
+import json
 from app.main import app
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.schemas.position_group import TPMode
@@ -113,8 +114,8 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
     
     # Create user directly in database
     await db_session.execute(
-        text("INSERT INTO users (id, username, email, hashed_password, exchange, webhook_secret) VALUES (:id, :username, :email, :password, :exchange, :webhook_secret)"),
-        {"id": user_id, "username": "testuser_group", "email": "test_group@example.com", "password": "hashedpassword", "exchange": "binance", "webhook_secret": "secret"}
+        text("INSERT INTO users (id, username, email, hashed_password, exchange, webhook_secret, risk_config, dca_grid_config) VALUES (:id, :username, :email, :password, :exchange, :webhook_secret, :risk_config, :dca_grid_config)"),
+        {"id": user_id, "username": "testuser_group", "email": "test_group@example.com", "password": "hashedpassword", "exchange": "binance", "webhook_secret": "secret", "risk_config": json.dumps({}), "dca_grid_config": json.dumps([])}
     )
     
     # Create position group using repository

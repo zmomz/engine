@@ -7,22 +7,22 @@ from app.core.security import verify_password
 @pytest.mark.asyncio
 async def test_register_user(client: AsyncClient, db_session: AsyncSession):
     user_data = {
-        "username": "testuser",
-        "email": "test@example.com",
+        "username": "uniqueuser",
+        "email": "unique@example.com",
         "password": "testpassword"
     }
     response = await client.post("/api/v1/users/register", json=user_data)
     data = response.json()
     assert "id" in data
-    assert data["username"] == "testuser"
-    assert data["email"] == "test@example.com"
+    assert data["username"] == "uniqueuser"
+    assert data["email"] == "unique@example.com"
     assert "hashed_password" not in data
 
     # Verify user in database
     user = await db_session.get(User, data["id"])
     assert user is not None
-    assert user.username == "testuser"
-    assert user.email == "test@example.com"
+    assert user.username == "uniqueuser"
+    assert user.email == "unique@example.com"
     assert verify_password("testpassword", user.hashed_password)
 
 @pytest.mark.asyncio

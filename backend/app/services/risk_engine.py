@@ -15,12 +15,15 @@ from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.risk_action import RiskAction, RiskActionType
 from app.models.queued_signal import QueuedSignal
+from app.models.user import User # Added import
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.risk_action import RiskActionRepository
 from app.repositories.dca_order import DCAOrderRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
+from app.services.exchange_abstraction.factory import get_exchange_connector # Added import
 from app.services.order_management import OrderService
 from app.schemas.grid_config import RiskEngineConfig # Assuming this schema exists
+from app.core.security import EncryptionService # Added import
 from fastapi import HTTPException, status # Added imports
 
 logger = logging.getLogger(__name__)
@@ -236,7 +239,8 @@ class RiskEngineService:
                 position_group_repo = self.position_group_repository_class(session)
                 risk_action_repo = self.risk_action_repository_class(session)
                 dca_order_repo = self.dca_order_repository_class(session)
-                order_service = self.order_service_class(self.exchange_connector, dca_order_repo)
+                
+                # Note: We don't instantiate OrderService here anymore because we need the specific user context first.
 
                 all_positions = await position_group_repo.get_all() # Fetch all positions
 
@@ -245,12 +249,46 @@ class RiskEngineService:
                 if loser and winners:
                     logger.info(f"Risk Engine: Identified loser {loser.symbol} (loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners.")
                     
+                    # Fetch User to get API keys
+                    user = await session.get(User, loser.user_id)
+                    if not user:
+                        logger.error(f"Risk Engine: User {loser.user_id} not found. Skipping offset.")
+                        return
+
+                    # Decrypt keys and get exchange connector
+                    encryption_service = EncryptionService()
+                    try:
+                        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+                        exchange_connector = get_exchange_connector(
+                            exchange_type=loser.exchange,
+                            api_key=api_key,
+                            secret_key=secret_key
+                        )
+                    except Exception as e:
+                         logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
+                         return
+
+                    # Now instantiate OrderService
+                    order_service = self.order_service_class(
+                        session=session,
+                        user=user,
+                        exchange_connector=exchange_connector
+                    )
+
                     precision_rules = {}
                     for pg in [loser] + winners:
                         if pg.symbol not in precision_rules:
-                            precision_rules[pg.symbol] = await self.exchange_connector.get_precision_rules(pg.symbol)
-
-                    close_plan = await calculate_partial_close_quantities(self.exchange_connector, winners, required_usd, precision_rules)
+                            precision_rules[pg.symbol] = await exchange_connector.get_precision_rules() # Use the specific connector
+                            # Note: get_precision_rules usually returns all symbols or takes a symbol arg.
+                            # If it returns all, we index by symbol. If it takes a symbol, we call it per symbol.
+                            # Based on PositionManager, it returns a dict of all rules or we need to pass symbol?
+                            # PositionManager: rules = await exchange_connector.get_precision_rules(); symbol_rules = rules.get(symbol)
+                            # So we just need to call it once or assume it's cached/lightweight.
+                            
+                    # To be safe, let's call it once.
+                    full_precision_rules = await exchange_connector.get_precision_rules()
+                    
+                    close_plan = await calculate_partial_close_quantities(exchange_connector, winners, required_usd, full_precision_rules)
 
                     if not close_plan and required_usd > 0:
                         logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
@@ -363,5 +401,50 @@ class RiskEngineService:
             await position_group_repo.update(position_group)
             await session.commit()
             await session.refresh(position_group)
-            logger.info(f"PositionGroup {group_id} risk_skip_once set to {skip}")
             return position_group
+    
+    async def get_current_status(self) -> dict:
+        """
+        Returns the current state of the risk engine's evaluation without taking action.
+        Identifies potential loser and winners based on current positions.
+        """
+        async for session in self.session_factory():
+            position_group_repo = self.position_group_repository_class(session)
+            all_positions = await position_group_repo.get_all()
+            
+            loser, winners, required_usd = select_loser_and_winners(all_positions, self.config)
+            
+            loser_info = None
+            if loser:
+                loser_info = {
+                    "id": str(loser.id),
+                    "symbol": loser.symbol,
+                    "unrealized_pnl_percent": float(loser.unrealized_pnl_percent),
+                    "unrealized_pnl_usd": float(loser.unrealized_pnl_usd),
+                    "risk_blocked": loser.risk_blocked,
+                    "risk_skip_once": loser.risk_skip_once,
+                }
+            
+            winners_info = []
+            for winner in winners:
+                winners_info.append({
+                    "id": str(winner.id),
+                    "symbol": winner.symbol,
+                    "unrealized_pnl_usd": float(winner.unrealized_pnl_usd),
+                })
+            
+            return {
+                "identified_loser": loser_info,
+                "identified_winners": winners_info,
+                "required_offset_usd": float(required_usd),
+                "risk_engine_running": self._running,
+                "config": self.config.model_dump()
+            }
+
+    async def run_single_evaluation(self):
+        """
+        Triggers a single, immediate evaluation run of the risk engine.
+        """
+        logger.info("Risk Engine: Manually triggered single evaluation.")
+        await self._evaluate_positions()
+        return {"status": "Risk evaluation completed"}

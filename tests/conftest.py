@@ -9,11 +9,13 @@ from app.models.base import Base
 from app.main import app
 from httpx import AsyncClient
 from app.models.user import User
+from app.core.security import SECRET_KEY, ALGORITHM, get_password_hash
 
 DATABASE_URL = "postgresql+asyncpg://tv_user:your_password@db:5432/tv_engine_db_test"
+TEST_PASSWORD = "testpassword"
 
 @pytest.fixture(scope="function")
-async def client(db_session: AsyncSession):
+async def client(db_session: AsyncSession, test_user: User):
     async def _get_test_db_session():
         yield db_session
 
@@ -44,11 +46,38 @@ async def db_session(test_db_engine):
 
 @pytest.fixture(scope="function")
 async def test_user(db_session: AsyncSession):
-    user = User(username="testuser", email="test@example.com", hashed_password="hashedpassword", exchange="binance")
+    hashed_pwd = get_password_hash(TEST_PASSWORD)
+    user = User(
+        username="testuser", 
+        email="test@example.com", 
+        hashed_password=hashed_pwd, 
+        exchange="binance", 
+        webhook_secret="secret", 
+        is_active=True
+    )
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+@pytest.fixture(scope="function")
+async def authorized_client(client: AsyncClient, test_user: User):
+    # Login the user to get a token using the plain password
+    login_data = {"username": "testuser", "password": TEST_PASSWORD} 
+    response = await client.post(
+        "/api/v1/users/login",
+        data=login_data
+    )
+    assert response.status_code == 200, f"Login failed: {response.text}"
+    tokens = response.json()
+    access_token = tokens["access_token"]
+
+    # Return a new client with the authorization header
+    async with AsyncClient(app=app, base_url="http://test", headers={
+        "Authorization": f"Bearer {access_token}"
+    }) as auth_client:
+        yield auth_client
+
 
 
 

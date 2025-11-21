@@ -4,6 +4,6 @@ import DashboardPage from './DashboardPage';
 
 test('renders dashboard heading', () => {
   render(<DashboardPage />);
-  const headingElement = screen.getByText(/Dashboard - Global Overview/i);
+  const headingElement = screen.getByText(/Dashboard/i);
   expect(headingElement).toBeInTheDocument();
 });

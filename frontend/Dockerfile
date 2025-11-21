@@ -21,6 +21,9 @@ RUN npm run build
 # Stage 2: Serve the application with Nginx
 FROM nginx:stable-alpine
 
+# Copy the custom Nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 # Copy the built files from the builder stage
 COPY --from=builder /app/build /usr/share/nginx/html
 

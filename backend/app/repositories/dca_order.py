@@ -34,3 +34,12 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
             select(self.model).where(self.model.status == OrderStatus.OPEN.value)
         )
         return result.scalars().all()
+
+    async def get_open_orders_by_group_id(self, group_id: str) -> List[DCAOrder]:
+        result = await self.session.execute(
+            select(self.model).where(
+                self.model.group_id == group_id,
+                self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED])
+            )
+        )
+        return result.scalars().all()

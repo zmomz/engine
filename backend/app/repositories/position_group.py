@@ -79,3 +79,14 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         )
         total_pnl = result.scalar()
         return total_pnl if total_pnl is not None else Decimal("0")
+
+    async def get_closed_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
+        """
+        Retrieves all closed position groups for a given user, ordered by closed_at descending.
+        """
+        result = await self.session.execute(
+            select(self.model)
+            .where(self.model.user_id == user_id, self.model.status == "closed")
+            .order_by(self.model.closed_at.desc())
+        )
+        return result.scalars().all()

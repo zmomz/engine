@@ -36,6 +36,31 @@ def get_risk_engine_service(
         risk_engine_config=risk_engine_config
     )
 
+@router.get("/status")
+async def get_risk_engine_status(
+    risk_engine_service: RiskEngineService = Depends(get_risk_engine_service)
+):
+    """
+    Retrieves the current status of the Risk Engine, including potential actions.
+    """
+    # This needs to be implemented in RiskEngineService to return relevant status.
+    # For now, return a placeholder.
+    status_data = await risk_engine_service.get_current_status()
+    return status_data
+
+@router.post("/run-evaluation")
+async def run_risk_evaluation(
+    risk_engine_service: RiskEngineService = Depends(get_risk_engine_service)
+):
+    """
+    Triggers an immediate risk evaluation run.
+    """
+    try:
+        result = await risk_engine_service.run_single_evaluation()
+        return {"message": "Risk evaluation initiated.", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 @router.post("/{group_id}/block", response_model=PositionGroupSchema)
 async def block_risk_for_group(
     group_id: uuid.UUID,

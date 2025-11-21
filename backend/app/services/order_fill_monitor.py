@@ -42,7 +42,7 @@ class OrderFillMonitorService:
         """
         Fetches open orders from the DB and checks their status on the exchange.
         """
-        async for session in self.session_factory():
+        async with self.session_factory() as session:
             try:
                 dca_order_repo = self.dca_order_repository_class(session)
                 
@@ -54,7 +54,7 @@ class OrderFillMonitorService:
                 
                 # Instantiate PositionManagerService partially (only what's needed for update_position_stats)
                 position_manager = self.position_manager_service_class(
-                    session=session,
+                    session_factory=self.session_factory,
                     user=None, # Unused in update_position_stats
                     position_group_repository_class=self.position_group_repository_class,
                     grid_calculator_service=None, # Unused
@@ -80,7 +80,7 @@ class OrderFillMonitorService:
                              
                         if updated_order.status == OrderStatus.FILLED.value:
                             # 1. Update Position Group Stats (Avg Entry, Total Qty)
-                            await position_manager.update_position_stats(updated_order.group_id)
+                            await position_manager.update_position_stats(updated_order.group_id, session=session)
                             
                             # 2. Place TP Order
                             await order_service.place_tp_order(updated_order)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 import uuid
@@ -6,8 +6,47 @@ import uuid
 from app.db.database import get_db_session
 from app.schemas.position_group import PositionGroupSchema
 from app.repositories.position_group import PositionGroupRepository
+from app.services.order_management import OrderService # New import
+from app.api.dependencies.users import get_current_active_user # New import
+from app.models.user import User # New import
+from app.exceptions import APIError # New import
 
 router = APIRouter()
+
+async def get_order_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
+) -> OrderService:
+    return OrderService(
+        session=db,
+        user=current_user,
+        exchange_connector=request.app.state.exchange_connector
+    )
+
+@router.get("/{user_id}/history", response_model=List[PositionGroupSchema])
+async def get_position_history(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Retrieves all historical (closed) position groups for a given user.
+    """
+    repo = PositionGroupRepository(db)
+    positions = await repo.get_closed_by_user(user_id)
+    return [PositionGroupSchema.from_orm(pos) for pos in positions]
+
+@router.get("/active", response_model=List[PositionGroupSchema])
+async def get_current_user_active_positions(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Retrieves all active position groups for the current authenticated user.
+    """
+    repo = PositionGroupRepository(db)
+    positions = await repo.get_all_active_by_user(current_user.id)
+    return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 @router.get("/{user_id}", response_model=List[PositionGroupSchema])
 async def get_all_positions(
@@ -35,3 +74,22 @@ async def get_position_group(
     if not position:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
     return PositionGroupSchema.from_orm(position)
+
+@router.post("/{group_id}/close", response_model=PositionGroupSchema)
+async def force_close_position(
+    group_id: uuid.UUID,
+    order_service: OrderService = Depends(get_order_service),
+    current_user: User = Depends(get_current_active_user) # Ensure user is authenticated
+):
+    """
+    Initiates the force-closing process for an active position group.
+    """
+    # Optional: Add a check if current_user.id matches the position_group.user_id for authorization
+    # For now, we rely on the service to handle the find by ID which will fail if not found
+    try:
+        updated_position = await order_service.execute_force_close(group_id)
+        return PositionGroupSchema.from_orm(updated_position)
+    except APIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

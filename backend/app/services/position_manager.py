@@ -330,50 +330,72 @@ class PositionManagerService:
                 logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
-    async def update_position_stats(self, group_id: uuid.UUID):
+    async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None):
         """
         Recalculates total filled quantity and weighted average entry price for a position group.
+        Accepts an optional session to run within an existing transaction.
         """
-        async with self.session_factory() as session:
-            position_group_repo = self.position_group_repository_class(session) # Instantiate repo with session
-            position_group = await position_group_repo.get(group_id)
-            if not position_group:
-                logger.error(f"PositionGroup {group_id} not found for stats update.")
-                return
+        if session:
+            await self._execute_update_position_stats(session, group_id)
+        else:
+            async with self.session_factory() as new_session:
+                await self._execute_update_position_stats(new_session, group_id)
+                await new_session.commit()
 
-            # Re-fetch DCA orders to ensure we have the latest status
-            # Ideally we should use a join or specific query, but lazy load might work if session is active.
-            # To be safe and robust, let's use the order repo or refresh the relationship.
-            await session.refresh(position_group, attribute_names=["dca_orders"]) # Use local session for refresh
-            
-            filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
-            
-            total_qty = sum(o.filled_quantity for o in filled_orders)
-            total_cost = sum(o.filled_quantity * (o.avg_fill_price or o.price) for o in filled_orders)
-            
-            if total_qty > 0:
-                weighted_avg = total_cost / total_qty
-                position_group.total_filled_quantity = total_qty
-                position_group.total_invested_usd = total_cost
-                position_group.weighted_avg_entry = weighted_avg
-                
-                # Update filled leg count
-                position_group.filled_dca_legs = len(filled_orders)
-                
-                # Check if status needs update (e.g. from LIVE to PARTIALLY_FILLED or ACTIVE)
-                if position_group.status == PositionGroupStatus.LIVE:
-                     if len(filled_orders) == len(position_group.dca_orders):
-                         position_group.status = PositionGroupStatus.ACTIVE
-                     else:
-                         position_group.status = PositionGroupStatus.PARTIALLY_FILLED
-                elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
-                     if len(filled_orders) == len(position_group.dca_orders):
-                         position_group.status = PositionGroupStatus.ACTIVE
+    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID):
+        position_group_repo = self.position_group_repository_class(session) # Instantiate repo with session
+        position_group = await position_group_repo.get(group_id)
+        if not position_group:
+            logger.error(f"PositionGroup {group_id} not found for stats update.")
+            return
 
-                await position_group_repo.update(position_group)
-                await session.commit()
-                logger.info(f"Updated stats for PositionGroup {group_id}: Qty={total_qty}, AvgEntry={weighted_avg}")
-            else:
-                logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
+        # Re-fetch DCA orders to ensure we have the latest status
+        # Ideally we should use a join or specific query, but lazy load might work if session is active.
+        # To be safe and robust, let's use the order repo or refresh the relationship.
+        await session.refresh(position_group, attribute_names=["dca_orders"]) # Use local session for refresh
+        
+        filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
+        
+        total_qty = sum(o.filled_quantity for o in filled_orders)
+        total_cost = sum(o.filled_quantity * (o.avg_fill_price or o.price) for o in filled_orders)
+        
+        if total_qty > 0:
+            weighted_avg = total_cost / total_qty
+            position_group.total_filled_quantity = total_qty
+            position_group.total_invested_usd = total_cost
+            position_group.weighted_avg_entry = weighted_avg
+            
+            # Update filled leg count
+            position_group.filled_dca_legs = len(filled_orders)
+            
+            # Check if status needs update (e.g. from LIVE to PARTIALLY_FILLED or ACTIVE)
+            if position_group.status == PositionGroupStatus.LIVE:
+                    if len(filled_orders) == len(position_group.dca_orders):
+                        position_group.status = PositionGroupStatus.ACTIVE
+                    else:
+                        position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+            elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
+                    if len(filled_orders) == len(position_group.dca_orders):
+                        position_group.status = PositionGroupStatus.ACTIVE
+
+            await position_group_repo.update(position_group)
+            # Only commit if we created the session. If session was passed, caller manages commit.
+            # But here we are in _execute_update_position_stats, so we don't know who owns the session easily without a flag?
+            # Actually, if we passed the session, we typically expect the caller to commit.
+            # If we created the session, we should commit.
+            # However, the previous code did `await session.commit()`.
+            
+        else:
+            logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
+            
+        # We removed the 'await session.commit()' from here because if session is passed, 
+        # we might want to commit later. But if we created the session, we must commit.
+        # Let's handle commit in the wrapper or assume flush is enough for passed session.
+        
+        # Correct approach:
+        # If we own the session (else block), we commit.
+        # If we don't own it (if session:), we flush?
+        # For now, let's leave commit out of this internal method and handle it in the wrapper.
+        pass
 
     # TODO: Add methods for updating position group PnL, status, etc.
