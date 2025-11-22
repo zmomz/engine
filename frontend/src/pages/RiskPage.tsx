@@ -3,35 +3,35 @@ import { Box, Typography, Button, Card, CardContent, Grid, Chip } from '@mui/mat
 import useRiskStore from '../store/riskStore';
 
 const RiskPage: React.FC = () => {
-  const { status, loading, error, fetchRiskStatus, runRiskEvaluation, blockRiskForGroup, unblockRiskForGroup, skipNextRiskEvaluation } = useRiskStore();
+  const { status, loading, error, fetchStatus, runEvaluation, blockGroup, unblockGroup, skipGroup } = useRiskStore();
 
   useEffect(() => {
-    fetchRiskStatus();
-    const interval = setInterval(fetchRiskStatus, 5000); // Poll every 5 seconds
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // Poll every 5 seconds
     return () => clearInterval(interval);
-  }, [fetchRiskStatus]);
+  }, [fetchStatus]);
 
   const handleRunEvaluation = () => {
     if (window.confirm('Are you sure you want to run a manual risk evaluation?')) {
-      runRiskEvaluation();
+      runEvaluation();
     }
   };
 
   const handleBlock = (groupId: string) => {
     if (window.confirm('Are you sure you want to block this position from risk evaluation?')) {
-      blockRiskForGroup(groupId);
+      blockGroup(groupId);
     }
   };
 
   const handleUnblock = (groupId: string) => {
     if (window.confirm('Are you sure you want to unblock this position?')) {
-      unblockRiskForGroup(groupId);
+      unblockGroup(groupId);
     }
   };
 
   const handleSkip = (groupId: string) => {
     if (window.confirm('Are you sure you want to skip the next risk evaluation for this position?')) {
-      skipNextRiskEvaluation(groupId);
+      skipGroup(groupId);
     }
   };
 

@@ -27,7 +27,7 @@ const RiskEnginePage: React.FC = () => {
 
       <Grid container spacing={3}>
         {/* Status Panel */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>Current Risk Status</Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -95,7 +95,7 @@ const RiskEnginePage: React.FC = () => {
         </Grid>
 
         {/* Actions Panel */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Paper sx={{ p: 3 }}>
              <Typography variant="h6" gutterBottom>Actions</Typography>
              <Button 

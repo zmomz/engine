@@ -13,7 +13,7 @@ describe('riskStore', () => {
     jest.clearAllMocks();
   });
 
-  it('fetchRiskStatus should call API and update state', async () => {
+  it('fetchStatus should call API and update state', async () => {
     const mockStatus = {
       identified_loser: null,
       identified_winners: [],
@@ -23,30 +23,30 @@ describe('riskStore', () => {
     };
     (axios.get as jest.Mock).mockResolvedValue({ data: mockStatus });
 
-    await useRiskStore.getState().fetchRiskStatus();
+    await useRiskStore.getState().fetchStatus();
 
     expect(axios.get).toHaveBeenCalledWith('/api/v1/risk/status');
     expect(useRiskStore.getState().status).toEqual(mockStatus);
     expect(useRiskStore.getState().loading).toBe(false);
   });
 
-  it('runRiskEvaluation should call API and refresh status', async () => {
+  it('runEvaluation should call API and refresh status', async () => {
     (axios.post as jest.Mock).mockResolvedValue({});
-    (axios.get as jest.Mock).mockResolvedValue({ data: {} }); // Mock get for fetchRiskStatus
-    const fetchSpy = jest.spyOn(useRiskStore.getState(), 'fetchRiskStatus');
+    (axios.get as jest.Mock).mockResolvedValue({ data: {} }); // Mock get for fetchStatus
+    const fetchSpy = jest.spyOn(useRiskStore.getState(), 'fetchStatus');
 
-    await useRiskStore.getState().runRiskEvaluation();
+    await useRiskStore.getState().runEvaluation();
 
     expect(axios.post).toHaveBeenCalledWith('/api/v1/risk/run-evaluation');
     expect(fetchSpy).toHaveBeenCalled();
   });
 
-  it('blockRiskForGroup should call API and refresh status', async () => {
+  it('blockGroup should call API and refresh status', async () => {
     (axios.post as jest.Mock).mockResolvedValue({});
-    (axios.get as jest.Mock).mockResolvedValue({ data: {} }); // Mock get for fetchRiskStatus
-    const fetchSpy = jest.spyOn(useRiskStore.getState(), 'fetchRiskStatus');
+    (axios.get as jest.Mock).mockResolvedValue({ data: {} }); // Mock get for fetchStatus
+    const fetchSpy = jest.spyOn(useRiskStore.getState(), 'fetchStatus');
 
-    await useRiskStore.getState().blockRiskForGroup('123');
+    await useRiskStore.getState().blockGroup('123');
 
     expect(axios.post).toHaveBeenCalledWith('/api/v1/risk/123/block');
     expect(fetchSpy).toHaveBeenCalled();
