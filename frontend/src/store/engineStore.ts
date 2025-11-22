@@ -17,9 +17,9 @@ const useEngineStore = create<EngineState>((set) => ({
   fetchEngineData: async () => {
     try {
       // Replace with actual API endpoints
-      const tvlResponse = await axios.get('/api/dashboard/tvl');
-      const pnlResponse = await axios.get('/api/dashboard/pnl');
-      const activeGroupsResponse = await axios.get('/api/dashboard/active-groups-count');
+      const tvlResponse = await axios.get('/api/v1/dashboard/tvl');
+      const pnlResponse = await axios.get('/api/v1/dashboard/pnl');
+      const activeGroupsResponse = await axios.get('/api/v1/dashboard/active-groups-count');
 
       set({
         tvl: tvlResponse.data.tvl,

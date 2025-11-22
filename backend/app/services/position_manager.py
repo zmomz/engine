@@ -299,10 +299,30 @@ class PositionManagerService:
             else:
                 logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
 
-            # TODO: Update PositionGroup status to CLOSING/CLOSED
-            # position_group.status = PositionGroupStatus.CLOSING
-            # await position_group_repo.update(position_group)
-            # await session.commit() # Use local session for commit
+            # Update PositionGroup status to CLOSED to release the pool slot
+            # We assume the market order fills immediately for now.
+            position_group_repo = self.position_group_repository_class(session)
+            position_group.status = PositionGroupStatus.CLOSED
+            
+            # Calculate realized PnL (simplified: current value - cost)
+            # In a real engine, we'd track this more granularly.
+            current_price = await self.exchange_connector.get_current_price(position_group.symbol)
+            
+            exit_value = total_filled_quantity * current_price
+            cost_basis = position_group.total_invested_usd
+            
+            if position_group.side == "long":
+                realized_pnl = exit_value - cost_basis
+            else:
+                realized_pnl = cost_basis - exit_value
+                
+            position_group.realized_pnl_usd = realized_pnl
+            position_group.unrealized_pnl_usd = Decimal("0")
+            position_group.closed_at = datetime.utcnow()
+
+            await position_group_repo.update(position_group)
+            await session.commit()
+            logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig):

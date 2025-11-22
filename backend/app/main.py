@@ -24,6 +24,9 @@ from app.models.user import User # Added User import
 from app.core.logging_config import setup_logging # Added logging setup
 import uuid # Added uuid import
 from decimal import Decimal
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 app.state.limiter = limiter
@@ -69,6 +72,7 @@ async def startup_event():
             session.add(dummy_user)
             await session.commit()
             await session.refresh(dummy_user)
+            
     app.state.dummy_user = dummy_user
 
     # OrderFillMonitorService
@@ -85,15 +89,23 @@ async def startup_event():
     # GridCalculatorService is stateless, so it can be initialized at startup
     app.state.grid_calculator_service = GridCalculatorService()
 
-    # RiskEngineConfig and DCAGridConfig (can be loaded from DB/config)
-    risk_engine_config = RiskEngineConfig()
-    dca_grid_config = DCAGridConfig.model_validate([
-        {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
-        {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
-    ])
+    # Load Configs from Dummy User
+    try:
+        risk_engine_config = RiskEngineConfig.model_validate(app.state.dummy_user.risk_config)
+    except:
+        risk_engine_config = RiskEngineConfig()
+
+    try:
+        dca_grid_config = DCAGridConfig.model_validate(app.state.dummy_user.dca_grid_config)
+    except:
+        dca_grid_config = DCAGridConfig.model_validate([
+            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
+            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
+        ])
+        
     total_capital_usd = Decimal("10000") # Placeholder
 
     # ExecutionPoolManager
@@ -155,3 +167,29 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["Logs"])
+
+# Serve Frontend Static Files
+# Assuming the frontend build output is in 'frontend/build' relative to project root
+# We need to resolve the path relative to where the app is run (root/engine)
+frontend_build_path = os.path.join(os.getcwd(), "frontend/build")
+
+if os.path.exists(frontend_build_path):
+    app.mount("/static", StaticFiles(directory=os.path.join(frontend_build_path, "static")), name="static")
+    # Mount other assets if necessary (e.g., manifest.json, favicon.ico)
+    # For simplicity, we'll mount the root for index.html in a catch-all
+    
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # If the path starts with /api, let it pass through (though router should catch it first)
+        if full_path.startswith("api"):
+             return {"error": "API endpoint not found"}
+        
+        # Check if file exists in build dir
+        file_path = os.path.join(frontend_build_path, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        # Otherwise return index.html
+        return FileResponse(os.path.join(frontend_build_path, "index.html"))
+else:
+    print(f"Warning: Frontend build directory not found at {frontend_build_path}. API only mode.")

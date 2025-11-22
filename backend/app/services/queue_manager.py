@@ -143,6 +143,18 @@ class QueueManagerService:
             signal = await self.queued_signal_repo.get_by_id(signal_id)
             return signal
 
+    async def remove_signal_for_symbol_and_timeframe(self, symbol: str, timeframe: str, side: str = None) -> bool:
+        async with self.session_factory() as session:
+            self.queued_signal_repo.session = session
+            signal = await self.queued_signal_repo.get_by_symbol_timeframe_side(symbol, timeframe, side)
+            if signal:
+                deleted = await self.queued_signal_repo.delete(signal.id)
+                if deleted:
+                    await session.commit()
+                    logger.info(f"Removed queued signal {signal.id} for {symbol} due to exit/cancellation.")
+                    return True
+            return False
+
     async def add_signal_to_queue(self, signal: WebhookPayload):
         side_mapping = {"buy": "long", "sell": "short", "long": "long", "short": "short"}
         position_side = side_mapping.get(signal.execution_intent.side)

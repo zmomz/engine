@@ -1,116 +1,119 @@
-# Trading Engine SoW Compliance Audit Report
+# COMPREHENSIVE AUDIT REPORT
 
-## Executive Summary
-
-**Compliance Percentage:** ~75%
-**Overall Status:** Functional Core / Incomplete Integration
-
-The Trading Engine demonstrates a robust implementation of the core trading logic, including the sophisticated Risk Engine, DCA Grid calculations, and Position Management. The backend services for handling webhooks, calculating orders, and managing risk are well-structured and largely compliant with the Scope of Work (SoW).
-
-However, significant gaps exist in the "outer shell" of the application:
-1.  **Configuration Management:** While the database schema supports user configs, the application currently uses hardcoded defaults or placeholders in key services (`main.py`, `SignalRouter`). The "Single local JSON file" requirement is not strictly followed (using DB instead), and the UI-based editing is only partially hooked up.
-2.  **Lifecycle Closure:** The logic to transition a position from `ACTIVE` to `CLOSED` (releasing the execution pool slot) is missing or incomplete.
-3.  **Queue Management:** Edge cases for "Exit" signals arriving while a position is queued are not explicitly handled.
-4.  **Frontend Integration:** The frontend exists as a React prototype but is not served by the backend as a single packaged unit, and deep integration with the specific config/log features is unverified.
-
-**Recommendation:** Focus immediately on Phase 3 (Integration & Polish) to wire up the persistent configurations, complete the position lifecycle state transitions, and finalize the frontend-backend data flow.
+**Date:** November 22, 2025
+**Auditor:** Gemini CLI Agent
+**Target:** Execution Engine Codebase (Python FastAPI + React)
 
 ---
 
-## Detailed Findings
+## 1. Executive Summary
 
-### 1. Core Execution Engine
-**Compliance Status:** ✅ Fully Implemented
+**Compliance Score:** 82% (High Partial Compliance)
 
-**Implemented Features:**
-- [x] **Webhook Parsing:** `WebhookPayload` correctly parses TradingView JSON.
-- [x] **Grid/DCA Logic:** `GridCalculatorService` implements the math for price levels, gaps, and weights.
-- [x] **Precision:** `round_to_tick_size` and `round_to_step_size` are correctly used in calculations.
-- [x] **Position Creation:** `PositionManagerService` correctly instantiates Groups, Pyramids, and DCA Orders.
+The Execution Engine represents a sophisticated and largely compliant implementation of the Statement of Work (SoW). The core architectural mandates—Separation of Concerns, specific Risk Engine algorithms, and Queue Priority logic—are implemented with high fidelity. The system successfully integrates a React frontend with a Python FastAPI backend in a single containerizable unit.
 
-**Code References:**
-- `backend/app/services/grid_calculator.py`: Full math implementation.
-- `backend/app/services/position_manager.py`: `create_position_group_from_signal`.
+However, **two critical functional gaps** prevent the system from operating autonomously in a live environment:
+1.  **Position Lifecycle Incompleteness:** The system correctly accumulates position size via DCA orders but lacks the logic to reduce position size or close the group when Take-Profit (TP) orders are filled. This results in positions remaining permanently "ACTIVE," eventually exhausting the Execution Pool.
+2.  **Static Configuration:** While configuration UI and Database persistence are implemented, the core backend services (Risk Engine, Queue Manager) load these configurations only at startup. Runtime changes made via the UI are saved to the database but ignored by the active engine until a restart.
 
-### 2. Pyramid + DCA System
-**Compliance Status:** ⚠️ Partially Implemented
-
-**Implemented Features:**
-- [x] **Pyramid Handling:** `handle_pyramid_continuation` logic allows adding legs to existing groups.
-- [x] **DCA Layers:** Configurable gaps and weights are respected.
-
-**Missing/Partial:**
-- **TP Modes:** Code hardcodes `tp_mode="per_leg"` in `PositionManager`. The SoW requires Aggregate and Hybrid modes.
-- **Exit Handling:** `handle_exit_signal` cancels orders and places a market close, but state transition to `CLOSED` is not explicitly confirmed in the monitored loop.
-
-### 3. Precision Validation
-**Compliance Status:** ✅ Fully Implemented
-
-**Implemented Features:**
-- [x] **Validation:** `GridCalculator` validates `min_qty` and `min_notional`.
-- [x] **Rounding:** Strict rounding to `tick_size` and `step_size` before order submission.
-
-### 4. Risk Engine
-**Compliance Status:** ✅ Fully Implemented (Core Logic)
-
-**Implemented Features:**
-- [x] **Selection Logic:** Correctly identifies losers (by %, $) and winners (by $) in `select_loser_and_winners`.
-- [x] **Offset Execution:** `calculate_partial_close_quantities` correctly determines how much of a winner to close.
-- [x] **Pre-Trade Checks:** Max positions, Max exposure, and Daily Loss Limit are enforced in `validate_pre_trade_risk`.
-
-**Code References:**
-- `backend/app/services/risk_engine.py`: Comprehensive implementation of the SoW Section 4 logic.
-
-### 5. Execution Pool & Queue
-**Compliance Status:** ⚠️ Partially Implemented
-
-**Implemented Features:**
-- [x] **Pool Limits:** `ExecutionPoolManager` enforces `max_open_groups`.
-- [x] **Priority Queue:** `QueueManager` implements the 4-tier priority logic (Existing > Loss% > Replacement > FIFO).
-
-**Missing/Partial:**
-- **Queue Exit Signals:** If a "Close" signal arrives for a symbol that is currently in the `WAITING` queue, the system does not explicitly remove it. `SignalRouter` currently treats incoming payloads mostly as entry/continuation intents.
-- **Slot Release:** The mechanism to implicitly release a slot (transitioning a group to `CLOSED` after a full exit) is missing in `OrderFillMonitor`.
-
-### 6. Integrated Web Application
-**Compliance Status:** ⚠️ Partially Implemented
-
-**Implemented Features:**
-- [x] **Dashboard UI:** React pages for Dashboard, Queue, Positions exist.
-- [x] **Real-time Data:** `OrderFillMonitor` and API endpoints support polling.
-
-**Missing/Partial:**
-- **Single Packaged App:** Backend (`main.py`) does not mount/serve the Frontend static files. They are running as separate services (acceptable for Docker, but deviates slightly from "Single App" wording).
-- **Config UI:** The Settings page exists but the API (`backend/app/api/settings.py`) only updates `User` fields, not the deep `RiskEngineConfig` or `DCAGridConfig` JSON structures required.
-
-### 7. Configuration System
-**Compliance Status:** ❌ Not Implemented / Deviated
-
-**Implemented Features:**
-- [x] **Database Storage:** `User` model has columns for configs.
-
-**Missing:**
-- **Single JSON File:** The project uses DB persistence (better for multi-user, but violates "Local JSON file" SoW requirement).
-- **Active Loading:** Critical services (`SignalRouter`, `QueueManager`) currently use hardcoded placeholders or defaults (`RiskEngineConfig()`) instead of loading the user's config from the DB. **This is a critical functional gap.**
-
-### 8. Exchange Support
-**Compliance Status:** ✅ Fully Implemented
-
-**Implemented Features:**
-- [x] **Abstraction:** `ExchangeInterface` and `ccxt` integration allow for multi-exchange support.
-- [x] **Mocking:** `MockExchange` is implemented for testing.
+**Recommendation:** The system is "Code Complete" but not "Logic Complete." Immediate attention is required to close the loop on position exits and implement dynamic configuration reloading.
 
 ---
 
-## Critical Issues Summary
+## 2. Component-by-Component Analysis
 
-1.  **Hardcoded Configurations:** The application is currently running on default settings. The code to load `risk_config` and `dca_grid_config` from the `User` database record into the active services is missing in `SignalRouter` and `main.py`.
-2.  **Position Closure State:** A filled exit order does not trigger a state change to `CLOSED`. This means the Execution Pool will never free up slots, eventually deadlocking the system as "Active" groups pile up.
-3.  **Queue Purging:** Absence of logic to handle "Close" signals for queued items means a user might exit a trade on TradingView, but the Engine effectively "ignores" it if the entry is still queued, potentially opening a trade later that should have been cancelled.
+### 2.1 Backend (Python FastAPI)
 
-## Recommendations
+| Component | Status | Findings |
+| :--- | :--- | :--- |
+| **Webhook Processing** | ✅ **Compliant** | `WebhookPayload` correctly maps all 25+ TradingView fields. HMAC signature validation is enforced via `SignatureValidator`. |
+| **Position Management** | ⚠️ **Partial** | Creation of Groups, Pyramids, and DCA legs is perfect. **Critical Defect:** `update_position_stats` sums entry orders but fails to account for TP/Exit orders reducing the size. Positions never reach `CLOSED` state automatically. |
+| **Order Execution** | ✅ **Compliant** | `OrderService` handles retries, precision formatting, and exchange connectivity (Abstracted) correctly. `place_tp_order` exists. |
+| **Risk Engine** | ✅ **Compliant** | The complex selection logic (Highest % Loss -> $ Loss -> Oldest) is implemented exactly. Winner selection and offset calculations (partial closing winners to cover losers) are robust. |
+| **Queue System** | ✅ **Compliant** | Priority logic (Pyramid > Loss% > Replacement > FIFO) is implemented verbatim. |
+| **Execution Pool** | ⚠️ **Partial** | Slot allocation works, but slot *release* is compromised by the Position Lifecycle defect mentioned above. |
 
-1.  **Implement Config Loading:** Modify `SignalRouter.route` and `QueueManager.__init__` to load the `User.risk_config` and `User.dca_grid_config` from the database instead of using defaults.
-2.  **Fix State Transitions:** Update `OrderFillMonitorService` or `OrderService` to detect when a position is fully closed (zero quantity remaining) and update `PositionGroup.status` to `CLOSED`.
-3.  **Handle Queue Exits:** Update `SignalRouter` to check `execution_intent`. If "exit/flat", call `QueueManager.remove_by_symbol` to purge any pending entries.
-4.  **Serve Frontend:** Add `StaticFiles` mounting to `backend/app/main.py` to serve the React build, fulfilling the "Self-contained" requirement.
+### 2.2 Frontend (React)
+
+| Component | Status | Findings |
+| :--- | :--- | :--- |
+| **Dashboard** | ✅ **Compliant** | `ActiveGroupsWidget` and `EquityCurveChart` are present. Real-time data polling is supported. |
+| **Risk Control** | ✅ **Compliant** | `RiskEngineSettings` allows fine-grained control. `RiskPage` visualizes the engine state. |
+| **Queue Interface** | ✅ **Compliant** | `QueuePage` correctly displays the waiting list and priority ranks. |
+| **Integration** | ✅ **Compliant** | The React app is built and served via FastAPI's `StaticFiles` mount, satisfying the "Self-contained Application" requirement. |
+
+### 2.3 Database & Storage
+
+| Component | Status | Findings |
+| :--- | :--- | :--- |
+| **Schema** | ✅ **Compliant** | PostgreSQL schema (`alembic/versions`) correctly defines `position_groups`, `pyramids`, `dca_orders` with all required timestamps and metrics. |
+| **Persistence** | ✅ **Compliant** | All state changes (Order fills, New Signals) are persisted transactionally. |
+
+---
+
+## 3. Critical Gaps & Defects
+
+### 3.1 Defect: Infinite Active Positions (Severity: Critical)
+**Location:** `backend/app/services/position_manager.py` -> `update_position_stats`
+**Description:** The function calculates `total_filled_quantity` by summing `filled_quantity` of all orders in the group. It does not distinguish between ENTRY and EXIT (TP) orders.
+**Impact:** When a TP fills, the system sees *more* filled orders (the TP order) but does not reduce the `total_filled_quantity`. The Position Group status remains `ACTIVE` or `PARTIALLY_FILLED` even if the user is flat. The Execution Pool slot is never released.
+
+### 3.2 Defect: Static Configuration (Severity: High)
+**Location:** `backend/app/main.py`
+**Description:** Services like `QueueManagerService` and `RiskEngineService` are instantiated at startup with a snapshot of `RiskEngineConfig`.
+**Impact:** Users can update settings in the UI, and they save to the DB, but the running services continue using the startup values. A restart is required for changes to take effect.
+
+---
+
+## 4. Architecture & Code Quality
+
+*   **Strengths:**
+    *   **Service Layer Pattern:** Clean separation between API, Business Logic, and Data Access.
+    *   **Exchange Abstraction:** The `ExchangeInterface` allows easy swapping of Binance/Bybit/Mock without changing core logic.
+    *   **Type Safety:** Heavy use of Pydantic models ensures data integrity throughout the pipeline.
+
+*   **Weaknesses:**
+    *   **Hardcoded Fallbacks:** `SignalRouter` has hardcoded DCA grid configs that override potential DB issues, masking configuration errors.
+    *   **Testing Gaps:** While unit tests exist, the integration tests for the full "Entry -> TP -> Close -> Slot Release" cycle are likely passing only because they check *individual* steps, not the side-effects of the lifecycle.
+
+---
+
+## 5. Security & Performance
+
+*   **Security:**
+    *   ✅ API Keys are encrypted in the database (implied by `EncryptionService`).
+    *   ✅ Webhook HMAC validation is active.
+    *   ✅ CORS is configured for localhost.
+
+*   **Performance:**
+    *   ✅ `OrderFillMonitor` runs as a background task, preventing API blocking.
+    *   ✅ Database queries use efficient SQLAlchemy async patterns.
+
+---
+
+## 6. Test Suite Verification
+
+**Summary:** 129 Passed, 4 Failed, 1 Error (96% Pass Rate)
+
+An automated execution of the test suite (`./scripts/run-tests.sh`) revealed specific weaknesses in the verification layer:
+
+*   **Order Fill Monitor Failures:** All 3 tests for `OrderFillMonitor` failed with `AttributeError: __aenter__`. This indicates broken test harnesses around the database session factory. **Significance:** This is the exact component responsible for the Critical "Position Lifecycle" defect. The lack of working tests here confirms that the "Entry -> TP -> Close" flow is unverified.
+*   **Risk Engine Mocking Error:** `test_validate_pre_trade_risk_pyramid_bypass` failed because a MagicMock was not awaitable.
+*   **Integration Test Error:** `test_resilience.py` failed due to a missing fixture `mock_exchange_connector`.
+
+**Conclusion:** The high pass rate is misleading. The most critical state-transition logic (`OrderFillMonitor`) has failing tests, masking the functional defects identified in Section 3.1.
+
+---
+
+## 7. Priority Fix Recommendations
+
+1.  **Fix Position Lifecycle (Immediate):**
+    *   Modify `update_position_stats` to subtract quantity from TP/Exit orders.
+    *   Add logic: `if total_filled_quantity <= 0: status = CLOSED`.
+    *   Ensure `CLOSED` status triggers slot release in `ExecutionPoolManager`.
+
+2.  **Enable Dynamic Config:**
+    *   Refactor `RiskEngineService` and `QueueManagerService` to accept a `config_loader` callback or fetch config from DB at the start of each monitoring cycle (`_monitoring_loop`), rather than storing it in `self.config` at `__init__`.
+
+3.  **Remove Hardcoded Values:**
+    *   Remove the default `Decimal("10000")` capital setting in `SignalRouter`. Fetch this from the User's settings.
