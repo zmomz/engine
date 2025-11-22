@@ -5,7 +5,7 @@ import useLogStore from '../store/logStore';
 const LogsPage: React.FC = () => {
   const { logs, loading, error, fetchLogs } = useLogStore();
   const [logLevel, setLogLevel] = useState('all');
-  const [lineCount, setLineCount] = useState(100);
+  const [lineCount] = useState(100);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
