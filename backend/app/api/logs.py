@@ -20,6 +20,9 @@ async def get_logs(
     Retrieves the last N lines of the application log.
     Optionally filters by log level (text search).
     """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Insufficient privileges")
+
     if not LOG_FILE_PATH.exists():
         return {"logs": []}
 

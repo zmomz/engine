@@ -20,7 +20,7 @@ async def get_all_queued_signals(
     """
     Retrieves all queued signals.
     """
-    queued_signals = await queue_manager_service.get_all_queued_signals()
+    queued_signals = await queue_manager_service.get_all_queued_signals(user_id=current_user.id)
     return [QueuedSignalSchema.from_orm(signal) for signal in queued_signals]
 
 @router.post("/{signal_id}/promote", response_model=QueuedSignalSchema)
@@ -32,7 +32,7 @@ async def promote_queued_signal(
     """
     Promotes a queued signal to the active pool if a slot is available.
     """
-    promoted_signal = await queue_manager_service.promote_specific_signal(signal_id)
+    promoted_signal = await queue_manager_service.promote_specific_signal(signal_id, user_id=current_user.id)
     if not promoted_signal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Queued signal not found or could not be promoted.")
     return QueuedSignalSchema.from_orm(promoted_signal)
@@ -46,7 +46,7 @@ async def remove_queued_signal(
     """
     Removes a queued signal.
     """
-    success = await queue_manager_service.remove_from_queue(signal_id)
+    success = await queue_manager_service.remove_from_queue(signal_id, user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Queued signal not found.")
     return {"message": "Queued signal removed successfully."}
@@ -60,7 +60,7 @@ async def force_add_to_pool(
     """
     Forces a queued signal to be added to the active pool, overriding position limits.
     """
-    forced_signal = await queue_manager_service.force_add_specific_signal_to_pool(signal_id)
+    forced_signal = await queue_manager_service.force_add_specific_signal_to_pool(signal_id, user_id=current_user.id)
     if not forced_signal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Queued signal not found or could not be forced into pool.")
     return QueuedSignalSchema.from_orm(forced_signal)

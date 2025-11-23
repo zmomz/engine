@@ -28,10 +28,16 @@ def override_dependencies(mock_async_session: AsyncSession):
     app.dependency_overrides = {}
 
 
+from app.api.dependencies.users import get_current_active_user
+from app.models.user import User
+
 @pytest.mark.asyncio
 async def test_get_all_positions_success(mock_async_session: AsyncSession):
     """Test successfully retrieving all active position groups for a user."""
     user_id = uuid.uuid4()
+    mock_user = User(id=user_id, username="test", email="test@test.com", hashed_password="hash")
+    app.dependency_overrides[get_current_active_user] = lambda: mock_user
+
     mock_positions = [
         PositionGroup(
             id=uuid.uuid4(),
@@ -96,6 +102,7 @@ async def test_get_all_positions_success(mock_async_session: AsyncSession):
     async with AsyncClient(app=app, base_url="http://test") as ac:
         response = await ac.get(f"/api/v1/positions/{user_id}")
 
+    del app.dependency_overrides[get_current_active_user]
     assert response.status_code == 200
     mock_async_session.execute.assert_called_once()
     response_data = response.json()
@@ -108,6 +115,9 @@ async def test_get_position_group_success(mock_async_session: AsyncSession):
     """Test successfully retrieving a specific position group for a user."""
     user_id = uuid.uuid4()
     group_id = uuid.uuid4()
+    mock_user = User(id=user_id, username="test", email="test@test.com", hashed_password="hash")
+    app.dependency_overrides[get_current_active_user] = lambda: mock_user
+
     mock_position = PositionGroup(
         id=group_id,
         user_id=user_id,
@@ -143,6 +153,7 @@ async def test_get_position_group_success(mock_async_session: AsyncSession):
     async with AsyncClient(app=app, base_url="http://test") as ac:
         response = await ac.get(f"/api/v1/positions/{user_id}/{group_id}")
 
+    del app.dependency_overrides[get_current_active_user]
     assert response.status_code == 200
     mock_async_session.execute.assert_called_once()
     response_data = response.json()
@@ -154,6 +165,8 @@ async def test_get_position_group_not_found(mock_async_session: AsyncSession):
     """Test retrieving a non-existent position group."""
     user_id = uuid.uuid4()
     group_id = uuid.uuid4()
+    mock_user = User(id=user_id, username="test", email="test@test.com", hashed_password="hash")
+    app.dependency_overrides[get_current_active_user] = lambda: mock_user
     
     mock_result = MagicMock()
     mock_result.scalars.return_value.first.return_value = None
@@ -162,5 +175,6 @@ async def test_get_position_group_not_found(mock_async_session: AsyncSession):
     async with AsyncClient(app=app, base_url="http://test") as ac:
         response = await ac.get(f"/api/v1/positions/{user_id}/{group_id}")
 
+    del app.dependency_overrides[get_current_active_user]
     assert response.status_code == 404
     assert response.json() == {"detail": "Position group not found."}

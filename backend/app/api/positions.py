@@ -50,11 +50,15 @@ async def get_order_service(
 @router.get("/{user_id}/history", response_model=List[PositionGroupSchema])
 async def get_position_history(
     user_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Retrieves all historical (closed) position groups for a given user.
     """
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this user's history.")
+        
     repo = PositionGroupRepository(db)
     positions = await repo.get_closed_by_user(user_id)
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
@@ -74,11 +78,15 @@ async def get_current_user_active_positions(
 @router.get("/{user_id}", response_model=List[PositionGroupSchema])
 async def get_all_positions(
     user_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Retrieves all active position groups for a given user.
     """
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this user's positions.")
+
     repo = PositionGroupRepository(db)
     positions = await repo.get_all_active_by_user(user_id)
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
@@ -87,11 +95,15 @@ async def get_all_positions(
 async def get_position_group(
     user_id: uuid.UUID,
     group_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Retrieves a specific position group for a given user.
     """
+    if current_user.id != user_id and not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this position group.")
+
     repo = PositionGroupRepository(db)
     position = await repo.get_by_user_and_id(user_id, group_id)
     if not position:

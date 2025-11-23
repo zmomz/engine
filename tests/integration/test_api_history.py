@@ -10,7 +10,7 @@ from decimal import Decimal
 
 @pytest.mark.asyncio
 async def test_get_position_history(
-    client: AsyncClient,
+    authorized_client: AsyncClient,
     test_user: User,
     db_session,
 ):
@@ -84,7 +84,7 @@ async def test_get_position_history(
     await db_session.refresh(closed_position_2)
     await db_session.refresh(active_position)
 
-    response = await client.get(f"/api/v1/positions/{test_user.id}/history")
+    response = await authorized_client.get(f"/api/v1/positions/{test_user.id}/history")
 
     assert response.status_code == 200
     data = response.json()

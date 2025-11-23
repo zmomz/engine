@@ -2,7 +2,6 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies.signature_validation import SignatureValidator
 from app.api.dependencies.users import get_current_active_user
 from app.db.database import get_db_session
 from app.models.user import User
@@ -41,13 +40,13 @@ async def update_settings(
     Update the current user's settings.
     """
     user_repo = UserRepository(db)
-
+    
+    encrypted_keys = None
     # Handle API Key Encryption if provided
     if user_update.api_key and user_update.secret_key:
         encryption_service = EncryptionService()
         # encrypt_keys returns a dict that matches what we want to store
-        encrypted = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
-        user_update.encrypted_api_keys = encrypted
+        encrypted_keys = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
 
     # Prepare update data
     update_data = user_update.dict(exclude_unset=True)
@@ -55,6 +54,10 @@ async def update_settings(
     # Remove raw keys from update data as they are not DB columns
     update_data.pop("api_key", None)
     update_data.pop("secret_key", None)
+    
+    # Explicitly set encrypted keys if they were generated
+    if encrypted_keys:
+        update_data["encrypted_api_keys"] = encrypted_keys
 
     # Apply updates to the current_user instance
     for field, value in update_data.items():

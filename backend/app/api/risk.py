@@ -59,7 +59,8 @@ def get_risk_engine_service(
         dca_order_repository_class=DCAOrderRepository,
         exchange_connector=exchange_connector,
         order_service_class=OrderService,
-        risk_engine_config=risk_engine_config
+        risk_engine_config=risk_engine_config,
+        user=user
     )
 
 @router.get("/status")

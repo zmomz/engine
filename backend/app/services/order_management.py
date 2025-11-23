@@ -219,6 +219,10 @@ class OrderService:
         position_group = await self.position_group_repository.get(group_id)
         if not position_group:
             raise APIError(f"PositionGroup with ID {group_id} not found.", status_code=404)
+        
+        # Authorization check
+        if position_group.user_id != self.user.id:
+            raise APIError("Not authorized to close this position group.", status_code=403)
 
         if position_group.status == PositionGroupStatus.CLOSED.value:
             raise APIError(f"PositionGroup {group_id} is already closed.", status_code=400)

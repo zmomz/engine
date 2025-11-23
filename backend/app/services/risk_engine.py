@@ -181,7 +181,8 @@ class RiskEngineService:
         exchange_connector: ExchangeInterface,
         order_service_class: type[OrderService],
         risk_engine_config: RiskEngineConfig,
-        polling_interval_seconds: int = 60
+        polling_interval_seconds: int = 60,
+        user: Optional[User] = None
     ):
         self.session_factory = session_factory
         self.position_group_repository_class = position_group_repository_class
@@ -191,6 +192,7 @@ class RiskEngineService:
         self.order_service_class = order_service_class
         self.polling_interval_seconds = polling_interval_seconds
         self.config = risk_engine_config
+        self.user = user
         self._running = False
         self._monitor_task = None
 
@@ -403,6 +405,10 @@ class RiskEngineService:
             if not position_group:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PositionGroup not found")
             
+            # Security Check
+            if self.user and position_group.user_id != self.user.id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this position group")
+
             position_group.risk_blocked = blocked
             await position_group_repo.update(position_group)
             await session.commit()
@@ -418,6 +424,10 @@ class RiskEngineService:
             if not position_group:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PositionGroup not found")
             
+            # Security Check
+            if self.user and position_group.user_id != self.user.id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this position group")
+
             position_group.risk_skip_once = skip
             await position_group_repo.update(position_group)
             await session.commit()
@@ -431,7 +441,11 @@ class RiskEngineService:
         """
         async for session in self.session_factory():
             position_group_repo = self.position_group_repository_class(session)
-            all_positions = await position_group_repo.get_all()
+            
+            if self.user:
+                all_positions = await position_group_repo.get_all_active_by_user(self.user.id)
+            else:
+                all_positions = await position_group_repo.get_all()
             
             loser, winners, required_usd = select_loser_and_winners(all_positions, self.config)
             
@@ -466,6 +480,11 @@ class RiskEngineService:
         """
         Triggers a single, immediate evaluation run of the risk engine.
         """
-        logger.info("Risk Engine: Manually triggered single evaluation.")
-        await self._evaluate_positions()
+        if self.user:
+            logger.info(f"Risk Engine: Manually triggered single evaluation for user {self.user.id}.")
+            async for session in self.session_factory():
+                await self._evaluate_user_positions(session, self.user)
+        else:
+            logger.info("Risk Engine: Manually triggered single evaluation (Global).")
+            await self._evaluate_positions()
         return {"status": "Risk evaluation completed"}

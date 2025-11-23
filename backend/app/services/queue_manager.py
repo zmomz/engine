@@ -137,20 +137,30 @@ class QueueManagerService:
                 logger.info(f"Added new signal to queue: {new_signal.symbol}")
                 return new_signal
 
-    async def remove_from_queue(self, signal_id: uuid.UUID) -> bool:
+    async def remove_from_queue(self, signal_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> bool:
         async with self.session_factory() as session:
             repo = self.queued_signal_repository_class(session)
+            signal = await repo.get_by_id(signal_id)
+            if not signal:
+                return False
+            
+            if user_id and signal.user_id != user_id:
+                logger.warning(f"User {user_id} attempted to remove signal {signal_id} belonging to {signal.user_id}")
+                return False
+
             result = await repo.delete(signal_id)
             if result:
                 await session.commit()
             return result
 
-    async def get_all_queued_signals(self) -> List[QueuedSignal]:
+    async def get_all_queued_signals(self, user_id: Optional[uuid.UUID] = None) -> List[QueuedSignal]:
          async with self.session_factory() as session:
             repo = self.queued_signal_repository_class(session)
+            if user_id:
+                return await repo.get_all_queued_signals_for_user(user_id)
             return await repo.get_all_queued_signals()
 
-    async def force_add_specific_signal_to_pool(self, signal_id: uuid.UUID) -> Optional[QueuedSignal]:
+    async def force_add_specific_signal_to_pool(self, signal_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> Optional[QueuedSignal]:
         # This method effectively "Promotes" it but bypasses checks?
         # Or just changes status and lets execution happen?
         # For now, implementing as a force-promote.
@@ -158,6 +168,10 @@ class QueueManagerService:
             repo = self.queued_signal_repository_class(session)
             signal = await repo.get_by_id(signal_id)
             if signal:
+                if user_id and signal.user_id != user_id:
+                    logger.warning(f"User {user_id} attempted to force promote signal {signal_id} belonging to {signal.user_id}")
+                    return None
+
                 signal.status = QueueStatus.PROMOTED
                 signal.promoted_at = datetime.utcnow()
                 await repo.update(signal)
@@ -165,11 +179,15 @@ class QueueManagerService:
                 return signal
             return None
     
-    async def promote_specific_signal(self, signal_id: uuid.UUID) -> Optional[QueuedSignal]:
+    async def promote_specific_signal(self, signal_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> Optional[QueuedSignal]:
          async with self.session_factory() as session:
             repo = self.queued_signal_repository_class(session)
             signal = await repo.get_by_id(signal_id)
             if not signal:
+                return None
+            
+            if user_id and signal.user_id != user_id:
+                logger.warning(f"User {user_id} attempted to promote signal {signal_id} belonging to {signal.user_id}")
                 return None
             
             # Check slot
