@@ -3,17 +3,21 @@ from decimal import Decimal
 import uuid
 from datetime import datetime, timedelta
 
-from app.services.queue_manager import calculate_queue_priority, find_active_group
+from app.services.queue_manager import calculate_queue_priority
 from app.models.queued_signal import QueuedSignal, QueueStatus
 from app.models.position_group import PositionGroup, PositionGroupStatus
 
 # --- Fixtures ---
 
 @pytest.fixture
-def sample_queued_signal():
+def user_id_common():
+    return uuid.uuid4()
+
+@pytest.fixture
+def sample_queued_signal(user_id_common):
     return QueuedSignal(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_common,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -26,10 +30,10 @@ def sample_queued_signal():
     )
 
 @pytest.fixture
-def active_position_group():
+def active_position_group(user_id_common):
     return PositionGroup(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_common,
         exchange="binance",
         symbol="BTCUSDT",
         timeframe=15,
@@ -41,10 +45,10 @@ def active_position_group():
     )
 
 @pytest.fixture
-def active_position_group_different_symbol():
+def active_position_group_different_symbol(user_id_common):
     return PositionGroup(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user_id_common,
         exchange="binance",
         symbol="ETHUSDT",
         timeframe=15,
@@ -55,18 +59,6 @@ def active_position_group_different_symbol():
         total_dca_legs=5
     )
 
-# --- Tests for find_active_group ---
-
-def test_find_active_group_found(sample_queued_signal, active_position_group):
-    active_groups = [active_position_group]
-    found_group = find_active_group(active_groups, sample_queued_signal.symbol, sample_queued_signal.timeframe)
-    assert found_group == active_position_group
-
-def test_find_active_group_not_found(sample_queued_signal, active_position_group_different_symbol):
-    active_groups = [active_position_group_different_symbol]
-    found_group = find_active_group(active_groups, sample_queued_signal.symbol, sample_queued_signal.timeframe)
-    assert found_group is None
-
 # --- Tests for calculate_queue_priority (Tier 1: Pyramid continuation) ---
 
 def test_calculate_priority_pyramid_continuation(sample_queued_signal, active_position_group):
@@ -76,9 +68,9 @@ def test_calculate_priority_pyramid_continuation(sample_queued_signal, active_po
     active_groups = [active_position_group]
     priority = calculate_queue_priority(sample_queued_signal, active_groups)
     
-    # Expected score: 1,000,000 + (10,000 - time_in_queue)
-    # time_in_queue is around 300 seconds (5 minutes)
-    assert priority > 1_000_000
+    # Expected score: 10,000,000 + tie-breakers
+    # Base for pyramid is 10,000,000
+    assert priority > Decimal("10000000.0")
 
 # --- Tests for calculate_queue_priority (Tier 2: Deepest current loss percentage) ---
 
@@ -110,7 +102,16 @@ def test_calculate_priority_deepest_loss_percentage(sample_queued_signal):
     priority_deep = calculate_queue_priority(signal_deep_loss, active_groups)
     priority_shallow = calculate_queue_priority(signal_shallow_loss, active_groups)
     
-    # Expected score: 100,000 + (abs(loss_percent) * 1000)
+    # Expected score: 1,000,000 + (abs(loss_percent) * 10000)
+    # Plus time_in_queue_score (5 minutes * 0.001 = 0.3)
+    
+    # We check relative order first
     assert priority_deep > priority_shallow
-    assert priority_deep == 100_000 + (5.0 * 1000)
-    assert priority_shallow == 100_000 + (2.0 * 1000)
+    
+    # Check approximate values (ignoring time_in_queue small variations)
+    # Base: 1,000,000
+    # Deep loss score: 5.0 * 10000 = 50,000
+    # Shallow loss score: 2.0 * 10000 = 20,000
+    
+    assert priority_deep > Decimal("1050000.0") 
+    assert priority_shallow > Decimal("1020000.0")

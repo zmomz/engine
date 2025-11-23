@@ -1,12 +1,17 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
+import os
+import json
+from cryptography.fernet import Fernet
 
 from jose import jwt
+from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-SECRET_KEY = "YOUR_SECRET_KEY"  # TODO: Load from environment variable
+# SECRET_KEY is validated in settings
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -14,7 +19,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    print(f"Password length before hashing: {len(password)}")
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -40,23 +44,20 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 class EncryptionService:
 
     def __init__(self):
-
-        # TODO: Initialize Fernet with a key from environment variables
-
-        self.fernet = None
-
-
+        # ENCRYPTION_KEY is validated in settings
+        self.fernet = Fernet(settings.ENCRYPTION_KEY)
 
     def encrypt_keys(self, api_key: str, secret_key: str) -> dict:
-
-        # TODO: Implement actual encryption
-
-        return {"encrypted_data": "placeholder"}
-
-
+        data = json.dumps({"api_key": api_key, "secret_key": secret_key}).encode()
+        encrypted_data = self.fernet.encrypt(data)
+        return {"encrypted_data": encrypted_data.decode()}
 
     def decrypt_keys(self, encrypted_data: dict) -> tuple[str, str]:
-
-        # TODO: Implement actual decryption
-
-        return "decrypted_api_key", "decrypted_secret_key"
+        # Expecting input dict to contain "encrypted_data" key with the token string
+        token = encrypted_data.get("encrypted_data")
+        if not token:
+            raise ValueError("Invalid encrypted data format")
+            
+        decrypted_bytes = self.fernet.decrypt(token.encode())
+        data = json.loads(decrypted_bytes.decode())
+        return data["api_key"], data["secret_key"]

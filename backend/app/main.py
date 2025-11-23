@@ -3,30 +3,40 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+import os
+import logging
+import sys
 
-from app.api import health, webhooks, risk, positions, queue, users, settings, dashboard, logs
+from app.api import health, webhooks, risk, positions, queue, users, settings as api_settings, dashboard, logs
 from app.rate_limiter import limiter
 from app.services.order_fill_monitor import OrderFillMonitorService
 from app.services.order_management import OrderService
 from app.repositories.dca_order import DCAOrderRepository
 from app.repositories.position_group import PositionGroupRepository
-from app.repositories.queued_signal import QueuedSignalRepository
-from app.repositories.risk_action import RiskActionRepository # Added RiskActionRepository import
-from app.db.database import get_db_session, AsyncSessionLocal
-from app.services.exchange_abstraction.factory import get_exchange_connector
-from app.services.queue_manager import QueueManagerService
+from app.db.database import AsyncSessionLocal
 from app.services.position_manager import PositionManagerService
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.grid_calculator import GridCalculatorService
-from app.services.risk_engine import RiskEngineService # Added RiskEngineService import
-from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
-from app.models.user import User # Added User import
-from app.core.logging_config import setup_logging # Added logging setup
-import uuid # Added uuid import
-from decimal import Decimal
-import os
+from app.services.queue_manager import QueueManagerService
+from app.core.logging_config import setup_logging
+from app.core.config import settings
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+
+logger = logging.getLogger(__name__)
+
+# Validate CORS for production
+if settings.ENVIRONMENT == "production":
+    # In production, we must have specific origins, not just default
+    if not settings.CORS_ORIGINS or "http://localhost:3000" in settings.CORS_ORIGINS:
+        # This allows manual override if they REALLY want localhost in prod, but usually it's a misconfig.
+        # For strictness:
+        if "http://localhost:3000" in settings.CORS_ORIGINS and len(settings.CORS_ORIGINS) == 1:
+             logger.warning("Running in production with default localhost CORS origin. This is insecure.")
+             # Should we fail? The requirement says "If production and CORS_ORIGINS not set or contains localhost, fail startup"
+             # Let's be strict.
+             logger.error("Production environment detected but CORS_ORIGINS contains localhost or is not set correctly.")
+             sys.exit(1)
 
 app = FastAPI()
 app.state.limiter = limiter
@@ -35,13 +45,15 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.add_middleware(SlowAPIMiddleware)
+if os.getenv("TESTING") != "true":
+    app.add_middleware(SlowAPIMiddleware)
+
 
 
 @app.on_event("startup")
@@ -49,38 +61,15 @@ async def startup_event():
     # Setup Logging
     setup_logging()
     
-    # Initialize exchange connector
-    app.state.exchange_connector = get_exchange_connector("mock")
-
-    # Initialize repositories and services
-    exchange_connector = app.state.exchange_connector
-
-    # Create a dummy user for service instantiation (replace with actual user management later)
-    async with AsyncSessionLocal() as session:
-        # Check if dummy user already exists
-        dummy_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001") # Consistent ID
-        dummy_user = await session.get(User, dummy_user_id)
-        if not dummy_user:
-            dummy_user = User(
-                id=dummy_user_id,
-                username="dummy_system_user",
-                email="dummy@example.com",
-                hashed_password="dummy_hash", # This will not be used for auth
-                exchange="mock",
-                webhook_secret="dummy_secret"
-            )
-            session.add(dummy_user)
-            await session.commit()
-            await session.refresh(dummy_user)
-            
-    app.state.dummy_user = dummy_user
+    logger.info(f"Starting up in {settings.ENVIRONMENT} mode")
+    logger.info(f"CORS Allowed Origins: {settings.CORS_ORIGINS}")
 
     # OrderFillMonitorService
+    # Now initialized without specific exchange connector, it handles multi-user iteration internally.
     app.state.order_fill_monitor = OrderFillMonitorService(
         session_factory=AsyncSessionLocal,
         dca_order_repository_class=DCAOrderRepository,
         position_group_repository_class=PositionGroupRepository,
-        exchange_connector=exchange_connector,
         order_service_class=OrderService,
         position_manager_service_class=PositionManagerService
     )
@@ -89,73 +78,28 @@ async def startup_event():
     # GridCalculatorService is stateless, so it can be initialized at startup
     app.state.grid_calculator_service = GridCalculatorService()
 
-    # Load Configs from Dummy User
-    try:
-        risk_engine_config = RiskEngineConfig.model_validate(app.state.dummy_user.risk_config)
-    except:
-        risk_engine_config = RiskEngineConfig()
-
-    try:
-        dca_grid_config = DCAGridConfig.model_validate(app.state.dummy_user.dca_grid_config)
-    except:
-        dca_grid_config = DCAGridConfig.model_validate([
-            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
-            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
-        ])
-        
-    total_capital_usd = Decimal("10000") # Placeholder
-
     # ExecutionPoolManager
     app.state.execution_pool_manager = ExecutionPoolManager(
         session_factory=AsyncSessionLocal,
         position_group_repository_class=PositionGroupRepository
     )
 
-    # PositionManagerService
-    app.state.position_manager_service = PositionManagerService(
-        session_factory=AsyncSessionLocal,
-        user=app.state.dummy_user,
-        position_group_repository_class=PositionGroupRepository,
-        grid_calculator_service=app.state.grid_calculator_service,
-        order_service_class=OrderService,
-        exchange_connector=exchange_connector
-    )
-
-    # RiskEngineService
-    app.state.risk_engine_service = RiskEngineService(
-        session_factory=AsyncSessionLocal,
-        position_group_repository_class=PositionGroupRepository,
-        risk_action_repository_class=RiskActionRepository,
-        dca_order_repository_class=DCAOrderRepository,
-        exchange_connector=exchange_connector,
-        order_service_class=OrderService,
-        risk_engine_config=risk_engine_config
-    )
-
     # QueueManagerService
     app.state.queue_manager_service = QueueManagerService(
         session_factory=AsyncSessionLocal,
-        user=app.state.dummy_user,
-        queued_signal_repository_class=QueuedSignalRepository,
-        position_group_repository_class=PositionGroupRepository,
-        exchange_connector=exchange_connector,
-        execution_pool_manager=app.state.execution_pool_manager,
-        position_manager_service=app.state.position_manager_service,
-        risk_engine_service=app.state.risk_engine_service,
-        grid_calculator_service=app.state.grid_calculator_service,
-        order_service_class=OrderService,
-        risk_engine_config=risk_engine_config,
-        dca_grid_config=dca_grid_config,
-        total_capital_usd=total_capital_usd
+        execution_pool_manager=app.state.execution_pool_manager
     )
+    await app.state.queue_manager_service.start_promotion_task()
+    
+    # PositionManagerService & RiskEngineService are now instantiated per-request.
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    await app.state.order_fill_monitor.stop_monitoring_task()
+    if hasattr(app.state, "order_fill_monitor"):
+        await app.state.order_fill_monitor.stop_monitoring_task()
+    if hasattr(app.state, "queue_manager_service"):
+        await app.state.queue_manager_service.stop_promotion_task()
 
 
 app.include_router(health.router, prefix="/api/v1/health", tags=["Health Check"])
@@ -164,32 +108,25 @@ app.include_router(positions.router, prefix="/api/v1/positions", tags=["Position
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 app.include_router(queue.router, prefix="/api/v1/queue", tags=["Queue"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
-app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
+app.include_router(api_settings.router, prefix="/api/v1/settings", tags=["Settings"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["Logs"])
 
 # Serve Frontend Static Files
-# Assuming the frontend build output is in 'frontend/build' relative to project root
-# We need to resolve the path relative to where the app is run (root/engine)
 frontend_build_path = os.path.join(os.getcwd(), "frontend/build")
 
 if os.path.exists(frontend_build_path):
     app.mount("/static", StaticFiles(directory=os.path.join(frontend_build_path, "static")), name="static")
-    # Mount other assets if necessary (e.g., manifest.json, favicon.ico)
-    # For simplicity, we'll mount the root for index.html in a catch-all
     
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
-        # If the path starts with /api, let it pass through (though router should catch it first)
         if full_path.startswith("api"):
              return {"error": "API endpoint not found"}
         
-        # Check if file exists in build dir
         file_path = os.path.join(frontend_build_path, full_path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(file_path)
             
-        # Otherwise return index.html
         return FileResponse(os.path.join(frontend_build_path, "index.html"))
 else:
-    print(f"Warning: Frontend build directory not found at {frontend_build_path}. API only mode.")
+    pass

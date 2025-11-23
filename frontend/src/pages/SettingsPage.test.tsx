@@ -80,8 +80,7 @@ describe('SettingsPage', () => {
     // The input should be available.
     
     const maxExposureInput = screen.getByLabelText(/max total exposure usd/i);
-    await userEvent.clear(maxExposureInput);
-    await userEvent.type(maxExposureInput, '2000');
+    fireEvent.change(maxExposureInput, { target: { value: '2000' } });
 
     // 3. Submit Form
     const saveButton = screen.getByRole('button', { name: /save settings/i });

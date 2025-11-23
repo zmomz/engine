@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import json
 
-from typing import Callable, List, Optional, Tuple # Added Callable
+from typing import Callable, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,68 +22,79 @@ from app.services.order_management import OrderService
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.core.security import EncryptionService
+from fastapi import HTTPException, status
 
 logger = logging.getLogger(__name__)
+
+class UserNotFoundException(Exception):
+    """Exception raised when a user is not found."""
+    pass
 
 class PositionManagerService:
     def __init__(
         self,
-        session_factory: Callable[..., AsyncSession], # Changed to session_factory
+        session_factory: Callable[..., AsyncSession],
         user: "User",
         position_group_repository_class: type[PositionGroupRepository],
         grid_calculator_service: GridCalculatorService,
         order_service_class: type[OrderService],
         exchange_connector: ExchangeInterface
     ):
-        self.session_factory = session_factory # Stored session_factory
+        self.session_factory = session_factory
         self.user = user
-        self.position_group_repository_class = position_group_repository_class # Stored class
+        self.position_group_repository_class = position_group_repository_class
         self.grid_calculator_service = grid_calculator_service
         self.order_service_class = order_service_class
         self.exchange_connector = exchange_connector
-        # Defer order_service instantiation, will be created per session or as needed
         self.order_service = None
 
     async def create_position_group_from_signal(
         self,
-        session: AsyncSession, # Added session
+        session: AsyncSession,
         user_id: uuid.UUID,
         signal: QueuedSignal,
         risk_config: RiskEngineConfig,
         dca_grid_config: DCAGridConfig,
         total_capital_usd: Decimal
     ) -> PositionGroup:
+        print(f"DEBUG: Entering create_position_group_from_signal for user {user_id}")
         # 1. Get user and decrypt API keys to instantiate exchange connector
-        user = await session.get(User, user_id) # Use passed session
+        user = await session.get(User, user_id)
         if not user:
-            raise Exception("User not found") # TODO: use a more specific exception
+            print("DEBUG: User not found")
+            raise UserNotFoundException(f"User {user_id} not found")
         
-        # TODO: This is not the final way we will handle encryption/exchange conn
         encryption_service = EncryptionService() 
         api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+        print(f"DEBUG: Decrypted keys. API Key len: {len(api_key)}")
+        
         exchange_connector = get_exchange_connector(
             exchange_type=signal.exchange,
             api_key=api_key,
             secret_key=secret_key
         )
+        print(f"DEBUG: Got exchange connector: {exchange_connector}")
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()
+        print(f"DEBUG: Got precision rules: {precision_rules}")
         symbol_precision = precision_rules.get(signal.symbol, {})
 
         # 3. Calculate DCA levels and quantities
-        # Pass the full configuration object; the service handles extraction
         dca_levels = self.grid_calculator_service.calculate_dca_levels(
             base_price=signal.entry_price,
             dca_config=dca_grid_config, 
             side=signal.side,
             precision_rules=symbol_precision
         )
+        print(f"DEBUG: Calculated {len(dca_levels)} levels")
+        
         dca_levels = self.grid_calculator_service.calculate_order_quantities(
             dca_levels=dca_levels,
             total_capital_usd=total_capital_usd,
             precision_rules=symbol_precision
         )
+        print("DEBUG: Calculated quantities")
 
         # 4. Create PositionGroup
         risk_timer_start = datetime.utcnow()
@@ -105,8 +116,9 @@ class PositionManagerService:
             risk_timer_start=risk_timer_start,
             risk_timer_expires=risk_timer_expires
         )
-        session.add(new_position_group) # Use passed session
-        await session.flush() # Flush to get the ID for the position group
+        session.add(new_position_group)
+        await session.flush()
+        print(f"DEBUG: Created PG {new_position_group.id}")
         
         # 5. Create Initial Pyramid
         new_pyramid = Pyramid(
@@ -114,21 +126,20 @@ class PositionManagerService:
             pyramid_index=0,
             entry_price=signal.entry_price,
             status=PyramidStatus.PENDING,
-            dca_config=json.loads(dca_grid_config.json()) # Store full config or relevant part
+            dca_config=json.loads(dca_grid_config.json())
         )
-        session.add(new_pyramid) # Use passed session
+        session.add(new_pyramid)
         await session.flush()
 
         # 6. Instantiate OrderService
         order_service = self.order_service_class(
-            session=session, # Use passed session
+            session=session,
             user=user,
             exchange_connector=exchange_connector
         )
 
         # 7. Create DCAOrder objects
         orders_to_submit = []
-        # Map signal side (long/short) to order side (buy/sell)
         order_side = "buy" if signal.side == "long" else "sell"
         
         for i, level in enumerate(dca_levels):
@@ -142,22 +153,18 @@ class PositionManagerService:
                 price=level['price'],
                 quantity=level['quantity'],
                 status=OrderStatus.PENDING,
-                # TODO: Fill these from the level dict
                 gap_percent=level.get('gap_percent', Decimal("0")),
                 weight_percent=level.get('weight_percent', Decimal("0")),
                 tp_percent=level.get('tp_percent', Decimal("0")),
                 tp_price=level.get('tp_price', Decimal("0")),
             )
-            session.add(dca_order) # Use passed session
+            session.add(dca_order)
             orders_to_submit.append(dca_order)
         
-        # 8. Commit the new orders to get IDs
-        # Note: The commit is handled by the caller (QueueManagerService)
-        # Await session.commit() # Removed as caller commits
-        
+        print(f"DEBUG: About to submit {len(orders_to_submit)} orders")
         # 9. Asynchronously submit all orders
-        # We iterate sequentially to avoid "Session is already flushing" errors with the shared session
         for order in orders_to_submit:
+            print(f"DEBUG: Submitting order {order.leg_index}")
             await order_service.submit_order(order)
 
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
@@ -166,7 +173,7 @@ class PositionManagerService:
 
     async def handle_pyramid_continuation(
         self,
-        session: AsyncSession, # Added session
+        session: AsyncSession,
         user_id: uuid.UUID,
         signal: QueuedSignal,
         existing_position_group: PositionGroup,
@@ -175,9 +182,9 @@ class PositionManagerService:
         total_capital_usd: Decimal
     ) -> PositionGroup:
         # 1. Get user and decrypt API keys
-        user = await session.get(User, user_id) # Use passed session
+        user = await session.get(User, user_id)
         if not user:
-            raise Exception("User not found")
+            raise UserNotFoundException(f"User {user_id} not found")
         
         encryption_service = EncryptionService() 
         api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
@@ -192,7 +199,6 @@ class PositionManagerService:
         symbol_precision = precision_rules.get(signal.symbol, {})
 
         # 3. Calculate DCA levels for this NEW pyramid
-        # The signal entry price is the base for this new pyramid layer
         dca_levels = self.grid_calculator_service.calculate_dca_levels(
             base_price=signal.entry_price,
             dca_config=dca_grid_config,
@@ -218,24 +224,23 @@ class PositionManagerService:
         # 5. Create New Pyramid
         new_pyramid = Pyramid(
             group_id=existing_position_group.id,
-            pyramid_index=existing_position_group.pyramid_count, # approx index
+            pyramid_index=existing_position_group.pyramid_count,
             entry_price=signal.entry_price,
             status=PyramidStatus.PENDING,
             dca_config=json.loads(dca_grid_config.json())
         )
-        session.add(new_pyramid) # Use passed session
+        session.add(new_pyramid)
         await session.flush()
 
         # 6. Instantiate OrderService
         order_service = self.order_service_class(
-            session=session, # Use passed session
+            session=session,
             user=user,
             exchange_connector=exchange_connector
         )
 
         # 7. Create DCAOrder objects
         orders_to_submit = []
-        # Map signal side
         order_side = "buy" if signal.side == "long" else "sell"
         
         for i, level in enumerate(dca_levels):
@@ -254,13 +259,9 @@ class PositionManagerService:
                 tp_percent=level.get('tp_percent', Decimal("0")),
                 tp_price=level.get('tp_price', Decimal("0")),
             )
-            session.add(dca_order) # Use passed session
+            session.add(dca_order)
             orders_to_submit.append(dca_order)
 
-        # 8. Commit and Submit
-        # Note: The commit is handled by the caller (QueueManagerService)
-        # Await session.commit() # Removed as caller commits
-        
         for order in orders_to_submit:
             await order_service.submit_order(order)
 
@@ -274,8 +275,6 @@ class PositionManagerService:
         2. Places a market order to close the total filled quantity.
         """
         async with self.session_factory() as session:
-            # The OrderService needs its own session and repositories
-            # Assuming user is available in the instance or passed. For now, using self.user.
             order_service = self.order_service_class(session=session, user=self.user, exchange_connector=self.exchange_connector)
 
             # 1. Cancel open orders
@@ -299,13 +298,9 @@ class PositionManagerService:
             else:
                 logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
 
-            # Update PositionGroup status to CLOSED to release the pool slot
-            # We assume the market order fills immediately for now.
             position_group_repo = self.position_group_repository_class(session)
             position_group.status = PositionGroupStatus.CLOSED
             
-            # Calculate realized PnL (simplified: current value - cost)
-            # In a real engine, we'd track this more granularly.
             current_price = await self.exchange_connector.get_current_price(position_group.symbol)
             
             exit_value = total_filled_quantity * current_price
@@ -327,7 +322,7 @@ class PositionManagerService:
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig):
         async with self.session_factory() as session:
-            position_group_repo = self.position_group_repository_class(session) # Instantiate repo with session
+            position_group_repo = self.position_group_repository_class(session)
             position_group = await position_group_repo.get_by_id(position_group_id)
 
             if not position_group:
@@ -337,7 +332,6 @@ class PositionManagerService:
             if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
                 timer_started = True
             elif risk_config.timer_start_condition == "after_all_dca_submitted" and position_group.pyramid_count >= 5:
-                # This condition is met when all pyramids are present, assuming dca are submitted with them
                 timer_started = True
             elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
                 timer_started = True
@@ -345,7 +339,7 @@ class PositionManagerService:
             if timer_started:
                 expires_at = datetime.utcnow() + timedelta(minutes=risk_config.post_full_wait_minutes)
                 position_group.risk_timer_expires = expires_at
-                await position_group_repo.update(position_group) # Update the object, not ID and dict
+                await position_group_repo.update(position_group)
                 await session.commit()
                 logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
@@ -353,7 +347,6 @@ class PositionManagerService:
     async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None):
         """
         Recalculates total filled quantity and weighted average entry price for a position group.
-        Accepts an optional session to run within an existing transaction.
         """
         if session:
             await self._execute_update_position_stats(session, group_id)
@@ -363,16 +356,13 @@ class PositionManagerService:
                 await new_session.commit()
 
     async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID):
-        position_group_repo = self.position_group_repository_class(session) # Instantiate repo with session
+        position_group_repo = self.position_group_repository_class(session)
         position_group = await position_group_repo.get(group_id)
         if not position_group:
             logger.error(f"PositionGroup {group_id} not found for stats update.")
             return
 
-        # Re-fetch DCA orders to ensure we have the latest status
-        # Ideally we should use a join or specific query, but lazy load might work if session is active.
-        # To be safe and robust, let's use the order repo or refresh the relationship.
-        await session.refresh(position_group, attribute_names=["dca_orders"]) # Use local session for refresh
+        await session.refresh(position_group, attribute_names=["dca_orders"])
         
         filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
         
@@ -385,10 +375,8 @@ class PositionManagerService:
             position_group.total_invested_usd = total_cost
             position_group.weighted_avg_entry = weighted_avg
             
-            # Update filled leg count
             position_group.filled_dca_legs = len(filled_orders)
             
-            # Check if status needs update (e.g. from LIVE to PARTIALLY_FILLED or ACTIVE)
             if position_group.status == PositionGroupStatus.LIVE:
                     if len(filled_orders) == len(position_group.dca_orders):
                         position_group.status = PositionGroupStatus.ACTIVE
@@ -399,23 +387,8 @@ class PositionManagerService:
                         position_group.status = PositionGroupStatus.ACTIVE
 
             await position_group_repo.update(position_group)
-            # Only commit if we created the session. If session was passed, caller manages commit.
-            # But here we are in _execute_update_position_stats, so we don't know who owns the session easily without a flag?
-            # Actually, if we passed the session, we typically expect the caller to commit.
-            # If we created the session, we should commit.
-            # However, the previous code did `await session.commit()`.
             
         else:
             logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
-            
-        # We removed the 'await session.commit()' from here because if session is passed, 
-        # we might want to commit later. But if we created the session, we must commit.
-        # Let's handle commit in the wrapper or assume flush is enough for passed session.
         
-        # Correct approach:
-        # If we own the session (else block), we commit.
-        # If we don't own it (if session:), we flush?
-        # For now, let's leave commit out of this internal method and handle it in the wrapper.
         pass
-
-    # TODO: Add methods for updating position group PnL, status, etc.

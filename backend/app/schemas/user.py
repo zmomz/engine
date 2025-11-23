@@ -25,6 +25,8 @@ class UserUpdate(BaseModel):
     is_superuser: Optional[bool] = None
     webhook_secret: Optional[str] = None
     encrypted_api_keys: Optional[Dict[str, Any]] = None
+    api_key: Optional[str] = None # Added for input
+    secret_key: Optional[str] = None # Added for input
     exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
     dca_grid_config: Optional[DCAGridConfig] = None

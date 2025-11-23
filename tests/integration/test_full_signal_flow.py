@@ -29,6 +29,11 @@ async def test_full_signal_flow_new_position(
         await client.delete("http://mock-exchange:9000/test/orders")
 
     # 1. Send a valid webhook payload
+    # Update user to use mock exchange to avoid real API calls/errors
+    test_user.exchange = "mock"
+    db_session.add(test_user)
+    await db_session.commit()
+
     webhook_payload = {
         "user_id": str(test_user.id),
         "secret": "your-super-secret-key",
@@ -123,19 +128,7 @@ async def test_full_signal_flow_new_position(
         position_group_repository_class=PositionGroupRepository,
         exchange_connector=exchange_connector,
         execution_pool_manager=execution_pool_manager,
-        position_manager_service=position_manager_service,
-        risk_engine_service=risk_engine_service,
-        grid_calculator_service=grid_calculator_service,
-        order_service_class=OrderService,
-        risk_engine_config=risk_engine_config,
-        dca_grid_config=DCAGridConfig.model_validate([
-            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
-            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
-        ]),
-        total_capital_usd=Decimal("10000")
+        position_manager_service=position_manager_service
     )
     await queue_manager.promote_highest_priority_signal()
 

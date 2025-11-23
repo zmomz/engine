@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pathlib import Path
 import logging
+
+from app.api.dependencies.users import get_current_active_user
+from app.models.user import User
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -10,7 +13,8 @@ LOG_FILE_PATH = Path("logs/app.log")
 @router.get("")
 async def get_logs(
     lines: int = Query(100, ge=1, le=1000),
-    level: str = Query(None, regex="^(INFO|WARNING|ERROR|DEBUG)$")
+    level: str = Query(None, regex="^(INFO|WARNING|ERROR|DEBUG)$"),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Retrieves the last N lines of the application log.

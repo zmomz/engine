@@ -10,6 +10,8 @@ from app.services.order_management import OrderService # New import
 from app.api.dependencies.users import get_current_active_user # New import
 from app.models.user import User # New import
 from app.exceptions import APIError # New import
+from app.core.security import EncryptionService
+from app.services.exchange_abstraction.factory import get_exchange_connector
 
 router = APIRouter()
 
@@ -18,10 +20,31 @@ async def get_order_service(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user)
 ) -> OrderService:
+    # Use user's credentials to initialize the exchange connector
+    if not current_user.encrypted_api_keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User does not have API keys configured."
+        )
+
+    encryption_service = EncryptionService()
+    try:
+        api_key, secret_key = encryption_service.decrypt_keys(current_user.encrypted_api_keys)
+        exchange_connector = get_exchange_connector(
+            exchange_type=current_user.exchange or "binance", # Default to binance if not set
+            api_key=api_key,
+            secret_key=secret_key
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to initialize exchange connector: {str(e)}"
+        )
+
     return OrderService(
         session=db,
         user=current_user,
-        exchange_connector=request.app.state.exchange_connector
+        exchange_connector=exchange_connector
     )
 
 @router.get("/{user_id}/history", response_model=List[PositionGroupSchema])

@@ -16,6 +16,7 @@ from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.risk_action import RiskAction, RiskActionType
 from app.models.queued_signal import QueuedSignal
 from app.models.user import User # Added import
+from app.repositories.user import UserRepository # Added import
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.risk_action import RiskActionRepository
 from app.repositories.dca_order import DCAOrderRepository
@@ -33,6 +34,46 @@ def round_to_step_size(value: Decimal, step_size: Decimal) -> Decimal:
     return (value / step_size).quantize(Decimal('1')) * step_size
 
 # --- Standalone functions for selection logic (as per EP.md 6.2) ---
+
+def _filter_eligible_losers(position_groups: List[PositionGroup], config: RiskEngineConfig) -> List[PositionGroup]:
+    """Helper to filter positions eligible for loss offset."""
+    eligible_losers = []
+    for pg in position_groups:
+        # Must meet all conditions
+        if not all([
+            pg.status == PositionGroupStatus.ACTIVE.value,
+            pg.pyramid_count >= pg.max_pyramids if config.require_full_pyramids else True,
+            pg.risk_timer_expires and pg.risk_timer_expires <= datetime.utcnow(),
+            pg.unrealized_pnl_percent <= config.loss_threshold_percent,
+            not pg.risk_blocked,
+            not pg.risk_skip_once
+        ]):
+            continue
+        
+        # Age filter (optional)
+        if config.use_trade_age_filter:
+            age_minutes = (datetime.utcnow() - pg.created_at).total_seconds() / 60
+            if age_minutes < config.age_threshold_minutes:
+                continue
+        
+        eligible_losers.append(pg)
+    return eligible_losers
+
+def _select_top_winners(position_groups: List[PositionGroup], count: int) -> List[PositionGroup]:
+    """Helper to select top profitable positions."""
+    winning_positions = [
+        pg for pg in position_groups
+        if pg.status == PositionGroupStatus.ACTIVE.value and pg.unrealized_pnl_usd > 0
+    ]
+    
+    # Sort by USD profit (descending)
+    winning_positions.sort(
+        key=lambda pg: pg.unrealized_pnl_usd,
+        reverse=True
+    )
+    
+    # Take up to max_winners_to_combine
+    return winning_positions[:count]
 
 def select_loser_and_winners(
     position_groups: List[PositionGroup],
@@ -55,27 +96,7 @@ def select_loser_and_winners(
     - Close winners partially to realize that amount
     """
     
-    # Filter eligible losers
-    eligible_losers = []
-    for pg in position_groups:
-        # Must meet all conditions
-        if not all([
-            pg.status == PositionGroupStatus.ACTIVE.value,
-            pg.pyramid_count >= pg.max_pyramids if config.require_full_pyramids else True,
-            pg.risk_timer_expires and pg.risk_timer_expires <= datetime.utcnow(),
-            pg.unrealized_pnl_percent <= config.loss_threshold_percent,
-            not pg.risk_blocked,
-            not pg.risk_skip_once
-        ]):
-            continue
-        
-        # Age filter (optional)
-        if config.use_trade_age_filter:
-            age_minutes = (datetime.utcnow() - pg.created_at).total_seconds() / 60
-            if age_minutes < config.age_threshold_minutes:
-                continue
-        
-        eligible_losers.append(pg)
+    eligible_losers = _filter_eligible_losers(position_groups, config)
     
     if not eligible_losers:
         return None, [], Decimal("0")
@@ -89,20 +110,7 @@ def select_loser_and_winners(
     
     required_usd = abs(selected_loser.unrealized_pnl_usd)
     
-    # Select winners
-    winning_positions = [
-        pg for pg in position_groups
-        if pg.status == PositionGroupStatus.ACTIVE.value and pg.unrealized_pnl_usd > 0
-    ]
-    
-    # Sort by USD profit (descending)
-    winning_positions.sort(
-        key=lambda pg: pg.unrealized_pnl_usd,
-        reverse=True
-    )
-    
-    # Take up to max_winners_to_combine
-    selected_winners = winning_positions[:config.max_winners_to_combine]
+    selected_winners = _select_top_winners(position_groups, config.max_winners_to_combine)
     
     return selected_loser, selected_winners, required_usd
 
@@ -233,110 +241,123 @@ class RiskEngineService:
     async def _evaluate_positions(self):
         """
         Evaluates all active positions for risk management and initiates offset if conditions are met.
+        Iterates through all active users to ensure isolation.
         """
         async for session in self.session_factory():
             try:
-                position_group_repo = self.position_group_repository_class(session)
-                risk_action_repo = self.risk_action_repository_class(session)
-                dca_order_repo = self.dca_order_repository_class(session)
-                
-                # Note: We don't instantiate OrderService here anymore because we need the specific user context first.
+                user_repo = UserRepository(session)
+                active_users = await user_repo.get_all_active_users()
 
-                all_positions = await position_group_repo.get_all() # Fetch all positions
-
-                loser, winners, required_usd = select_loser_and_winners(all_positions, self.config)
-
-                if loser and winners:
-                    logger.info(f"Risk Engine: Identified loser {loser.symbol} (loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners.")
-                    
-                    # Fetch User to get API keys
-                    user = await session.get(User, loser.user_id)
-                    if not user:
-                        logger.error(f"Risk Engine: User {loser.user_id} not found. Skipping offset.")
-                        return
-
-                    # Decrypt keys and get exchange connector
-                    encryption_service = EncryptionService()
+                for user in active_users:
                     try:
-                        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
-                        exchange_connector = get_exchange_connector(
-                            exchange_type=loser.exchange,
-                            api_key=api_key,
-                            secret_key=secret_key
-                        )
+                        await self._evaluate_user_positions(session, user)
                     except Exception as e:
-                         logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
-                         return
+                        logger.error(f"Risk Engine: Error processing user {user.id}: {e}")
+            except Exception as e:
+                logger.error(f"Risk Engine: Critical error in evaluation loop: {e}")
 
-                    # Now instantiate OrderService
-                    order_service = self.order_service_class(
-                        session=session,
-                        user=user,
-                        exchange_connector=exchange_connector
+    async def _evaluate_user_positions(self, session, user):
+        """
+        Evaluates positions for a single user.
+        """
+        try:
+            position_group_repo = self.position_group_repository_class(session)
+            risk_action_repo = self.risk_action_repository_class(session)
+            
+            # 1. Get User Positions
+            all_positions = await position_group_repo.get_all_active_by_user(user.id)
+            
+            # 2. Determine Risk Config (User > Global)
+            config = self.config
+            if user.risk_config:
+                try:
+                    if isinstance(user.risk_config, dict):
+                        config = RiskEngineConfig(**user.risk_config)
+                except Exception as e:
+                    logger.warning(f"Risk Engine: Invalid config for user {user.id}, using default. Error: {e}")
+
+            # 3. Select Loser and Winners
+            loser, winners, required_usd = select_loser_and_winners(all_positions, config)
+
+            if loser and winners:
+                logger.info(f"Risk Engine: Identified loser {loser.symbol} for user {user.id} (loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners.")
+                
+                # Decrypt keys and get exchange connector
+                encryption_service = EncryptionService()
+                try:
+                    api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+                    exchange_connector = get_exchange_connector(
+                        exchange_type=loser.exchange,
+                        api_key=api_key,
+                        secret_key=secret_key
                     )
-
-                    precision_rules = {}
-                    for pg in [loser] + winners:
-                        if pg.symbol not in precision_rules:
-                            precision_rules[pg.symbol] = await exchange_connector.get_precision_rules() # Use the specific connector
-                            # Note: get_precision_rules usually returns all symbols or takes a symbol arg.
-                            # If it returns all, we index by symbol. If it takes a symbol, we call it per symbol.
-                            # Based on PositionManager, it returns a dict of all rules or we need to pass symbol?
-                            # PositionManager: rules = await exchange_connector.get_precision_rules(); symbol_rules = rules.get(symbol)
-                            # So we just need to call it once or assume it's cached/lightweight.
-                            
-                    # To be safe, let's call it once.
-                    full_precision_rules = await exchange_connector.get_precision_rules()
-                    
-                    close_plan = await calculate_partial_close_quantities(exchange_connector, winners, required_usd, full_precision_rules)
-
-                    if not close_plan and required_usd > 0:
-                        logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
+                except Exception as e:
+                        logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
                         return
 
-                    # Close the loser
-                    await order_service.place_market_order(
-                        user_id=loser.user_id,
-                        exchange=loser.exchange,
-                        symbol=loser.symbol,
-                        side="sell" if loser.side == "long" else "buy",
-                        quantity=loser.total_filled_quantity,
-                        position_group_id=loser.id
-                    )
-                    logger.info(f"Risk Engine: Closed loser {loser.symbol} (ID: {loser.id}).")
+                # Instantiate OrderService
+                order_service = self.order_service_class(
+                    session=session,
+                    user=user,
+                    exchange_connector=exchange_connector
+                )
 
-                    winner_details = []
-                    for winner_pg, quantity_to_close in close_plan:
-                        await order_service.place_market_order(
-                            user_id=winner_pg.user_id,
-                            exchange=winner_pg.exchange,
-                            symbol=winner_pg.symbol,
-                            side="sell" if winner_pg.side == "long" else "buy",
-                            quantity=quantity_to_close,
-                            position_group_id=winner_pg.id
-                        )
-                        logger.info(f"Risk Engine: Partially closed winner {winner_pg.symbol} (ID: {winner_pg.id}) for {quantity_to_close} units.")
-                        winner_details.append({
-                            "group_id": str(winner_pg.id),
-                            "pnl_usd": str(winner_pg.unrealized_pnl_usd),
-                            "quantity_closed": str(quantity_to_close)
-                        })
-                    
-                    risk_action = RiskAction(
-                        group_id=loser.id,
-                        action_type=RiskActionType.OFFSET_LOSS,
-                        loser_group_id=loser.id,
-                        loser_pnl_usd=loser.unrealized_pnl_usd,
-                        winner_details=winner_details
+                # Get Precision Rules
+                try:
+                    full_precision_rules = await exchange_connector.get_precision_rules()
+                except Exception as e:
+                    logger.error(f"Risk Engine: Failed to fetch precision rules for user {user.id}: {e}")
+                    return
+                
+                close_plan = await calculate_partial_close_quantities(exchange_connector, winners, required_usd, full_precision_rules)
+
+                if not close_plan and required_usd > 0:
+                    logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
+                    return
+
+                # Close the loser
+                await order_service.place_market_order(
+                    user_id=loser.user_id,
+                    exchange=loser.exchange,
+                    symbol=loser.symbol,
+                    side="sell" if loser.side == "long" else "buy",
+                    quantity=loser.total_filled_quantity,
+                    position_group_id=loser.id
+                )
+                logger.info(f"Risk Engine: Closed loser {loser.symbol} (ID: {loser.id}).")
+
+                winner_details = []
+                for winner_pg, quantity_to_close in close_plan:
+                    await order_service.place_market_order(
+                        user_id=winner_pg.user_id,
+                        exchange=winner_pg.exchange,
+                        symbol=winner_pg.symbol,
+                        side="sell" if winner_pg.side == "long" else "buy",
+                        quantity=quantity_to_close,
+                        position_group_id=winner_pg.id
                     )
-                    await risk_action_repo.create(risk_action)
-                    await session.commit()
-                    logger.info(f"Risk Engine: Offset for {loser.symbol} successfully executed and recorded.")
-                else:
-                    logger.debug("Risk Engine: No eligible loser or winners found for offset.")
-            except Exception as e:
-                logger.error(f"Risk Engine: Error during evaluation. Rolling back transaction: {e}")
-                await session.rollback()
+                    logger.info(f"Risk Engine: Partially closed winner {winner_pg.symbol} (ID: {winner_pg.id}) for {quantity_to_close} units.")
+                    winner_details.append({
+                        "group_id": str(winner_pg.id),
+                        "pnl_usd": str(winner_pg.unrealized_pnl_usd),
+                        "quantity_closed": str(quantity_to_close)
+                    })
+                
+                risk_action = RiskAction(
+                    group_id=loser.id,
+                    action_type=RiskActionType.OFFSET_LOSS,
+                    loser_group_id=loser.id,
+                    loser_pnl_usd=loser.unrealized_pnl_usd,
+                    winner_details=winner_details
+                )
+                await risk_action_repo.create(risk_action)
+                await session.commit()
+                logger.info(f"Risk Engine: Offset for {loser.symbol} successfully executed and recorded.")
+            else:
+                logger.debug(f"Risk Engine: No eligible loser or winners found for user {user.id}.")
+        except Exception as e:
+            logger.error(f"Risk Engine: Error evaluating positions for user {user.id}. Rolling back: {e}")
+            await session.rollback()
 
     async def start_monitoring_task(self):
         """

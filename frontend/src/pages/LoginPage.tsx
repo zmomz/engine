@@ -15,9 +15,14 @@ const LoginPage: React.FC = () => {
     event.preventDefault();
     setError(null);
     try {
-      const response = await axios.post('/api/login', {
-        username,
-        password,
+      const formData = new FormData();
+      formData.append('username', username);
+      formData.append('password', password);
+
+      const response = await axios.post('/api/v1/users/login', formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
       });
       // Assuming the backend returns a token and user info upon successful login
       const { access_token, user } = response.data;

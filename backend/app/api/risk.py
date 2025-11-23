@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
+import os
 
 from app.db.database import get_db_session
 from app.schemas.position_group import PositionGroupSchema
@@ -10,18 +11,43 @@ from app.repositories.risk_action import RiskActionRepository
 from app.repositories.dca_order import DCAOrderRepository
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.services.order_management import OrderService
-from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
+from app.schemas.grid_config import RiskEngineConfig
 from app.services.exchange_abstraction.interface import ExchangeInterface
+from app.models.user import User
+from app.api.dependencies.users import get_current_active_user
+from app.core.security import EncryptionService
 
 router = APIRouter()
 
 def get_risk_engine_service(
     request: Request,
-    session: AsyncSession = Depends(get_db_session)
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_current_active_user)
 ) -> RiskEngineService:
-    risk_engine_config: RiskEngineConfig = request.app.state.risk_engine_config
-    dca_grid_config: DCAGridConfig = request.app.state.dca_grid_config
-    exchange_connector: ExchangeInterface = request.app.state.exchange_connector
+    # Load encryption service
+    try:
+        encryption_service = EncryptionService()
+    except ValueError:
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Encryption service configuration error.")
+
+    # Decrypt keys
+    if not user.encrypted_api_keys:
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exchange API keys are missing.")
+    
+    try:
+        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to decrypt API keys: {str(e)}")
+
+    try:
+        exchange_connector: ExchangeInterface = get_exchange_connector(user.exchange, api_key, secret_key)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to connect to exchange: {str(e)}")
+
+    try:
+        risk_engine_config = RiskEngineConfig.model_validate(user.risk_config)
+    except:
+        risk_engine_config = RiskEngineConfig()
 
     async def session_factory():
         yield session

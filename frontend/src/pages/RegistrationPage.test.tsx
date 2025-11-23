@@ -43,6 +43,9 @@ describe('RegistrationPage', () => {
 
   it('calls the register function on successful submission', async () => {
     renderComponent();
+    fireEvent.change(screen.getByLabelText(/username/i), {
+      target: { value: 'testuser' },
+    });
     fireEvent.change(screen.getByLabelText(/email address/i), {
       target: { value: 'test@example.com' },
     });
@@ -52,7 +55,7 @@ describe('RegistrationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign up/i }));
 
     await waitFor(() => {
-      expect(mockRegister).toHaveBeenCalledWith('test@example.com', 'password123');
+      expect(mockRegister).toHaveBeenCalledWith('testuser', 'test@example.com', 'password123');
     });
   });
 });

@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, status, Request
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import ValidationError
 
 from app.api.dependencies.signature_validation import SignatureValidator
 from app.db.database import get_db_session
@@ -21,7 +23,10 @@ async def tradingview_webhook(
     """
     # The payload is parsed and validated within the SignatureValidator
     payload = await request.json()
-    webhook_payload = WebhookPayload(**payload)
+    try:
+        webhook_payload = WebhookPayload(**payload)
+    except ValidationError as e:
+        raise RequestValidationError(e.errors())
 
     # Pass the authenticated user to the service layer
     signal_router = SignalRouterService(user=user)

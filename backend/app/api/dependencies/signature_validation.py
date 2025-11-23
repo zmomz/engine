@@ -17,7 +17,7 @@ async def get_webhook_payload(request: Request) -> WebhookPayload:
         )
 
 class SignatureValidator:
-    async def __call__(self, user_id: str, request: Request, payload: WebhookPayload = Depends(get_webhook_payload), db_session: AsyncSession = Depends(get_db_session)):
+    async def __call__(self, user_id: str, request: Request, db_session: AsyncSession = Depends(get_db_session)):
         user_repo = UserRepository(db_session)
         signature = request.headers.get("X-Signature")
         if not signature:
@@ -33,6 +33,8 @@ class SignatureValidator:
                 detail="User not found.",
             )
 
+        # Read the raw body for signature verification
+        # This prevents parsing large JSON payloads if the signature is invalid
         body = await request.body()
         secret = user.webhook_secret
         expected_signature = hmac.new(

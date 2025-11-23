@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any
@@ -12,6 +13,8 @@ from app.repositories.position_group import PositionGroupRepository # New import
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType
 from app.models.position_group import PositionGroup, PositionGroupStatus # New import
 from app.exceptions import APIError, ExchangeConnectionError
+
+logger = logging.getLogger(__name__)
 
 class OrderService:
     """
@@ -60,7 +63,7 @@ class OrderService:
             except ExchangeConnectionError as e:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
-                    print(f"Attempt {attempt + 1} failed due to connection error. Retrying in {delay} seconds...")
+                    logger.warning(f"Attempt {attempt + 1} failed due to connection error. Retrying in {delay} seconds...")
                     await asyncio.sleep(delay)
                 else:
                     dca_order.status = OrderStatus.FAILED.value
@@ -133,7 +136,7 @@ class OrderService:
             await self.dca_order_repository.update(dca_order)
             return dca_order
         except Exception as e:
-             print(f"Failed to place TP order for {dca_order.id}: {e}")
+             logger.error(f"Failed to place TP order for {dca_order.id}: {e}")
              # We don't raise here to avoid crashing the monitor loop, just log
              return dca_order
 
@@ -194,19 +197,19 @@ class OrderService:
         Reconciles the status of open orders in the database with their actual status on the exchange.
         This is typically run on application startup to handle state drift.
         """
-        print("OrderService: Starting reconciliation of open orders...")
+        logger.info("OrderService: Starting reconciliation of open orders...")
         open_orders_in_db = await self.dca_order_repository.get_all_open_orders()
         
         for order in open_orders_in_db:
             try:
                 await self.check_order_status(order)
                 await self.session.commit() # Commit changes
-                print(f"OrderService: Reconciled order {order.id}. New status: {order.status}")
+                logger.info(f"OrderService: Reconciled order {order.id}. New status: {order.status}")
             except APIError as e:
-                print(f"OrderService: Failed to reconcile order {order.id}: {e}")
+                logger.error(f"OrderService: Failed to reconcile order {order.id}: {e}")
                 # Log the error but continue with other orders
             except Exception as e:
-                print(f"OrderService: Unexpected error during reconciliation for order {order.id}: {e}")
+                logger.error(f"OrderService: Unexpected error during reconciliation for order {order.id}: {e}")
 
     async def execute_force_close(self, group_id: uuid.UUID) -> PositionGroup:
         """
@@ -267,7 +270,7 @@ class OrderService:
             try:
                 await self.cancel_order(order)
             except Exception as e:
-                print(f"Failed to cancel order {order.id} in group {group_id}: {e}")
+                logger.error(f"Failed to cancel order {order.id} in group {group_id}: {e}")
 
     async def close_position_market(self, position_group: PositionGroup, quantity_to_close: Decimal):
         """

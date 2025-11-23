@@ -16,9 +16,13 @@ from tests.integration.utils import generate_tradingview_signature
 from app.core.security import EncryptionService
 
 # Constants for Binance Testnet
-BINANCE_TESTNET_API_KEY = "tB8ISxF1MaNEnOEZXu1GM1L8VNwYgOtDYmdmzLgclMeo4jrUwPC7NZWjQhelLoBU"
-BINANCE_TESTNET_SECRET_KEY = "CPjmcbTrdtixNet1c9c6AztJUVTNyuLSZ2Ba9cR88WVvfrBwdEXlL2VKtuhQjw5L"
+BINANCE_TESTNET_API_KEY = os.getenv("TEST_BINANCE_API_KEY")
+BINANCE_TESTNET_SECRET_KEY = os.getenv("TEST_BINANCE_SECRET_KEY")
 
+@pytest.mark.skipif(
+    not BINANCE_TESTNET_API_KEY or not BINANCE_TESTNET_SECRET_KEY,
+    reason="Binance Testnet credentials not found in environment variables."
+)
 @pytest.mark.asyncio
 async def test_binance_live_flow(
     http_client: httpx.AsyncClient,
@@ -169,16 +173,7 @@ async def test_binance_live_flow(
             position_group_repository_class=PositionGroupRepository,
             exchange_connector=exchange_connector,
             execution_pool_manager=execution_pool_manager,
-            position_manager_service=position_manager_service,
-            risk_engine_service=risk_engine_service,
-            grid_calculator_service=grid_calculator_service,
-            order_service_class=OrderService,
-            risk_engine_config=risk_engine_config,
-            dca_grid_config=DCAGridConfig.model_validate([
-                {"gap_percent": 0.0, "weight_percent": 50, "tp_percent": 1.0},
-                {"gap_percent": -0.5, "weight_percent": 50, "tp_percent": 0.5},
-            ]), # Reduced legs to save time/margin
-            total_capital_usd=Decimal("1000") # Increased capital to ensure min qty requirements
+            position_manager_service=position_manager_service
         )
 
         print("[Test] Promoting signal...")

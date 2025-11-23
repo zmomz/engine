@@ -1,8 +1,9 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 import asyncio
+import os
 
 from app.db.database import get_db_session
 from app.models.base import Base
@@ -11,7 +12,10 @@ from httpx import AsyncClient
 from app.models.user import User
 from app.core.security import SECRET_KEY, ALGORITHM, get_password_hash
 
-DATABASE_URL = "postgresql+asyncpg://tv_user:your_password@db:5432/tv_engine_db_test"
+POSTGRES_USER = os.environ["POSTGRES_USER"]
+POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
+POSTGRES_DB = os.environ["POSTGRES_DB"]
+DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@db:5432/tv_engine_db_test"
 TEST_PASSWORD = "testpassword"
 
 @pytest.fixture(scope="function")
@@ -20,8 +24,16 @@ async def client(db_session: AsyncSession, test_user: User):
         yield db_session
 
     app.dependency_overrides[get_db_session] = _get_test_db_session
+    
+    # Disable rate limiter for tests
+    app.state.limiter.enabled = False
+    
     async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
+    
+    # Re-enable rate limiter
+    app.state.limiter.enabled = True
+    
     app.dependency_overrides.clear()
 
 @pytest.fixture(scope="function")
@@ -53,7 +65,15 @@ async def test_user(db_session: AsyncSession):
         hashed_password=hashed_pwd, 
         exchange="binance", 
         webhook_secret="secret", 
-        is_active=True
+        is_active=True,
+        encrypted_api_keys={"encrypted_data": "dummy_encrypted_key"},
+        dca_grid_config=[
+            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
+            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
+        ]
     )
     db_session.add(user)
     await db_session.commit()
@@ -78,7 +98,10 @@ async def authorized_client(client: AsyncClient, test_user: User):
     }) as auth_client:
         yield auth_client
 
-
+@pytest.fixture(scope="function", autouse=True)
+def mock_encryption():
+    with patch("app.core.security.EncryptionService.decrypt_keys", return_value=("mock_api_key", "mock_secret_key")):
+        yield
 
 
 @pytest.fixture

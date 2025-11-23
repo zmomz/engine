@@ -4,6 +4,8 @@ import uuid
 
 from app.schemas.queued_signal import QueuedSignalSchema
 from app.services.queue_manager import QueueManagerService
+from app.api.dependencies.users import get_current_active_user
+from app.models.user import User
 
 router = APIRouter()
 
@@ -12,7 +14,8 @@ def get_queue_manager_service(request: Request) -> QueueManagerService:
 
 @router.get("/", response_model=List[QueuedSignalSchema])
 async def get_all_queued_signals(
-    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service)
+    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Retrieves all queued signals.
@@ -23,7 +26,8 @@ async def get_all_queued_signals(
 @router.post("/{signal_id}/promote", response_model=QueuedSignalSchema)
 async def promote_queued_signal(
     signal_id: uuid.UUID,
-    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service)
+    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Promotes a queued signal to the active pool if a slot is available.
@@ -36,7 +40,8 @@ async def promote_queued_signal(
 @router.delete("/{signal_id}", response_model=dict)
 async def remove_queued_signal(
     signal_id: uuid.UUID,
-    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service)
+    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Removes a queued signal.
@@ -49,7 +54,8 @@ async def remove_queued_signal(
 @router.post("/{signal_id}/force-add", response_model=QueuedSignalSchema)
 async def force_add_to_pool(
     signal_id: uuid.UUID,
-    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service)
+    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Forces a queued signal to be added to the active pool, overriding position limits.

@@ -13,7 +13,7 @@ export class WebSocketService {
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
-      console.log('WebSocket Connected');
+      // console.log('WebSocket Connected');
     };
 
     this.ws.onmessage = (event) => {
@@ -28,7 +28,8 @@ export class WebSocketService {
           updateQueuedSignals(message.payload);
           break;
         default:
-          console.log('Unknown message type:', message.type);
+          // console.log('Unknown message type:', message.type);
+          break;
       }
     };
 

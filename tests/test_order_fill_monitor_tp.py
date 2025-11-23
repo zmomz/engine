@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 import uuid
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 from app.services.order_fill_monitor import OrderFillMonitorService
 from app.models.dca_order import DCAOrder, OrderStatus
@@ -13,6 +14,7 @@ from app.services.position_manager import PositionManagerService # Added
 @pytest.fixture
 def mock_order_fill_monitor_service():
     # Mock dependencies
+    @asynccontextmanager
     async def mock_session_gen():
         mock_session_obj = AsyncMock()
         mock_session_obj.commit = AsyncMock()
@@ -22,7 +24,6 @@ def mock_order_fill_monitor_service():
 
     dca_order_repo_cls = MagicMock()
     position_group_repo_cls = MagicMock(spec=PositionGroupRepository) # Added
-    exchange_connector = AsyncMock()
     order_service_cls = MagicMock()
     position_manager_service_cls = MagicMock(spec=PositionManagerService) # Added
     
@@ -30,7 +31,6 @@ def mock_order_fill_monitor_service():
         session_factory=session_factory,
         dca_order_repository_class=dca_order_repo_cls,
         position_group_repository_class=position_group_repo_cls, # Added
-        exchange_connector=exchange_connector,
         order_service_class=order_service_cls,
         position_manager_service_class=position_manager_service_cls, # Added
         polling_interval_seconds=1
@@ -76,9 +76,18 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
         # Mock PositionManagerService's update_position_stats method
         mock_order_fill_monitor_service.position_manager_service_class.return_value.update_position_stats = AsyncMock()
     
-    
-        await mock_order_fill_monitor_service._check_orders()
+        mock_user = MagicMock()
+        mock_user.id = uuid.uuid4()
+        mock_user.encrypted_api_keys = {"encrypted_data": "mock"}
+        mock_user.exchange = "binance"
+
+        with patch("app.services.order_fill_monitor.UserRepository") as mock_user_repo_cls, \
+             patch("app.services.order_fill_monitor.get_exchange_connector"):
+            mock_user_repo_instance = mock_user_repo_cls.return_value
+            mock_user_repo_instance.get_all_active_users = AsyncMock(return_value=[mock_user])
+
+            await mock_order_fill_monitor_service._check_orders()
     
         # Verify place_tp_order was called
         mock_order_service_instance.place_tp_order.assert_awaited_once_with(order1)
-        mock_order_fill_monitor_service.position_manager_service_class.return_value.update_position_stats.assert_awaited_once_with(order1.group_id)
+        mock_order_fill_monitor_service.position_manager_service_class.return_value.update_position_stats.assert_awaited_once_with(order1.group_id, session=ANY)

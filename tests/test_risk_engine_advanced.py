@@ -148,13 +148,14 @@ async def test_validate_pre_trade_risk_pyramid_bypass(risk_service):
     signal = QueuedSignal(symbol="BTC/USD", user_id="user1")
     
     # Max global positions reached, but is_pyramid_continuation=True
+    # Mock daily loss to pass
+    mock_repo = risk_service.position_group_repository_class.return_value
+    mock_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
+
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=True
     )
     # Should only check exposure and daily loss, which pass here
-    # Mock daily loss to pass
-    mock_repo = risk_service.position_group_repository_class.return_value
-    mock_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
     
     assert result is True
 

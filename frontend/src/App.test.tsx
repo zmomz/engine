@@ -66,14 +66,7 @@ describe('App Routing', () => {
         <App />
       </MemoryRouter>
     );
-    // Note: App.tsx does not strictly have /register, but it might fall through to LoginPage or similar if not defined.
-    // However, the test existed before, so I'll keep it but check if it redirects to login or if App needs /register.
-    // Looking at App.tsx, there is NO /register route. It goes to * -> LoginPage.
-    // So this test expectation might be wrong if /register isn't in App.tsx.
-    // BUT, RegistrationPage usually is separate. Let's assume for now it redirects to Login or stays if implemented.
-    // Actually, let's skip this for now or check App.tsx again.
-    // App.tsx has NO /register. So it renders LoginPage.
-    expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument(); 
+    expect(screen.getByRole('heading', { name: /sign up/i })).toBeInTheDocument();
   });
 
   test('redirects to LoginPage from a protected route when not authenticated', () => {

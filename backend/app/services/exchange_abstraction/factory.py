@@ -20,6 +20,8 @@ def get_exchange_connector(exchange_type: str, api_key: str = "", secret_key: st
     if default_type is None:
         default_type = os.getenv("EXCHANGE_DEFAULT_TYPE", "future")
 
+    exchange_type = exchange_type.lower()
+
     if exchange_type == "mock":
         return MockConnector()
     elif exchange_type == "binance":

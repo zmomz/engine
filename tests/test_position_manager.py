@@ -1,8 +1,8 @@
-
 import pytest
 from datetime import datetime, timedelta
 from decimal import Decimal
 import uuid
+from contextlib import asynccontextmanager
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -76,8 +76,9 @@ def mock_db_session():
 
 @pytest.fixture
 def mock_session_factory(mock_db_session):
-    def factory():
-        return mock_db_session
+    @asynccontextmanager
+    async def factory():
+        yield mock_db_session
     return factory
 
 @pytest.fixture
@@ -543,5 +544,3 @@ async def test_risk_timer_start_after_all_dca_filled(position_manager_service, m
     expected_expiry = now + timedelta(minutes=15)
     assert updated_pg.risk_timer_expires > now
     assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
-
-

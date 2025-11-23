@@ -168,7 +168,6 @@ const SettingsPage: React.FC = () => {
   };
 
   const onSubmit = async (data: FormValues) => {
-    console.log("Submitting data:", data);
     // Transform data to match backend UserUpdate schema
     const payload: Partial<UserSettings> = {
       exchange: data.exchangeSettings.exchange,

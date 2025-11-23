@@ -1,32 +1,57 @@
+#!/usr/bin/env python3
+"""
+Verifies Binance API keys.
+
+Usage:
+    python scripts/verify_binance_keys.py --api-key <KEY> --secret-key <SECRET> [--testnet]
+"""
 import asyncio
+import argparse
+import logging
+import sys
 import ccxt.async_support as ccxt
 
-API_KEY = "tB8ISxF1MaNEnOEZXu1GM1L8VNwYgOtDYmdmzLgclMeo4jrUwPC7NZWjQhelLoBU"
-SECRET_KEY = "CPjmcbTrdtixNet1c9c6AztJUVTNyuLSZ2Ba9cR88WVvfrBwdEXlL2VKtuhQjw5L"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-async def test_keys(market_type):
-    print(f"Testing {market_type}...")
+async def test_keys(api_key, secret_key, market_type, testnet):
+    logger.info(f"Testing {market_type}...")
     exchange = ccxt.binance({
-        'apiKey': API_KEY,
-        'secret': SECRET_KEY,
+        'apiKey': api_key,
+        'secret': secret_key,
         'options': {
             'defaultType': market_type,
         },
     })
-    exchange.set_sandbox_mode(True)
+    if testnet:
+        exchange.set_sandbox_mode(True)
     
     try:
-        balance = await exchange.fetch_balance()
-        print(f"SUCCESS: Fetched {market_type} balance.")
-        # print(balance)
+        await exchange.fetch_balance()
+        logger.info(f"SUCCESS: Fetched {market_type} balance.")
     except Exception as e:
-        print(f"FAILED: Could not fetch {market_type} balance. Error: {e}")
+        logger.error(f"FAILED: Could not fetch {market_type} balance. Error: {e}")
     finally:
         await exchange.close()
 
-async def main():
-    await test_keys('future')
-    await test_keys('spot')
+async def run(args):
+    await test_keys(args.api_key, args.secret_key, 'future', args.testnet)
+    await test_keys(args.api_key, args.secret_key, 'spot', args.testnet)
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--api-key', required=True, help='Binance API Key')
+    parser.add_argument('--secret-key', required=True, help='Binance Secret Key')
+    parser.add_argument('--testnet', action='store_true', help='Use Testnet')
+    
+    args = parser.parse_args()
+    
+    try:
+        asyncio.run(run(args))
+        return 0
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+        return 1
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())

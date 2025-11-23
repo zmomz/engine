@@ -43,31 +43,32 @@ async def test_get_exchange_connector_mock():
     connector = get_exchange_connector("mock")
     assert isinstance(connector, ExchangeInterface)
 
-@pytest.mark.asyncio
-async def test_get_exchange_connector_binance():
-    """
-    Test that the factory returns a BinanceConnector for 'binance' type.
-    """
-    with patch('ccxt.async_support.binance') as mock_binance_ccxt:
-        mock_exchange_instance = MagicMock()
-        mock_exchange_instance.load_markets = AsyncMock(return_value={})
-        mock_exchange_instance.create_order = AsyncMock()
-        mock_exchange_instance.fetch_order = AsyncMock(return_value={'status': 'open'})
-        mock_exchange_instance.cancel_order = AsyncMock()
-        mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
-        mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
-        mock_binance_ccxt.return_value = mock_exchange_instance
-
-        connector = get_exchange_connector("binance", api_key="test_key", secret_key="test_secret")
-        assert isinstance(connector, BinanceConnector)
-        mock_binance_ccxt.assert_called_once_with({
-            'apiKey': "test_key",
-            'secret': "test_secret",
-            'options': {
-                'defaultType': 'future',
-            },
-        })
-
+    @pytest.mark.asyncio
+    async def test_get_exchange_connector_binance():
+        """
+        Test that the factory returns a BinanceConnector for 'binance' type.
+        """
+        # Force default type to 'future' regardless of env vars
+        with patch('os.getenv', return_value="future"), \
+             patch('ccxt.async_support.binance') as mock_binance_ccxt:
+            mock_exchange_instance = MagicMock()
+            mock_exchange_instance.load_markets = AsyncMock(return_value={})
+            mock_exchange_instance.create_order = AsyncMock()
+            mock_exchange_instance.fetch_order = AsyncMock(return_value={'status': 'open'})
+            mock_exchange_instance.cancel_order = AsyncMock()
+            mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
+            mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
+            mock_binance_ccxt.return_value = mock_exchange_instance
+                                                                                                                                          
+            connector = get_exchange_connector("binance", api_key="test_key", secret_key="test_secret", default_type="future")
+            assert isinstance(connector, BinanceConnector)
+            mock_binance_ccxt.assert_called_once_with({
+                'apiKey': "test_key",
+                'secret': "test_secret",
+                'options': {
+                    'defaultType': 'future',
+                },
+            })
         # Test that the methods are callable (even if they do nothing yet)
         await connector.get_precision_rules()
         await connector.place_order("BTC/USDT", "limit", "buy", 0.01)

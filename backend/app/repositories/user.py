@@ -30,3 +30,7 @@ class UserRepository(BaseRepository[User]):
         await self.session.commit()
         await self.session.refresh(db_user)
         return db_user
+
+    async def get_all_active_users(self) -> list[User]:
+        result = await self.session.execute(select(User).where(User.is_active == True))
+        return result.scalars().all()

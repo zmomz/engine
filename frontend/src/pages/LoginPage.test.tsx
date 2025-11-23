@@ -69,10 +69,11 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(mockedAxios.post).toHaveBeenCalledWith('/api/login', {
-        username: 'testuser',
-        password: 'password123',
-      });
+      expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/users/login', expect.any(FormData), expect.objectContaining({
+        headers: expect.objectContaining({
+          'Content-Type': 'application/x-www-form-urlencoded'
+        })
+      }));
       expect(mockLogin).toHaveBeenCalledWith('fake_token', { id: '1', username: 'testuser' });
     });
   });

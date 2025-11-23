@@ -19,30 +19,90 @@ class BybitConnector(ExchangeInterface):
 
     @map_exchange_errors
     async def get_precision_rules(self):
-        # TODO: Implement actual precision rule fetching
-        return {}
+        """
+        Fetches market data to get precision rules for all symbols.
+        Returns a normalized dictionary.
+        """
+        markets = await self.exchange.load_markets()
+        precision_rules = {}
+
+        for symbol, market in markets.items():
+            
+            price_precision = market['precision']['price']
+            if isinstance(price_precision, int):
+                tick_size = 1 / (10 ** price_precision)
+            else:
+                tick_size = float(price_precision)
+
+            amount_precision = market['precision']['amount']
+            if isinstance(amount_precision, int):
+                step_size = 1 / (10 ** amount_precision)
+            else:
+                step_size = float(amount_precision)
+
+            min_qty = 0.001
+            min_notional = 5.0
+            
+            if 'limits' in market:
+                if 'amount' in market['limits'] and market['limits']['amount'].get('min'):
+                     min_qty = float(market['limits']['amount']['min'])
+                
+                if 'cost' in market['limits'] and market['limits']['cost'].get('min'):
+                     min_notional = float(market['limits']['cost']['min'])
+
+            rules = {
+                "tick_size": tick_size,
+                "step_size": step_size,
+                "min_qty": min_qty,
+                "min_notional": min_notional
+            }
+            
+            precision_rules[symbol] = rules
+            if market.get('id'):
+                precision_rules[market['id']] = rules
+
+        return precision_rules
 
     @map_exchange_errors
     async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None):
-        # TODO: Implement actual order placement
-        return {}
+        """
+        Places an order on the exchange.
+        """
+        return await self.exchange.create_order(
+            symbol=symbol,
+            type=order_type,
+            side=side,
+            amount=quantity,
+            price=price
+        )
 
     @map_exchange_errors
     async def get_order_status(self, order_id: str, symbol: str = None):
-        # TODO: Implement actual order status fetching
-        return {}
+        """
+        Fetches the status of a specific order by its ID.
+        """
+        order = await self.exchange.fetch_order(order_id, symbol)
+        return order['status']
 
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):
-        # TODO: Implement actual order cancellation
-        return {}
+        """
+        Cancels an existing order by its ID.
+        """
+        return await self.exchange.cancel_order(order_id, symbol)
 
     @map_exchange_errors
-    async def get_current_price(self, symbol: str):
-        # TODO: Implement actual current price fetching
-        return 0.0
+    async def get_current_price(self, symbol: str) -> float:
+        """
+        Fetches the last traded price for a symbol.
+        """
+        ticker = await self.exchange.fetch_ticker(symbol)
+        return ticker['last']
 
     @map_exchange_errors
     async def fetch_balance(self):
-        # TODO: Implement actual balance fetching
-        return {}
+        """
+        Fetches the total balance for all assets.
+        """
+        balance = await self.exchange.fetch_balance()
+        return balance['total']

@@ -17,7 +17,7 @@ import { Box, Toolbar } from '@mui/material';
 function App() {
   // For now, a dummy function. In a real app, this might toggle a mobile sidebar.
   const handleMenuClick = () => {
-    console.log('Menu icon clicked');
+    // Menu icon clicked
   };
 
   return (

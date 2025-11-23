@@ -19,9 +19,16 @@ from app.services.risk_engine import RiskEngineService
 from app.repositories.risk_action import RiskActionRepository
 from app.repositories.dca_order import DCAOrderRepository
 
+# Add authorized client fixture
+from app.core.security import create_access_token
+
 @pytest.fixture(scope="function")
-async def http_client() -> AsyncClient:
-    async with AsyncClient(app=app, base_url="http://test") as client:
+async def http_client(test_user) -> AsyncClient:
+    # Generate a token for the test user
+    token = create_access_token(data={"sub": test_user.username})
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    async with AsyncClient(app=app, base_url="http://test", headers=headers) as client:
         yield client
 
 @pytest.fixture(scope="function", autouse=True)
@@ -51,6 +58,10 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
         session_factory=lambda: db_session,
         position_group_repository_class=PositionGroupRepository
     )
+
+    # Debug print
+    print(f"DEBUG: PositionManagerService is {PositionManagerService}")
+    
     position_manager_service = PositionManagerService(
         session_factory=lambda: db_session,
         user=test_user,
@@ -78,17 +89,26 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
         exchange_connector=exchange_connector,
         execution_pool_manager=execution_pool_manager,
         position_manager_service=position_manager_service,
-        risk_engine_service=risk_engine_service,
-        grid_calculator_service=grid_calculator_service,
-        order_service_class=OrderService,
-        risk_engine_config=risk_engine_config,
-        dca_grid_config=dca_grid_config,
-        total_capital_usd=total_capital_usd
+        polling_interval_seconds=0.01
     )
     app.state.exchange_connector = exchange_connector
     app.state.risk_engine_config = risk_engine_config
     app.state.dca_grid_config = dca_grid_config
 
     app.dependency_overrides[get_db_session] = lambda: db_session
-    yield
+    
+    # Patch AsyncSessionLocal used in SignalRouter to use our test db_session
+    from contextlib import asynccontextmanager
+    from unittest.mock import MagicMock, patch
+
+    @asynccontextmanager
+    async def mock_session_ctx():
+        yield db_session
+
+    mock_factory = MagicMock()
+    mock_factory.side_effect = mock_session_ctx
+    
+    with patch("app.services.signal_router.AsyncSessionLocal", new=mock_factory):
+        yield
+        
     app.dependency_overrides = {}

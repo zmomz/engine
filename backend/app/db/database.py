@@ -4,12 +4,11 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import settings
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://tv_user:tv_password@db:5432/tv_engine_db")
-
-
+# DATABASE_URL is already validated in settings
 engine = create_async_engine(
-    DATABASE_URL,
+    settings.DATABASE_URL,
     pool_size=20,
     max_overflow=10,
     echo=False,  # Set to True to see SQL queries

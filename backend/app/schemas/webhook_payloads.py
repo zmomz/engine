@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
@@ -16,6 +16,13 @@ class TradingViewData(BaseModel):
     entry_price: float
     close_price: float
     order_size: float
+
+    @field_validator('exchange', 'symbol', 'action', 'market_position', 'prev_market_position')
+    @classmethod
+    def no_placeholders(cls, v: str) -> str:
+        if "{{" in v or "}}" in v:
+             raise ValueError("Unreplaced placeholder detected")
+        return v
 
 class StrategyInfo(BaseModel):
     trade_id: str

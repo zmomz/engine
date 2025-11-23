@@ -1,11 +1,14 @@
 
 import os
+import logging
 from decimal import Decimal
 from typing import Dict, Optional, Any
 import uuid
 
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.exceptions import ExchangeConnectionError, APIError
+
+logger = logging.getLogger(__name__)
 
 class MockConnector(ExchangeInterface):
     def __init__(self):
@@ -58,7 +61,7 @@ class MockConnector(ExchangeInterface):
                     }
                 }
             except Exception as e:
-                print(f"MockConnector: Failed to connect to {self.base_url}: {e}")
+                logger.error(f"MockConnector: Failed to connect to {self.base_url}: {e}")
                 raise ExchangeConnectionError(f"Failed to connect to mock exchange: {e}")
 
     async def place_order(self, symbol: str, side: str, order_type: str, quantity: Decimal, price: Optional[Decimal] = None) -> Dict:
