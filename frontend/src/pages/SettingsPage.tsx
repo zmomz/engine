@@ -3,60 +3,46 @@ import { Box, Typography, Tabs, Tab, CircularProgress, Alert, Paper, Button, Tex
 import { useForm, useFieldArray, Controller, Resolver, FieldError } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import useConfigStore, { UserSettings } from '../store/configStore';
+import useConfigStore from '../store/configStore';
 
 // Define Zod schemas for validation
-const apiKeysSchema = z.object({
-  public: z.string().min(1, 'Public key is required'),
-  private: z.string().min(1, 'Private key is required'),
-}).nullable().optional();
-
 const exchangeSettingsSchema = z.object({
   exchange: z.string().min(1, 'Exchange is required'),
-  encrypted_api_keys: apiKeysSchema,
-});
-
-const dcaLevelSchema = z.object({
-  gap_percent: z.coerce.number().min(-100).max(100).finite('Must be a number'),
-  weight_percent: z.coerce.number().min(0.1).max(100).finite('Must be a number'),
-  tp_percent: z.coerce.number().min(0.1).max(100).finite('Must be a number'),
-});
-
-const dcaGridConfigSchema = z.array(dcaLevelSchema).superRefine((val, ctx) => {
-  const totalWeight = val.reduce((sum, level) => sum + level.weight_percent, 0);
-  if (totalWeight !== 100) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `Total weight percentage must sum to 100, but got ${totalWeight}`,
-      path: ['weight_percent'], // This path might need adjustment based on how react-hook-form handles array errors
-    });
-  }
+  api_key: z.string().optional(),
+  secret_key: z.string().optional(),
 });
 
 const riskEngineConfigSchema = z.object({
-  max_open_positions_global: z.coerce.number().int().min(1, 'Must be at least 1').finite('Must be a number'),
-  max_open_positions_per_symbol: z.coerce.number().int().min(1, 'Must be at least 1').finite('Must be a number'),
-  max_total_exposure_usd: z.coerce.number().min(0, 'Cannot be negative').finite('Must be a number'),
-  max_daily_loss_usd: z.coerce.number().min(0, 'Cannot be negative').finite('Must be a number'),
-  loss_threshold_percent: z.coerce.number().min(-100).max(0).finite('Must be a number'),
-  timer_start_condition: z.string(),
-  post_full_wait_minutes: z.coerce.number().int().min(0).finite('Must be a number'),
-  max_winners_to_combine: z.coerce.number().int().min(1).finite('Must be a number'),
+  max_open_positions_global: z.number().min(0),
+  max_open_positions_per_symbol: z.number().min(0),
+  max_total_exposure_usd: z.number().min(0),
+  max_daily_loss_usd: z.number().min(0),
+  loss_threshold_percent: z.number().max(0),
+  timer_start_condition: z.string().min(1),
+  post_full_wait_minutes: z.number().min(0),
+  max_winners_to_combine: z.number().min(0),
   use_trade_age_filter: z.boolean(),
-  age_threshold_minutes: z.coerce.number().int().min(0).finite('Must be a number'),
+  age_threshold_minutes: z.number().min(0),
   require_full_pyramids: z.boolean(),
   reset_timer_on_replacement: z.boolean(),
   partial_close_enabled: z.boolean(),
-  min_close_notional: z.coerce.number().min(0).finite('Must be a number'),
+  min_close_notional: z.number().min(0),
 });
+
+const dcaLevelConfigSchema = z.object({
+  gap_percent: z.number(),
+  weight_percent: z.number(),
+  tp_percent: z.number(),
+});
+
+const dcaGridConfigSchema = z.array(dcaLevelConfigSchema);
 
 const appSettingsSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   email: z.string().email('Invalid email address'),
-  webhook_secret: z.string().min(1, 'Webhook secret is required'),
+  webhook_secret: z.string().optional(),
 });
 
-// Combined form schema
 const formSchema = z.object({
   exchangeSettings: exchangeSettingsSchema,
   riskEngineConfig: riskEngineConfigSchema,
@@ -64,7 +50,12 @@ const formSchema = z.object({
   appSettings: appSettingsSchema,
 });
 
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = {
+  exchangeSettings: z.infer<typeof exchangeSettingsSchema>;
+  riskEngineConfig: z.infer<typeof riskEngineConfigSchema>;
+  dcaGridConfig: z.infer<typeof dcaGridConfigSchema>;
+  appSettings: z.infer<typeof appSettingsSchema>;
+};
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -103,14 +94,21 @@ const SettingsPage: React.FC = () => {
   const { settings, supportedExchanges, loading, error, fetchSettings, updateSettings, fetchSupportedExchanges } = useConfigStore();
   const [currentTab, setCurrentTab] = useState(0);
 
-  const { handleSubmit, control, reset, formState: { errors } } = useForm<FormValues>({
+  useEffect(() => {
+    fetchSettings();
+    fetchSupportedExchanges();
+  }, [fetchSettings, fetchSupportedExchanges]);
+
+  const { handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       exchangeSettings: {
         exchange: settings?.exchange || '',
-        encrypted_api_keys: settings?.encrypted_api_keys || null,
+        api_key: '',
+        secret_key: '',
       },
-      riskEngineConfig: settings?.risk_config || { // Default to an empty object or a full default structure
+      // ... (keep other defaults)
+      riskEngineConfig: settings?.risk_config || {
         max_open_positions_global: 10,
         max_open_positions_per_symbol: 1,
         max_total_exposure_usd: 10000,
@@ -126,7 +124,7 @@ const SettingsPage: React.FC = () => {
         partial_close_enabled: true,
         min_close_notional: 10,
       },
-      dcaGridConfig: settings?.dca_grid_config || [], // Default to an empty array
+      dcaGridConfig: settings?.dca_grid_config || [],
       appSettings: {
         username: settings?.username || '',
         email: settings?.email || '',
@@ -135,22 +133,18 @@ const SettingsPage: React.FC = () => {
     },
   });
 
-  const { fields: dcaFields, append: appendDca, remove: removeDca } = useFieldArray({
-    control,
-    name: "dcaGridConfig",
-  });
+  // Watch the selected exchange to show status
+  const selectedExchange = watch("exchangeSettings.exchange");
 
-  useEffect(() => {
-    fetchSettings();
-    fetchSupportedExchanges();
-  }, [fetchSettings, fetchSupportedExchanges]);
+  // ... (keep useEffects)
 
   useEffect(() => {
     if (settings) {
       reset({
         exchangeSettings: {
           exchange: settings.exchange,
-          encrypted_api_keys: settings.encrypted_api_keys,
+          api_key: '', // Always reset these to empty for security
+          secret_key: '',
         },
         riskEngineConfig: settings.risk_config,
         dcaGridConfig: settings.dca_grid_config,
@@ -167,23 +161,44 @@ const SettingsPage: React.FC = () => {
     setCurrentTab(newValue);
   };
 
+  const { fields: dcaFields, append: appendDca, remove: removeDca } = useFieldArray({
+    control,
+    name: "dcaGridConfig"
+  });
+
   const onSubmit = async (data: FormValues) => {
     // Transform data to match backend UserUpdate schema
-    const payload: Partial<UserSettings> = {
+    const payload: any = {
       exchange: data.exchangeSettings.exchange,
-      encrypted_api_keys: data.exchangeSettings.encrypted_api_keys,
       risk_config: data.riskEngineConfig,
       dca_grid_config: data.dcaGridConfig,
       username: data.appSettings.username,
       email: data.appSettings.email,
       webhook_secret: data.appSettings.webhook_secret,
     };
+
+    // Only send keys if they are provided
+    if (data.exchangeSettings.api_key && data.exchangeSettings.secret_key) {
+        payload.api_key = data.exchangeSettings.api_key;
+        payload.secret_key = data.exchangeSettings.secret_key;
+    }
+
     await updateSettings(payload);
+    // Clear the key fields after save for security
+    reset({ ...data, exchangeSettings: { ...data.exchangeSettings, api_key: '', secret_key: '' } });
   };
 
-  if (loading && !settings) {
+  // Helper to check if keys exist for the selected exchange
+  const hasKeysForExchange = (exchange: string) => {
+    if (!settings?.encrypted_api_keys) return false;
+    // Check if it's the new dict structure or legacy
+    const keys = settings.encrypted_api_keys as any;
+    return !!keys[exchange];
+  };
+
+  if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
         <CircularProgress />
       </Box>
     );
@@ -197,21 +212,17 @@ const SettingsPage: React.FC = () => {
     );
   }
 
-  if (!settings) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="info">No settings found or user not authenticated.</Alert>
-      </Box>
-    );
-  }
+  // ... (keep render logic up to form)
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+        {/* ... (keep header) */}
+        <Typography variant="h4" gutterBottom>
         Settings
       </Typography>
       <Paper sx={{ p: 3 }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            {/* ... (keep tabs) */}
           <Tabs value={currentTab} onChange={handleTabChange} aria-label="settings tabs">
             <Tab label="Exchange" {...a11yProps(0)} />
             <Tab label="Risk Engine" {...a11yProps(1)} />
@@ -224,6 +235,7 @@ const SettingsPage: React.FC = () => {
           <CustomTabPanel value={currentTab} index={0}>
             {/* Exchange Settings */}
             <Typography variant="h6" gutterBottom>Exchange Configuration</Typography>
+            
             <Controller
               name="exchangeSettings.exchange"
               control={control}
@@ -231,11 +243,11 @@ const SettingsPage: React.FC = () => {
                 <TextField
                   {...field}
                   select
-                  label="Exchange"
+                  label="Active Exchange"
                   fullWidth
                   margin="normal"
                   error={!!errors.exchangeSettings?.exchange}
-                  helperText={errors.exchangeSettings?.exchange?.message}
+                  helperText={errors.exchangeSettings?.exchange?.message || "Select the exchange to trade on AND configure keys for."}
                   SelectProps={{ native: true }}
                 >
                   {supportedExchanges.map((exchange) => (
@@ -246,37 +258,53 @@ const SettingsPage: React.FC = () => {
                 </TextField>
               )}
             />
+
+            <Box sx={{ mt: 2, mb: 2 }}>
+                {selectedExchange && (
+                    <Alert severity={hasKeysForExchange(selectedExchange) ? "success" : "warning"}>
+                        {hasKeysForExchange(selectedExchange) 
+                            ? `API Keys are currently configured for ${selectedExchange}.` 
+                            : `No API Keys found for ${selectedExchange}. Please enter them below.`}
+                    </Alert>
+                )}
+            </Box>
+
+            <Typography variant="subtitle1" sx={{ mt: 2 }}>Update API Keys (Optional)</Typography>
+            <Typography variant="caption" color="textSecondary">
+                Leave blank to keep existing keys. Enter new keys to overwrite.
+            </Typography>
+
             <Controller
-              name="exchangeSettings.encrypted_api_keys.public"
+              name="exchangeSettings.api_key"
               control={control}
               render={({ field }) => (
                 <TextField
                   {...field}
-                  label="API Key (Public)"
+                  label="New API Key (Public)"
                   fullWidth
                   margin="normal"
-                  error={!!errors.exchangeSettings?.encrypted_api_keys?.public}
-                  helperText={errors.exchangeSettings?.encrypted_api_keys?.public?.message}
+                  error={!!errors.exchangeSettings?.api_key}
+                  helperText={errors.exchangeSettings?.api_key?.message}
                 />
               )}
             />
             <Controller
-              name="exchangeSettings.encrypted_api_keys.private"
+              name="exchangeSettings.secret_key"
               control={control}
               render={({ field }) => (
                 <TextField
                   {...field}
-                  label="API Key (Private)"
+                  label="New API Key (Private)"
                   fullWidth
                   margin="normal"
                   type="password"
-                  error={!!errors.exchangeSettings?.encrypted_api_keys?.private}
-                  helperText={errors.exchangeSettings?.encrypted_api_keys?.private?.message}
+                  error={!!errors.exchangeSettings?.secret_key}
+                  helperText={errors.exchangeSettings?.secret_key?.message}
                 />
               )}
             />
           </CustomTabPanel>
-
+          {/* ... (keep other panels) */}
           <CustomTabPanel value={currentTab} index={1}>
             {/* Risk Engine Settings */}
             <Typography variant="h6" gutterBottom>Risk Engine Configuration</Typography>

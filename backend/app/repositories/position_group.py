@@ -80,6 +80,18 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         total_pnl = result.scalar()
         return total_pnl if total_pnl is not None else Decimal("0")
 
+    async def get_total_pnl_for_user(self, user_id: uuid.UUID) -> Decimal:
+        """
+        Calculates the total PnL (realized + unrealized) for a user.
+        """
+        result = await self.session.execute(
+            select(
+                func.sum(self.model.realized_pnl_usd) + func.sum(self.model.unrealized_pnl_usd)
+            ).where(self.model.user_id == user_id)
+        )
+        total_pnl = result.scalar()
+        return total_pnl if total_pnl is not None else Decimal("0")
+
     async def get_closed_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
         """
         Retrieves all closed position groups for a given user, ordered by closed_at descending.

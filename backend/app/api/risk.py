@@ -19,11 +19,7 @@ from app.core.security import EncryptionService
 
 router = APIRouter()
 
-def get_risk_engine_service(
-    request: Request,
-    session: AsyncSession = Depends(get_db_session),
-    user: User = Depends(get_current_active_user)
-) -> RiskEngineService:
+def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineService:
     # Load encryption service
     try:
         encryption_service = EncryptionService()
@@ -63,17 +59,49 @@ def get_risk_engine_service(
         user=user
     )
 
+def get_risk_engine_service(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_current_active_user)
+) -> RiskEngineService:
+    return create_risk_engine_service(session, user)
+
 @router.get("/status")
 async def get_risk_engine_status(
-    risk_engine_service: RiskEngineService = Depends(get_risk_engine_service)
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_current_active_user)
 ):
     """
     Retrieves the current status of the Risk Engine, including potential actions.
+    Handles cases where the engine is not fully configured.
     """
-    # This needs to be implemented in RiskEngineService to return relevant status.
-    # For now, return a placeholder.
-    status_data = await risk_engine_service.get_current_status()
-    return status_data
+    if not user.encrypted_api_keys:
+        return {
+            "status": "not_configured",
+            "message": "Exchange API keys are missing. Please configure them in Settings.",
+            "active_positions": 0,
+            "risk_level": "unknown"
+        }
+
+    try:
+        risk_engine_service = create_risk_engine_service(session, user)
+        status_data = await risk_engine_service.get_current_status()
+        return status_data
+    except HTTPException as e:
+        # If creation fails (e.g. bad keys), return error status but don't crash frontend polling
+        return {
+            "status": "error",
+            "message": e.detail,
+            "active_positions": 0,
+            "risk_level": "unknown"
+        }
+    except Exception as e:
+        return {
+            "status": "error", 
+            "message": str(e),
+            "active_positions": 0,
+            "risk_level": "unknown"
+        }
 
 @router.post("/run-evaluation")
 async def run_risk_evaluation(

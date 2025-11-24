@@ -41,23 +41,31 @@ async def update_settings(
     """
     user_repo = UserRepository(db)
     
-    encrypted_keys = None
-    # Handle API Key Encryption if provided
-    if user_update.api_key and user_update.secret_key:
-        encryption_service = EncryptionService()
-        # encrypt_keys returns a dict that matches what we want to store
-        encrypted_keys = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
-
     # Prepare update data
     update_data = user_update.dict(exclude_unset=True)
     
+    # Handle API Key Encryption if provided
+    if user_update.api_key and user_update.secret_key:
+        encryption_service = EncryptionService()
+        new_encrypted_keys = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
+        
+        # Get existing keys or initialize empty dict
+        current_keys = current_user.encrypted_api_keys or {}
+        if not isinstance(current_keys, dict):
+             current_keys = {}
+             
+        # Determine which exchange these keys are for
+        # Use the exchange from the update, or fallback to the user's current active exchange
+        target_exchange = user_update.exchange or current_user.exchange
+        
+        # Update the keys for this specific exchange
+        current_keys[target_exchange] = new_encrypted_keys
+        
+        update_data["encrypted_api_keys"] = current_keys
+
     # Remove raw keys from update data as they are not DB columns
     update_data.pop("api_key", None)
     update_data.pop("secret_key", None)
-    
-    # Explicitly set encrypted keys if they were generated
-    if encrypted_keys:
-        update_data["encrypted_api_keys"] = encrypted_keys
 
     # Apply updates to the current_user instance
     for field, value in update_data.items():

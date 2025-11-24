@@ -1,14 +1,23 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 
 interface QueuedSignal {
   id: string;
+  user_id: string;
+  exchange: string;
   symbol: string;
-  side: string;
-  signal_type: string;
+  timeframe: number;
+  side: 'long' | 'short';
+  entry_price: number;
+  signal_payload: Record<string, any>;
+  queued_at: string;
+  replacement_count: number;
   priority_score: number;
-  created_at: string;
-  // Add other relevant fields from your QueuedSignalSchema
+  is_pyramid_continuation: boolean;
+  current_loss_percent: number | null;
+  status: 'queued' | 'promoted' | 'cancelled';
+  promoted_at: string | null;
+  signal_type?: string; // Keeping this as optional as it's used in frontend but not directly in backend schema
 }
 
 interface QueueState {
@@ -28,7 +37,7 @@ const useQueueStore = create<QueueState>((set) => ({
   fetchQueuedSignals: async () => {
     set({ loading: true, error: null });
     try {
-      const response = await axios.get<QueuedSignal[]>('/api/v1/queue/');
+      const response = await api.get<QueuedSignal[]>('/queue/');
       set({ queuedSignals: response.data, loading: false });
     } catch (err: any) {
       console.error("Failed to fetch queued signals", err);
@@ -39,7 +48,7 @@ const useQueueStore = create<QueueState>((set) => ({
   promoteSignal: async (signalId: string) => {
     set({ loading: true, error: null });
     try {
-      await axios.post(`/api/v1/queue/${signalId}/promote`);
+      await api.post(`/queue/${signalId}/promote`);
       // Refresh the list after promoting
       await useQueueStore.getState().fetchQueuedSignals();
     } catch (err: any) {
@@ -51,7 +60,7 @@ const useQueueStore = create<QueueState>((set) => ({
   removeSignal: async (signalId: string) => {
     set({ loading: true, error: null });
     try {
-      await axios.delete(`/api/v1/queue/${signalId}`);
+      await api.delete(`/queue/${signalId}`);
       // Refresh the list after removing
       await useQueueStore.getState().fetchQueuedSignals();
     } catch (err: any) {

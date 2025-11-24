@@ -165,6 +165,10 @@ async def calculate_partial_close_quantities(
                 f"({notional_value} < {min_notional}). Skipping."
             )
             continue
+
+        # Cap at available quantity
+        if quantity_to_close > winner.total_filled_quantity:
+            quantity_to_close = winner.total_filled_quantity
         
         close_plan.append((winner, quantity_to_close))
         remaining_needed -= profit_to_take

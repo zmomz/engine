@@ -40,9 +40,9 @@ class UserInDB(UserBase):
 
 class UserRead(UserBase):
     id: uuid.UUID
-    exchange: str # Ensure exchange is returned
-    risk_config: RiskEngineConfig
-    dca_grid_config: DCAGridConfig
+    exchange: Optional[str] = None
+    risk_config: Optional[RiskEngineConfig] = None
+    dca_grid_config: Optional[DCAGridConfig] = None
 
     class Config:
         from_attributes = True

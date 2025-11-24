@@ -6,10 +6,17 @@ import QueueIcon from '@mui/icons-material/Queue';
 import SecurityIcon from '@mui/icons-material/Security';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { Link } from 'react-router-dom';
+import useAuthStore from '../store/authStore';
 
 const drawerWidth = 240;
 
 const Sidebar: React.FC = () => {
+  const { isAuthenticated } = useAuthStore();
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Positions', icon: <AnalyticsIcon />, path: '/positions' },

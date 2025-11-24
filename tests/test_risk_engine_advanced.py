@@ -208,7 +208,8 @@ async def test_calculate_partial_close_quantities_exact_coverage():
     """Test calculating closure amount when winner has enough profit."""
     winner = PositionGroup(
         id=uuid.uuid4(), symbol="ETH/USD", side="short",
-        unrealized_pnl_usd=Decimal("100.0"), weighted_avg_entry=Decimal("3000.0"), exchange="binance"
+        unrealized_pnl_usd=Decimal("100.0"), weighted_avg_entry=Decimal("3000.0"), exchange="binance",
+        total_filled_quantity=Decimal("1.0")
     )
     
     exchange = AsyncMock()
@@ -231,11 +232,13 @@ async def test_calculate_partial_close_quantities_insufficient_winner():
     """Test draining first winner and moving to second."""
     w1 = PositionGroup(
         id=uuid.uuid4(), symbol="ETH/USD", side="long",
-        unrealized_pnl_usd=Decimal("40.0"), weighted_avg_entry=Decimal("1000.0"), exchange="binance"
+        unrealized_pnl_usd=Decimal("40.0"), weighted_avg_entry=Decimal("1000.0"), exchange="binance",
+        total_filled_quantity=Decimal("1.0")
     ) # Profit 40
     w2 = PositionGroup(
         id=uuid.uuid4(), symbol="BTC/USD", side="long",
-        unrealized_pnl_usd=Decimal("100.0"), weighted_avg_entry=Decimal("10000.0"), exchange="binance"
+        unrealized_pnl_usd=Decimal("100.0"), weighted_avg_entry=Decimal("10000.0"), exchange="binance",
+        total_filled_quantity=Decimal("1.0")
     ) # Profit 100
     
     exchange = AsyncMock()

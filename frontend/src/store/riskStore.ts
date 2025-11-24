@@ -40,7 +40,12 @@ const useRiskStore = create<RiskStore>((set) => ({
     set({ loading: true, error: null });
     try {
       const response = await axios.get('/api/v1/risk/status');
-      set({ status: response.data, loading: false });
+      
+      if (response.data.status === 'not_configured' || response.data.status === 'error') {
+        set({ status: null, error: response.data.message, loading: false });
+      } else {
+        set({ status: response.data, loading: false });
+      }
     } catch (error: any) {
       set({ error: error.response?.data?.detail || 'Failed to fetch risk status', loading: false });
     }

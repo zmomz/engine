@@ -1,0 +1,139 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import RiskPage from './RiskPage';
+import useRiskStore from '../store/riskStore';
+import { act } from 'react-dom/test-utils';
+import userEvent from '@testing-library/user-event';
+
+// Mock Store
+jest.mock('../store/riskStore');
+
+const mockRiskStatus = {
+  identified_loser: {
+    id: 'loser1',
+    symbol: 'BTCUSDT',
+    unrealized_pnl_percent: -10,
+    unrealized_pnl_usd: -100,
+    risk_blocked: false,
+    risk_skip_once: false,
+  },
+  identified_winners: [
+    {
+      id: 'winner1',
+      symbol: 'ETHUSDT',
+      unrealized_pnl_usd: 50,
+    }
+  ],
+  required_offset_usd: 100,
+  risk_engine_running: true,
+  config: {
+    max_open_positions_global: 5,
+  }
+};
+
+describe('RiskPage', () => {
+  const mockFetchStatus = jest.fn();
+  const mockRunEvaluation = jest.fn();
+  const mockBlockGroup = jest.fn();
+  const mockUnblockGroup = jest.fn();
+  const mockSkipGroup = jest.fn();
+
+  beforeEach(() => {
+    (useRiskStore as unknown as jest.Mock).mockReturnValue({
+      status: mockRiskStatus,
+      loading: false,
+      error: null,
+      fetchStatus: mockFetchStatus,
+      runEvaluation: mockRunEvaluation,
+      blockGroup: mockBlockGroup,
+      unblockGroup: mockUnblockGroup,
+      skipGroup: mockSkipGroup,
+    });
+    jest.clearAllMocks();
+  });
+
+  test('renders risk status dashboard', async () => {
+    await act(async () => {
+        render(
+        <MemoryRouter>
+            <RiskPage />
+        </MemoryRouter>
+        );
+    });
+
+    expect(screen.getByText(/Risk Control Panel/i)).toBeInTheDocument();
+    expect(screen.getByText(/Risk Engine Status/i)).toBeInTheDocument();
+    
+    // Check Status Display
+    expect(screen.getByText(/max_open_positions_global/i)).toBeInTheDocument();
+    
+    // Check Loser Display
+    expect(screen.getByText(/BTCUSDT/i)).toBeInTheDocument();
+    expect(screen.getByText(/-100.00/i)).toBeInTheDocument();
+    
+    // Check Winner Display
+    expect(screen.getByText(/ETHUSDT/i)).toBeInTheDocument();
+    expect(screen.getByText(/50.00/i)).toBeInTheDocument();
+  });
+
+  test('triggers manual evaluation', async () => {
+    // Mock window.confirm
+    const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
+
+    await act(async () => {
+        render(
+        <MemoryRouter>
+            <RiskPage />
+        </MemoryRouter>
+        );
+    });
+
+    const runButton = screen.getByRole('button', { name: /Run Risk Evaluation Now/i });
+    await userEvent.click(runButton);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockRunEvaluation).toHaveBeenCalled();
+    
+    confirmSpy.mockRestore();
+  });
+
+  test('triggers block position', async () => {
+     const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
+    
+    await act(async () => {
+        render(
+        <MemoryRouter>
+            <RiskPage />
+        </MemoryRouter>
+        );
+    });
+
+    const blockButton = screen.getByRole('button', { name: /^Block$/i });
+    await userEvent.click(blockButton);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockBlockGroup).toHaveBeenCalledWith('loser1');
+    
+    confirmSpy.mockRestore();
+  });
+
+  test('triggers skip next evaluation', async () => {
+     const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
+    
+    await act(async () => {
+        render(
+        <MemoryRouter>
+            <RiskPage />
+        </MemoryRouter>
+        );
+    });
+
+    const skipButton = screen.getByRole('button', { name: /Skip Next/i });
+    await userEvent.click(skipButton);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(mockSkipGroup).toHaveBeenCalledWith('loser1');
+    
+    confirmSpy.mockRestore();
+  });
+});

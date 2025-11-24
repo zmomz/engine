@@ -11,14 +11,24 @@ export interface AuthState {
   register: (username: string, email: string, password: string) => Promise<void>;
 }
 
+const getUserFromStorage = () => {
+  const item = localStorage.getItem('user');
+  if (!item || item === 'undefined') return null;
+  try {
+    return JSON.parse(item);
+  } catch {
+    return null;
+  }
+};
+
 const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem('token'),
   isAuthenticated: !!localStorage.getItem('token'),
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: getUserFromStorage(),
 
   login: (token, user) => {
     localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
+    localStorage.setItem('user', JSON.stringify(user || null));
     set({ token, isAuthenticated: true, user });
   },
 
@@ -30,7 +40,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
 
   initializeAuth: () => {
     const token = localStorage.getItem('token');
-    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    const user = getUserFromStorage();
     set({ token, isAuthenticated: !!token, user });
   },
 
