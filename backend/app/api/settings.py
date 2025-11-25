@@ -50,22 +50,27 @@ async def update_settings(
         new_encrypted_keys = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
         
         # Get existing keys or initialize empty dict
-        current_keys = current_user.encrypted_api_keys or {}
-        if not isinstance(current_keys, dict):
-             current_keys = {}
-             
+        # CRITICAL: Create a copy to ensure SQLAlchemy detects the change to the JSON column
+        current_keys = dict(current_user.encrypted_api_keys or {})
+        
         # Determine which exchange these keys are for
-        # Use the exchange from the update, or fallback to the user's current active exchange
-        target_exchange = user_update.exchange or current_user.exchange
+        # Use the explicit target, or the exchange from the update, or fallback to the user's current active exchange
+        target_exchange = user_update.key_target_exchange or user_update.exchange or current_user.exchange
         
         # Update the keys for this specific exchange
         current_keys[target_exchange] = new_encrypted_keys
         
+        # Explicitly set the field on the user object with the NEW dictionary
+        # This ensures SQLAlchemy sees the 'set' event on the JSON column
         update_data["encrypted_api_keys"] = current_keys
+        
+        # Also direct assignment to be double sure before repository update (though loop below handles it)
+        current_user.encrypted_api_keys = current_keys
 
-    # Remove raw keys from update data as they are not DB columns
+    # Remove raw keys and target from update data as they are not DB columns
     update_data.pop("api_key", None)
     update_data.pop("secret_key", None)
+    update_data.pop("key_target_exchange", None)
 
     # Apply updates to the current_user instance
     for field, value in update_data.items():
@@ -75,3 +80,26 @@ async def update_settings(
     updated_user = await user_repo.update(current_user)
     await db.commit()
     return updated_user
+
+@router.delete("/keys/{exchange}", response_model=UserRead)
+async def delete_exchange_key(
+    exchange: str,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Remove API keys for a specific exchange.
+    """
+    user_repo = UserRepository(db)
+    
+    current_keys = current_user.encrypted_api_keys
+    if current_keys and exchange in current_keys:
+        # Create a new dictionary to ensure SQLAlchemy detects the change
+        new_keys = current_keys.copy()
+        del new_keys[exchange]
+        current_user.encrypted_api_keys = new_keys
+        
+        await user_repo.update(current_user)
+        await db.commit()
+    
+    return current_user

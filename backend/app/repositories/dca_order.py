@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -15,6 +16,7 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
         # Assuming DCAOrder has a relationship 'group' to PositionGroup
         result = await self.session.execute(
             select(self.model)
+            .options(joinedload(self.model.group))
             .join(PositionGroup, self.model.group_id == PositionGroup.id)
             .where(
                 self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]),

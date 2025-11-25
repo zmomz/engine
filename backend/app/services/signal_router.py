@@ -37,8 +37,22 @@ class SignalRouterService:
         
         # Initialize Exchange Connector
         enc_service = EncryptionService()
-        api_key, api_secret = enc_service.decrypt_keys(self.user.encrypted_api_keys)
-        exchange = get_exchange_connector(self.user.exchange, api_key=api_key, secret_key=api_secret)
+        
+        target_exchange = signal.tv.exchange
+        encrypted_data = self.user.encrypted_api_keys
+        if isinstance(encrypted_data, dict):
+             if target_exchange in encrypted_data:
+                 encrypted_data = encrypted_data[target_exchange]
+             elif "encrypted_data" not in encrypted_data:
+                 logger.error(f"Signal Router: No keys configured for {target_exchange}")
+                 return f"Configuration Error: No API keys for {target_exchange}"
+
+        try:
+            api_key, api_secret = enc_service.decrypt_keys(encrypted_data)
+            exchange = get_exchange_connector(target_exchange, api_key=api_key, secret_key=api_secret)
+        except Exception as e:
+            logger.error(f"Signal Router: Failed to decrypt keys for {target_exchange}: {e}")
+            return f"Configuration Error: Failed to decrypt keys for {target_exchange}"
         
         grid_calc = GridCalculatorService()
         

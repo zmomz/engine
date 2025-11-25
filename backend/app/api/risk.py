@@ -30,8 +30,18 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
     if not user.encrypted_api_keys:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exchange API keys are missing.")
     
+    # Extract keys for the current exchange
+    encrypted_data = user.encrypted_api_keys
+    if isinstance(encrypted_data, dict):
+        # If it's the new multi-exchange format, look up the specific exchange
+        if user.exchange in encrypted_data:
+             encrypted_data = encrypted_data[user.exchange]
+        # Check if it's legacy single-key format (contains encrypted_data directly)
+        elif "encrypted_data" not in encrypted_data:
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"API keys for {user.exchange} are not configured.")
+    
     try:
-        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to decrypt API keys: {str(e)}")
 

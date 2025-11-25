@@ -291,7 +291,17 @@ class RiskEngineService:
                 # Decrypt keys and get exchange connector
                 encryption_service = EncryptionService()
                 try:
-                    api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+                    # Fix for multi-key: Use loser.exchange
+                    encrypted_data = user.encrypted_api_keys
+                    target_exchange = loser.exchange
+                    if isinstance(encrypted_data, dict):
+                         if target_exchange in encrypted_data:
+                             encrypted_data = encrypted_data[target_exchange]
+                         elif "encrypted_data" not in encrypted_data:
+                             logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}.")
+                             return
+
+                    api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
                     exchange_connector = get_exchange_connector(
                         exchange_type=loser.exchange,
                         api_key=api_key,

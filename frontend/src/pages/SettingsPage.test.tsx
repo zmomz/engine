@@ -13,7 +13,7 @@ describe('SettingsPage', () => {
     (useConfigStore as unknown as jest.Mock).mockReturnValue({
       settings: {
         exchange: 'binance',
-        encrypted_api_keys: { public: 'pk_123', private: 'sk_123' },
+        encrypted_api_keys: { binance: { apiKey: 'pk_123' } },
         risk_config: {
           max_open_positions_global: 5,
           max_open_positions_per_symbol: 1,
@@ -35,7 +35,8 @@ describe('SettingsPage', () => {
         ],
         username: 'testuser',
         email: 'test@example.com',
-        webhook_secret: 'secret'
+        webhook_secret: 'secret',
+        configured_exchanges: ['binance']
       },
       supportedExchanges: ['binance', 'bybit'],
       loading: false,
@@ -44,6 +45,8 @@ describe('SettingsPage', () => {
       updateSettings: mockUpdateSettings,
       fetchSupportedExchanges: jest.fn(),
     });
+    jest.clearAllMocks();
+    window.alert = jest.fn();
   });
 
   test('renders settings heading and tabs', () => {
@@ -59,7 +62,7 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('tab', { name: /dca grid/i })).toBeInTheDocument();
   });
 
-  test('allows updating configuration', async () => {
+  test('allows updating api keys separately', async () => {
     render(
       <MemoryRouter>
         <SettingsPage />
@@ -71,26 +74,42 @@ describe('SettingsPage', () => {
     await userEvent.clear(apiKeyInput);
     await userEvent.type(apiKeyInput, 'new_pk_123');
 
-    // 2. Switch to Risk Engine tab and update values
+    const secretKeyInput = screen.getByLabelText(/secret key \(private\)/i);
+    await userEvent.clear(secretKeyInput);
+    await userEvent.type(secretKeyInput, 'new_sk_123');
+    
+    // 2. Submit Keys
+    const saveKeysButton = screen.getByRole('button', { name: /save api keys/i });
+    fireEvent.click(saveKeysButton);
+
+    await waitFor(() => {
+      expect(mockUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        api_key: 'new_pk_123',
+        secret_key: 'new_sk_123'
+      }));
+    });
+  });
+
+  test('allows updating risk configuration separately', async () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    );
+
+    // 1. Switch to Risk Engine tab and update values
     const riskTab = screen.getByRole('tab', { name: /risk engine/i });
     fireEvent.click(riskTab);
-    
-    // Wait for tab panel to be visible (implicit in MUI tabs usually, but good to be safe)
-    // Note: MUI Tabs mount/unmount panels or hide them.
-    // The input should be available.
     
     const maxExposureInput = screen.getByLabelText(/max total exposure usd/i);
     fireEvent.change(maxExposureInput, { target: { value: '2000' } });
 
-    // 3. Submit Form
+    // 2. Submit Settings (Global)
     const saveButton = screen.getByRole('button', { name: /save settings/i });
     fireEvent.click(saveButton);
 
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({
-        encrypted_api_keys: expect.objectContaining({
-          public: 'new_pk_123'
-        }),
         risk_config: expect.objectContaining({
           max_total_exposure_usd: 2000
         })
@@ -98,23 +117,25 @@ describe('SettingsPage', () => {
     });
   });
 
-  test('validates input before submission', async () => {
+  test('validates api key input before submission', async () => {
     render(
       <MemoryRouter>
         <SettingsPage />
       </MemoryRouter>
     );
 
-    // Clear required field
+    // Leave fields empty (default state in test render if not pre-filled by reset in useEffect)
+    // Actually our test render loads from store which might not prefill the form fields for security or default logic.
+    // Let's assume they are empty or we clear them.
     const apiKeyInput = screen.getByLabelText(/api key \(public\)/i);
     await userEvent.clear(apiKeyInput);
+    
+    const saveKeysButton = screen.getByRole('button', { name: /save api keys/i });
+    fireEvent.click(saveKeysButton);
 
-    const saveButton = screen.getByRole('button', { name: /save settings/i });
-    fireEvent.click(saveButton);
-
-    // Expect validation error
+    // Expect alert
     await waitFor(() => {
-      expect(screen.getByText(/public key is required/i)).toBeInTheDocument();
+      expect(window.alert).toHaveBeenCalledWith(expect.stringMatching(/please enter both/i));
     });
     expect(mockUpdateSettings).not.toHaveBeenCalled();
   });

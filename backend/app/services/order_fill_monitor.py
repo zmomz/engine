@@ -63,64 +63,76 @@ class OrderFillMonitorService:
                         if not user.encrypted_api_keys:
                             continue
 
-                        # Decrypt keys
-                        try:
-                            api_key, secret_key = self.encryption_service.decrypt_keys(user.encrypted_api_keys)
-                            # Note: The User model field usage for encrypted keys needs to be consistent. 
-                            # If api_key field stores the encrypted blob, we use it.
-                            # If verify_binance_keys or other scripts stored raw keys, this will fail.
-                            # Assuming for now api_key field holds the encrypted string.
-                        except Exception as e:
-                            # If decryption fails (maybe it's raw or dummy), we log and skip
-                            # logger.debug(f"Could not decrypt keys for user {user.username}: {e}")
-                            # For dev/migration, fallback to using them as raw if decryption fails? 
-                            # No, secure by default.
-                            continue
-                        
-                        connector = get_exchange_connector(
-                            user.exchange, 
-                            api_key=api_key, 
-                            secret_key=secret_key
-                        )
-                        
                         dca_order_repo = self.dca_order_repository_class(session)
-                        # Filter orders by user!
-                        # We need a method in dca_order_repo to get open orders FOR A USER
-                        orders_to_check = await dca_order_repo.get_open_and_partially_filled_orders(user_id=user.id)
+                        # Fetch all open orders for user, eagerly loading the position group
+                        all_orders = await dca_order_repo.get_open_and_partially_filled_orders(user_id=user.id)
 
-                        if not orders_to_check:
+                        if not all_orders:
                             continue
+                            
+                        # Group orders by exchange
+                        orders_by_exchange = {}
+                        for order in all_orders:
+                            if not order.group:
+                                logger.warning(f"Order {order.id} has no position group attached. Skipping.")
+                                continue
+                            ex = order.group.exchange
+                            if ex not in orders_by_exchange:
+                                orders_by_exchange[ex] = []
+                            orders_by_exchange[ex].append(order)
+                            
+                        # Process each exchange
+                        for exchange_name, orders_to_check in orders_by_exchange.items():
+                             # Decrypt keys for this exchange
+                             try:
+                                 # Multi-key lookup logic
+                                 encrypted_data = user.encrypted_api_keys
+                                 if isinstance(encrypted_data, dict):
+                                     if exchange_name in encrypted_data:
+                                         encrypted_data = encrypted_data[exchange_name]
+                                     elif "encrypted_data" not in encrypted_data:
+                                         logger.warning(f"No keys for {exchange_name}, skipping orders.")
+                                         continue
+                                 
+                                 api_key, secret_key = self.encryption_service.decrypt_keys(encrypted_data)
+                                 
+                                 connector = get_exchange_connector(
+                                    exchange_name, 
+                                    api_key=api_key, 
+                                    secret_key=secret_key
+                                 )
+                             except Exception as e:
+                                 logger.error(f"Failed to setup connector for {exchange_name}: {e}")
+                                 continue
+                             
+                             order_service = self.order_service_class(
+                                session=session,
+                                user=user,
+                                exchange_connector=connector
+                             )
+                             
+                             position_manager = self.position_manager_service_class(
+                                session_factory=self.session_factory,
+                                user=user,
+                                position_group_repository_class=self.position_group_repository_class,
+                                grid_calculator_service=None, 
+                                order_service_class=None, 
+                                exchange_connector=connector
+                             )
 
-                        order_service = self.order_service_class(
-                            session=session,
-                            user=user,
-                            exchange_connector=connector
-                        )
-                        
-                        position_manager = self.position_manager_service_class(
-                            session_factory=self.session_factory,
-                            user=user,
-                            position_group_repository_class=self.position_group_repository_class,
-                            grid_calculator_service=None, 
-                            order_service_class=None, 
-                            exchange_connector=connector
-                        )
-
-                        # logger.info(f"OrderFillMonitor: Checking {len(orders_to_check)} orders for {user.username}")
-
-                        for order in orders_to_check:
-                            try:
-                                updated_order = await order_service.check_order_status(order)
-                                if updated_order.status in ["filled", "cancelled", "failed"]:
-                                     logger.info(f"Order {order.id} status updated to {updated_order.status}")
-                                     
-                                if updated_order.status == OrderStatus.FILLED.value:
-                                    await position_manager.update_position_stats(updated_order.group_id, session=session)
-                                    await order_service.place_tp_order(updated_order)
-                                    logger.info(f"Placed TP order for {updated_order.id}")
-                                    
-                            except Exception as e:
-                                logger.error(f"Failed to check status for order {order.id}: {e}")
+                             for order in orders_to_check:
+                                try:
+                                    updated_order = await order_service.check_order_status(order)
+                                    if updated_order.status in ["filled", "cancelled", "failed"]:
+                                         logger.info(f"Order {order.id} status updated to {updated_order.status}")
+                                         
+                                    if updated_order.status == OrderStatus.FILLED.value:
+                                        await position_manager.update_position_stats(updated_order.group_id, session=session)
+                                        await order_service.place_tp_order(updated_order)
+                                        logger.info(f"Placed TP order for {updated_order.id}")
+                                        
+                                except Exception as e:
+                                    logger.error(f"Failed to check status for order {order.id}: {e}")
                         
                         await session.commit()
                     except Exception as e:

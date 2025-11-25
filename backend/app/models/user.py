@@ -35,3 +35,9 @@ class User(Base):
     # Relationships
     position_groups = relationship("PositionGroup", backref="user", lazy="noload")
     queued_signals = relationship("QueuedSignal", backref="user", lazy="noload")
+
+    @property
+    def configured_exchanges(self) -> list[str]:
+        if self.encrypted_api_keys and isinstance(self.encrypted_api_keys, dict):
+            return list(self.encrypted_api_keys.keys())
+        return []

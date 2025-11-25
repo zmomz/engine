@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from pydantic import BaseModel, EmailStr
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Import config schemas
@@ -10,7 +10,6 @@ class UserBase(BaseModel):
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
     webhook_secret: Optional[str] = None
-    encrypted_api_keys: Optional[Dict[str, Any]] = None
     exchange: Optional[str] = None # Added exchange to UserBase for update
     risk_config: Optional[RiskEngineConfig] = None
     dca_grid_config: Optional[DCAGridConfig] = None
@@ -28,12 +27,14 @@ class UserUpdate(BaseModel):
     api_key: Optional[str] = None # Added for input
     secret_key: Optional[str] = None # Added for input
     exchange: Optional[str] = None
+    key_target_exchange: Optional[str] = None # Explicit target for key updates
     risk_config: Optional[RiskEngineConfig] = None
     dca_grid_config: Optional[DCAGridConfig] = None
 
 class UserInDB(UserBase):
     id: uuid.UUID
     hashed_password: str
+    encrypted_api_keys: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -43,6 +44,7 @@ class UserRead(UserBase):
     exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
     dca_grid_config: Optional[DCAGridConfig] = None
+    configured_exchanges: List[str] = []
 
     class Config:
         from_attributes = True

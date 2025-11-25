@@ -1,8 +1,12 @@
 import useConfigStore from './configStore';
 import useAuthStore from './authStore';
-import axios from 'axios';
+import api from '../services/api';
 
-jest.mock('axios');
+jest.mock('../services/api', () => ({
+  put: jest.fn(),
+  get: jest.fn(),
+  delete: jest.fn(),
+}));
 jest.mock('./authStore');
 
 describe('configStore', () => {
@@ -37,24 +41,37 @@ describe('configStore', () => {
   it('updateSettings should call API and update stores', async () => {
     const mockUpdatedSettings = { username: 'newname' };
     const mockResponse = { data: { ...mockUpdatedSettings, id: '1' } };
-    (axios.put as jest.Mock).mockResolvedValue(mockResponse);
+    (api.put as jest.Mock).mockResolvedValue(mockResponse);
     (useAuthStore.getState as jest.Mock).mockReturnValue({ token: 'token', login: jest.fn() });
     window.alert = jest.fn();
 
     await useConfigStore.getState().updateSettings(mockUpdatedSettings);
 
-    expect(axios.put).toHaveBeenCalledWith('/api/v1/settings', mockUpdatedSettings);
+    expect(api.put).toHaveBeenCalledWith('/settings', mockUpdatedSettings);
     expect(useConfigStore.getState().settings).toEqual(mockResponse.data);
     expect(useAuthStore.getState().login).toHaveBeenCalled();
   });
 
   it('fetchSupportedExchanges should call API and update state', async () => {
     const mockExchanges = ['binance', 'bybit'];
-    (axios.get as jest.Mock).mockResolvedValue({ data: mockExchanges });
+    (api.get as jest.Mock).mockResolvedValue({ data: mockExchanges });
 
     await useConfigStore.getState().fetchSupportedExchanges();
 
-    expect(axios.get).toHaveBeenCalledWith('/api/v1/settings/exchanges');
+    expect(api.get).toHaveBeenCalledWith('/settings/exchanges');
     expect(useConfigStore.getState().supportedExchanges).toEqual(mockExchanges);
+  });
+
+  it('deleteKey should call API and update stores', async () => {
+    const mockResponse = { data: { username: 'test' } };
+    (api.delete as jest.Mock).mockResolvedValue(mockResponse);
+    (useAuthStore.getState as jest.Mock).mockReturnValue({ token: 'token', login: jest.fn() });
+    window.alert = jest.fn();
+
+    await useConfigStore.getState().deleteKey('binance');
+
+    expect(api.delete).toHaveBeenCalledWith('/settings/keys/binance');
+    expect(useConfigStore.getState().settings).toEqual(mockResponse.data);
+    expect(useAuthStore.getState().login).toHaveBeenCalled();
   });
 });

@@ -241,37 +241,52 @@ class QueueManagerService:
                 active_groups = await pos_group_repo.get_active_position_groups_for_user(user_id)
                 logger.debug(f"Processing {len(user_signals)} signals for user {user.username}. Active groups: {len(active_groups)}")
 
-                # Initialize Exchange
-                try:
-                    api_key, api_secret = self._encryption_service.decrypt_keys(user.encrypted_api_keys)
-                    if self.exchange_connector: # Use provided connector if available (for tests)
-                        exchange = self.exchange_connector
-                        logger.debug(f"Using mocked exchange connector for user {user.username}.")
-                    else: # Otherwise, get a new one (for production)
-                        exchange = get_exchange_connector(user.exchange, api_key=api_key, secret_key=api_secret)
-                        logger.debug(f"Initialized new exchange connector ({user.exchange}) for user {user.username}.")
-                except Exception as e:
-                    logger.error(f"Failed to init exchange for user {user_id}: {e}")
-                    continue
-                
-                # Update Current Loss Percent
-                for signal in user_signals:
-                    logger.debug(f"Attempting to get current price for signal {signal.symbol} (ID: {signal.id}).")
+                # Group signals by exchange for efficient price fetching
+                signals_by_exchange = {}
+                for s in user_signals:
+                    if s.exchange not in signals_by_exchange:
+                        signals_by_exchange[s.exchange] = []
+                    signals_by_exchange[s.exchange].append(s)
+
+                # Update prices for each exchange group
+                for ex_name, signals in signals_by_exchange.items():
                     try:
-                        current_price = await exchange.get_current_price(signal.symbol) # THIS IS THE CALL BEING MISSED
-                        logger.debug(f"Fetched price for {signal.symbol}: {current_price}. Entry: {signal.entry_price}")
-                        if signal.side == "long":
-                            pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
+                        # Initialize Exchange
+                        exchange = None
+                        if self.exchange_connector:
+                             exchange = self.exchange_connector
                         else:
-                            pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
-                        
-                        signal.current_loss_percent = pnl_pct
-                        await queue_repo.update(signal)
-                        logger.debug(f"Updated loss percent for {signal.symbol}: {pnl_pct}%")
+                             # Multi-key lookup
+                             encrypted_data = user.encrypted_api_keys
+                             target_data = None
+                             if isinstance(encrypted_data, dict):
+                                 if ex_name in encrypted_data:
+                                     target_data = encrypted_data[ex_name]
+                                 elif "encrypted_data" not in encrypted_data:
+                                     # No keys for this exchange
+                                     pass
+                             
+                             if target_data:
+                                 api_key, api_secret = self._encryption_service.decrypt_keys(target_data)
+                                 exchange = get_exchange_connector(ex_name, api_key=api_key, secret_key=api_secret)
+
+                        if exchange:
+                            for signal in signals:
+                                try:
+                                    current_price = await exchange.get_current_price(signal.symbol)
+                                    if signal.side == "long":
+                                        pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
+                                    else:
+                                        pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
+                                    
+                                    signal.current_loss_percent = pnl_pct
+                                    await queue_repo.update(signal)
+                                except Exception as e:
+                                    # logger.warning(f"Failed to update price for {signal.symbol}: {e}")
+                                    pass
                     except Exception as e:
-                        logger.warning(f"Failed to fetch price or update loss percent for {signal.symbol} (ID: {signal.id}): {e}")
-                        pass
-                
+                        logger.error(f"Failed to process signals for exchange {ex_name}: {e}")
+
                 # Commit updates to signal priorities/loss percent
                 await session.commit()
 
@@ -283,15 +298,12 @@ class QueueManagerService:
                 )
 
                 if not sorted_signals:
-                    logger.debug(f"No sorted signals for user {user.username} after priority calculation.")
                     continue
 
                 best_signal = sorted_signals[0]
-                logger.debug(f"Best signal for user {user.username}: {best_signal.symbol} (Score: {best_signal.priority_score}).")
                 
                 # Attempt Promotion
                 if not self.execution_pool_manager:
-                    logger.warning("Execution Pool Manager not available.")
                     continue
 
                 is_pyramid = any(
@@ -301,7 +313,6 @@ class QueueManagerService:
                     for g in active_groups
                 )
 
-                logger.debug(f"Requesting slot for {best_signal.symbol}. Is pyramid: {is_pyramid}")
                 slot_granted = await self.execution_pool_manager.request_slot(is_pyramid_continuation=is_pyramid)
                 
                 if slot_granted:
@@ -309,8 +320,7 @@ class QueueManagerService:
                     best_signal.status = QueueStatus.PROMOTED
                     best_signal.promoted_at = datetime.utcnow()
                     await queue_repo.update(best_signal)
-                    await session.commit() # Commit promotion status update
-                    logger.debug(f"Signal {best_signal.id} status updated to PROMOTED.")
+                    await session.commit() 
                     
                     if self.position_manager_service:
                         try:
@@ -318,14 +328,29 @@ class QueueManagerService:
                             risk_config = RiskEngineConfig(**user.risk_config)
                             dca_config = DCAGridConfig.model_validate(user.dca_grid_config)
                             
+                            # Fetch capital using correct connector
                             total_capital = Decimal("1000") # Default
-                            if exchange:
-                                try:
+                            try:
+                                # Re-init connector for best_signal.exchange to get balance
+                                exchange = None
+                                if self.exchange_connector:
+                                    exchange = self.exchange_connector
+                                else:
+                                     encrypted_data = user.encrypted_api_keys
+                                     target_data = None
+                                     if isinstance(encrypted_data, dict) and best_signal.exchange in encrypted_data:
+                                         target_data = encrypted_data[best_signal.exchange]
+                                     
+                                     if target_data:
+                                         api_key, api_secret = self._encryption_service.decrypt_keys(target_data)
+                                         exchange = get_exchange_connector(best_signal.exchange, api_key=api_key, secret_key=api_secret)
+
+                                if exchange:
                                     balance = await exchange.fetch_balance()
                                     if isinstance(balance, dict) and 'total' in balance:
                                         total_capital = Decimal(str(balance['total'].get('USDT', 1000)))
-                                except Exception:
-                                    pass
+                            except Exception:
+                                pass
 
                             if is_pyramid:
                                 existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
@@ -349,14 +374,10 @@ class QueueManagerService:
                                     total_capital_usd=total_capital
                                 )
                             
-                            # We should commit after PositionManagerService operations if they modified DB
-                            # PositionManagerService takes `session`, so it participates in this transaction.
                             await session.commit()
 
                         except Exception as e:
                             logger.error(f"Execution failed for promoted signal {best_signal.id}: {e}")
-                            # Ideally rollback here if we want atomic promotion+execution
-                            # But session usage is tricky if partial commits happened.
                             pass
                 else:
                     logger.info(f"No slot granted for signal {best_signal.symbol}.")

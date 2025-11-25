@@ -65,7 +65,16 @@ class PositionManagerService:
             raise UserNotFoundException(f"User {user_id} not found")
         
         encryption_service = EncryptionService() 
-        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+        
+        # Handle multi-exchange keys
+        encrypted_data = user.encrypted_api_keys
+        if isinstance(encrypted_data, dict):
+             if signal.exchange in encrypted_data:
+                 encrypted_data = encrypted_data[signal.exchange]
+             elif "encrypted_data" not in encrypted_data:
+                 raise ValueError(f"No API keys found for exchange {signal.exchange}")
+
+        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
         print(f"DEBUG: Decrypted keys. API Key len: {len(api_key)}")
         
         exchange_connector = get_exchange_connector(
@@ -187,7 +196,16 @@ class PositionManagerService:
             raise UserNotFoundException(f"User {user_id} not found")
         
         encryption_service = EncryptionService() 
-        api_key, secret_key = encryption_service.decrypt_keys(user.encrypted_api_keys)
+        
+        # Handle multi-exchange keys
+        encrypted_data = user.encrypted_api_keys
+        if isinstance(encrypted_data, dict):
+             if signal.exchange in encrypted_data:
+                 encrypted_data = encrypted_data[signal.exchange]
+             elif "encrypted_data" not in encrypted_data:
+                 raise ValueError(f"No API keys found for exchange {signal.exchange}")
+
+        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
         exchange_connector = get_exchange_connector(
             exchange_type=signal.exchange,
             api_key=api_key,

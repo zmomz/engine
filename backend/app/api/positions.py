@@ -29,7 +29,15 @@ async def get_order_service(
 
     encryption_service = EncryptionService()
     try:
-        api_key, secret_key = encryption_service.decrypt_keys(current_user.encrypted_api_keys)
+        # Handle multi-exchange keys
+        encrypted_data = current_user.encrypted_api_keys
+        if isinstance(encrypted_data, dict):
+             if current_user.exchange in encrypted_data:
+                 encrypted_data = encrypted_data[current_user.exchange]
+             elif "encrypted_data" not in encrypted_data:
+                 raise ValueError(f"No API keys found for exchange {current_user.exchange}")
+
+        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
         exchange_connector = get_exchange_connector(
             exchange_type=current_user.exchange or "binance", # Default to binance if not set
             api_key=api_key,

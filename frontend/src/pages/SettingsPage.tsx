@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Tabs, Tab, CircularProgress, Alert, Paper, Button, TextField, Grid, Checkbox, FormControlLabel } from '@mui/material';
-import { useForm, useFieldArray, Controller, Resolver, FieldError } from 'react-hook-form';
+import { 
+  Box, Typography, Tabs, Tab, CircularProgress, Alert, Paper, Button, TextField, Grid, Checkbox, FormControlLabel,
+  List, ListItem, ListItemText, ListItemSecondaryAction, IconButton, Divider, Chip
+} from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import { useForm, useFieldArray, Controller, Resolver, FieldError, FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import useConfigStore from '../store/configStore';
@@ -8,6 +13,7 @@ import useConfigStore from '../store/configStore';
 // Define Zod schemas for validation
 const exchangeSettingsSchema = z.object({
   exchange: z.string().min(1, 'Exchange is required'),
+  key_target_exchange: z.string().min(1, 'Target exchange is required'), 
   api_key: z.string().optional(),
   secret_key: z.string().optional(),
 });
@@ -91,7 +97,7 @@ function a11yProps(index: number) {
 }
 
 const SettingsPage: React.FC = () => {
-  const { settings, supportedExchanges, loading, error, fetchSettings, updateSettings, fetchSupportedExchanges } = useConfigStore();
+  const { settings, supportedExchanges, loading, error, fetchSettings, updateSettings, deleteKey, fetchSupportedExchanges } = useConfigStore();
   const [currentTab, setCurrentTab] = useState(0);
 
   useEffect(() => {
@@ -99,15 +105,15 @@ const SettingsPage: React.FC = () => {
     fetchSupportedExchanges();
   }, [fetchSettings, fetchSupportedExchanges]);
 
-  const { handleSubmit, control, reset, watch, formState: { errors } } = useForm<FormValues>({
+  const { handleSubmit, control, reset, setValue, watch, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       exchangeSettings: {
         exchange: settings?.exchange || '',
+        key_target_exchange: settings?.exchange || '',
         api_key: '',
         secret_key: '',
       },
-      // ... (keep other defaults)
       riskEngineConfig: settings?.risk_config || {
         max_open_positions_global: 10,
         max_open_positions_per_symbol: 1,
@@ -133,17 +139,18 @@ const SettingsPage: React.FC = () => {
     },
   });
 
-  // Watch the selected exchange to show status
-  const selectedExchange = watch("exchangeSettings.exchange");
-
-  // ... (keep useEffects)
+  // Watch the selected target exchange to show status
+  const selectedTargetExchange = watch("exchangeSettings.key_target_exchange");
 
   useEffect(() => {
     if (settings) {
+      // Preserve current form values if user is editing, but update defaults
+      // For now, simpler to just reset safely
       reset({
         exchangeSettings: {
           exchange: settings.exchange,
-          api_key: '', // Always reset these to empty for security
+          key_target_exchange: settings.exchange, // Default to active exchange
+          api_key: '', 
           secret_key: '',
         },
         riskEngineConfig: settings.risk_config,
@@ -169,7 +176,7 @@ const SettingsPage: React.FC = () => {
   const onSubmit = async (data: FormValues) => {
     // Transform data to match backend UserUpdate schema
     const payload: any = {
-      exchange: data.exchangeSettings.exchange,
+      exchange: data.exchangeSettings.exchange, // This sets the ACTIVE exchange
       risk_config: data.riskEngineConfig,
       dca_grid_config: data.dcaGridConfig,
       username: data.appSettings.username,
@@ -181,22 +188,43 @@ const SettingsPage: React.FC = () => {
     if (data.exchangeSettings.api_key && data.exchangeSettings.secret_key) {
         payload.api_key = data.exchangeSettings.api_key;
         payload.secret_key = data.exchangeSettings.secret_key;
+        // Explicitly set the target exchange for these keys
+        payload.key_target_exchange = data.exchangeSettings.key_target_exchange;
     }
 
     await updateSettings(payload);
-    // Clear the key fields after save for security
-    reset({ ...data, exchangeSettings: { ...data.exchangeSettings, api_key: '', secret_key: '' } });
+    // Note: reset logic is handled by the useEffect on settings change which fires after update
   };
 
-  // Helper to check if keys exist for the selected exchange
-  const hasKeysForExchange = (exchange: string) => {
-    if (!settings?.encrypted_api_keys) return false;
-    // Check if it's the new dict structure or legacy
-    const keys = settings.encrypted_api_keys as any;
-    return !!keys[exchange];
+  const onError = (errors: FieldErrors<FormValues>) => {
+    console.error("Form validation errors:", errors);
+    if (errors.exchangeSettings) {
+      setCurrentTab(0);
+    } else if (errors.riskEngineConfig) {
+      setCurrentTab(1);
+    } else if (errors.dcaGridConfig) {
+      setCurrentTab(2);
+    } else if (errors.appSettings) {
+      setCurrentTab(3);
+    }
+    // Optional: show a snackbar or alert
+    // alert("Please correct the errors in the highlighted tab before saving.");
   };
 
-  if (loading) {
+  const handleDeleteKey = async (exchange: string) => {
+    if (window.confirm(`Are you sure you want to delete API keys for ${exchange}?`)) {
+      await deleteKey(exchange);
+    }
+  };
+
+  const handleEditKey = (exchange: string) => {
+    setValue("exchangeSettings.key_target_exchange", exchange);
+    // Focus the api key input? (Optional)
+  };
+
+  const isConfigured = (exchange: string) => settings?.configured_exchanges?.includes(exchange);
+
+  if (loading && !settings) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
         <CircularProgress />
@@ -212,17 +240,13 @@ const SettingsPage: React.FC = () => {
     );
   }
 
-  // ... (keep render logic up to form)
-
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-        {/* ... (keep header) */}
         <Typography variant="h4" gutterBottom>
         Settings
       </Typography>
       <Paper sx={{ p: 3 }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            {/* ... (keep tabs) */}
           <Tabs value={currentTab} onChange={handleTabChange} aria-label="settings tabs">
             <Tab label="Exchange" {...a11yProps(0)} />
             <Tab label="Risk Engine" {...a11yProps(1)} />
@@ -231,80 +255,182 @@ const SettingsPage: React.FC = () => {
           </Tabs>
         </Box>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form onSubmit={handleSubmit(onSubmit, onError)}>
           <CustomTabPanel value={currentTab} index={0}>
             {/* Exchange Settings */}
-            <Typography variant="h6" gutterBottom>Exchange Configuration</Typography>
-            
-            <Controller
-              name="exchangeSettings.exchange"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  select
-                  label="Active Exchange"
-                  fullWidth
-                  margin="normal"
-                  error={!!errors.exchangeSettings?.exchange}
-                  helperText={errors.exchangeSettings?.exchange?.message || "Select the exchange to trade on AND configure keys for."}
-                  SelectProps={{ native: true }}
+            <Typography variant="h6" gutterBottom>Active Trading Exchange</Typography>
+            <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                 <Controller
+                  name="exchangeSettings.exchange"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      select
+                      label="Select Active Exchange"
+                      fullWidth
+                      margin="normal"
+                      error={!!errors.exchangeSettings?.exchange}
+                      helperText={errors.exchangeSettings?.exchange?.message || "The exchange used for live trading operations."}
+                      SelectProps={{ native: true }}
+                    >
+                      {supportedExchanges.map((exchange) => (
+                        <option key={exchange} value={exchange}>
+                          {exchange}
+                        </option>
+                      ))}
+                    </TextField>
+                  )}
+                />
+                <Button 
+                    variant="contained" 
+                    onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const exchange = watch("exchangeSettings.exchange");
+                        if (exchange) {
+                            await updateSettings({ exchange });
+                        }
+                    }}
+                    sx={{ mt: 2 }}
                 >
-                  {supportedExchanges.map((exchange) => (
-                    <option key={exchange} value={exchange}>
-                      {exchange}
-                    </option>
-                  ))}
-                </TextField>
-              )}
-            />
-
-            <Box sx={{ mt: 2, mb: 2 }}>
-                {selectedExchange && (
-                    <Alert severity={hasKeysForExchange(selectedExchange) ? "success" : "warning"}>
-                        {hasKeysForExchange(selectedExchange) 
-                            ? `API Keys are currently configured for ${selectedExchange}.` 
-                            : `No API Keys found for ${selectedExchange}. Please enter them below.`}
-                    </Alert>
-                )}
+                    Update Active
+                </Button>
             </Box>
 
-            <Typography variant="subtitle1" sx={{ mt: 2 }}>Update API Keys (Optional)</Typography>
-            <Typography variant="caption" color="textSecondary">
-                Leave blank to keep existing keys. Enter new keys to overwrite.
-            </Typography>
+            <Divider sx={{ my: 4 }} />
 
-            <Controller
-              name="exchangeSettings.api_key"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="New API Key (Public)"
-                  fullWidth
-                  margin="normal"
-                  error={!!errors.exchangeSettings?.api_key}
-                  helperText={errors.exchangeSettings?.api_key?.message}
+            <Typography variant="h6" gutterBottom>Configured API Keys</Typography>
+            <Paper variant="outlined" sx={{ mb: 3 }}>
+                <List>
+                    {settings?.configured_exchanges && settings.configured_exchanges.length > 0 ? (
+                        settings.configured_exchanges.map((ex) => (
+                            <ListItem key={ex} divider>
+                                <ListItemText 
+                                    primary={
+                                        <Box display="flex" alignItems="center" gap={1}>
+                                            {ex}
+                                            {ex === settings.exchange && <Chip label="Active" color="success" size="small" />}
+                                        </Box>
+                                    } 
+                                    secondary="API Keys Configured" 
+                                />
+                                <ListItemSecondaryAction>
+                                    <IconButton edge="end" aria-label="edit" onClick={() => handleEditKey(ex)} sx={{ mr: 1 }}>
+                                        <EditIcon />
+                                    </IconButton>
+                                    <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteKey(ex)} color="error">
+                                        <DeleteIcon />
+                                    </IconButton>
+                                </ListItemSecondaryAction>
+                            </ListItem>
+                        ))
+                    ) : (
+                        <ListItem>
+                            <ListItemText primary="No exchanges configured." secondary="Add API keys below." />
+                        </ListItem>
+                    )}
+                </List>
+            </Paper>
+
+            <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>Add / Update API Keys</Typography>
+            <Paper elevation={0} sx={{ p: 2, bgcolor: 'background.default' }}>
+                <Grid container spacing={2} alignItems="flex-start">
+                    <Grid size={{ xs: 12, md: 4 }}>
+                         <Controller
+                            name="exchangeSettings.key_target_exchange"
+                            control={control}
+                            render={({ field }) => (
+                                <TextField
+                                {...field}
+                                select
+                                label="Exchange to Configure"
+                                fullWidth
+                                margin="normal"
+                                error={!!errors.exchangeSettings?.key_target_exchange}
+                                SelectProps={{ native: true }}
+                                >
+                                {supportedExchanges.map((exchange) => (
+                                    <option key={exchange} value={exchange}>
+                                    {exchange}
+                                    </option>
+                                ))}
+                                </TextField>
+                            )}
+                        />
+                    </Grid>
+                </Grid>
+               
+                <Box sx={{ mt: 1, mb: 2 }}>
+                    {selectedTargetExchange && (
+                        <Alert severity={isConfigured(selectedTargetExchange) ? "info" : "warning"}>
+                            {isConfigured(selectedTargetExchange) 
+                                ? `Keys are already configured for ${selectedTargetExchange}. Entering new keys will overwrite them.` 
+                                : `No keys found for ${selectedTargetExchange}. Please configure them.`}
+                        </Alert>
+                    )}
+                </Box>
+
+                <Controller
+                  name="exchangeSettings.api_key"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="API Key (Public)"
+                      fullWidth
+                      margin="normal"
+                      error={!!errors.exchangeSettings?.api_key}
+                      helperText={errors.exchangeSettings?.api_key?.message}
+                    />
+                  )}
                 />
-              )}
-            />
-            <Controller
-              name="exchangeSettings.secret_key"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="New API Key (Private)"
-                  fullWidth
-                  margin="normal"
-                  type="password"
-                  error={!!errors.exchangeSettings?.secret_key}
-                  helperText={errors.exchangeSettings?.secret_key?.message}
+                <Controller
+                  name="exchangeSettings.secret_key"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Secret Key (Private)"
+                      fullWidth
+                      margin="normal"
+                      type="password"
+                      error={!!errors.exchangeSettings?.secret_key}
+                      helperText={errors.exchangeSettings?.secret_key?.message}
+                    />
+                  )}
                 />
-              )}
-            />
+                <Button 
+                    variant="contained" 
+                    color="primary"
+                    sx={{ mt: 2 }}
+                    onClick={async (e) => {
+                         // Prevent form submission
+                         e.preventDefault();
+                         e.stopPropagation();
+
+                         const currentValues = watch("exchangeSettings");
+                         
+                         if (currentValues.api_key && currentValues.secret_key) {
+                            const payload: any = {
+                                key_target_exchange: currentValues.key_target_exchange,
+                                api_key: currentValues.api_key,
+                                secret_key: currentValues.secret_key
+                            };
+                            await updateSettings(payload);
+                            // Clear fields after successful update
+                            setValue("exchangeSettings.api_key", "");
+                            setValue("exchangeSettings.secret_key", "");
+                        } else {
+                            alert("Please enter both API Key and Secret Key.");
+                        }
+                    }}
+                >
+                    Save API Keys
+                </Button>
+            </Paper>
           </CustomTabPanel>
-          {/* ... (keep other panels) */}
+
           <CustomTabPanel value={currentTab} index={1}>
             {/* Risk Engine Settings */}
             <Typography variant="h6" gutterBottom>Risk Engine Configuration</Typography>
@@ -342,7 +468,7 @@ const SettingsPage: React.FC = () => {
                             margin="normal"
                             type={isString ? 'text' : 'number'}
                             inputProps={{ step: 'any' }}
-                            onChange={(e) => field.onChange(e.target.value)}
+                            onChange={(e) => field.onChange(isString ? e.target.value : parseFloat(e.target.value))}
                             error={!!fieldError}
                             helperText={fieldError?.message}
                           />
@@ -373,6 +499,7 @@ const SettingsPage: React.FC = () => {
                           margin="normal"
                           type="number"
                           inputProps={{ step: 'any' }}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                           error={!!errors.dcaGridConfig?.[index]?.gap_percent}
                           helperText={errors.dcaGridConfig?.[index]?.gap_percent?.message}
                         />
@@ -391,6 +518,7 @@ const SettingsPage: React.FC = () => {
                           margin="normal"
                           type="number"
                           inputProps={{ step: 'any' }}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                           error={!!errors.dcaGridConfig?.[index]?.weight_percent}
                           helperText={errors.dcaGridConfig?.[index]?.weight_percent?.message}
                         />
@@ -409,6 +537,7 @@ const SettingsPage: React.FC = () => {
                           margin="normal"
                           type="number"
                           inputProps={{ step: 'any' }}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
                           error={!!errors.dcaGridConfig?.[index]?.tp_percent}
                           helperText={errors.dcaGridConfig?.[index]?.tp_percent?.message}
                         />
@@ -470,13 +599,13 @@ const SettingsPage: React.FC = () => {
                   margin="normal"
                   error={!!errors.appSettings?.webhook_secret}
                   helperText={errors.appSettings?.webhook_secret?.message}
-                  disabled // Webhook secret is typically read-only or generated, not freely edited
+                  disabled
                 />
               )}
             />
           </CustomTabPanel>
           
-          <Button type="submit" variant="contained" color="success" sx={{ mt: 3 }}>
+          <Button type="submit" variant="contained" color="success" sx={{ mt: 3 }} size="large">
             Save Settings
           </Button>
         </form>

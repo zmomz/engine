@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 import useAuthStore from './authStore';
 
 export interface DCALevelConfig {
@@ -33,7 +33,7 @@ export interface UserSettings {
   email: string;
   exchange: string;
   webhook_secret: string;
-  encrypted_api_keys: { public: string; private: string } | null;
+  configured_exchanges: string[];
   risk_config: RiskEngineConfig;
   dca_grid_config: DCAGridConfig;
 }
@@ -45,6 +45,7 @@ interface ConfigState {
   error: string | null;
   fetchSettings: () => Promise<void>;
   updateSettings: (updatedSettings: Partial<UserSettings>) => Promise<void>;
+  deleteKey: (exchange: string) => Promise<void>;
   fetchSupportedExchanges: () => Promise<void>;
 }
 
@@ -73,7 +74,7 @@ const useConfigStore = create<ConfigState>((set) => ({
   updateSettings: async (updatedSettings: Partial<UserSettings>) => {
     set({ loading: true, error: null });
     try {
-      const response = await axios.put<UserSettings>('/api/v1/settings', updatedSettings);
+      const response = await api.put<UserSettings>('/settings', updatedSettings);
       set({ settings: response.data, loading: false });
       // Also update the user in the auth store
       useAuthStore.getState().login(useAuthStore.getState().token!, response.data);
@@ -85,10 +86,26 @@ const useConfigStore = create<ConfigState>((set) => ({
     }
   },
 
-  fetchSupportedExchanges: async () => {
+  deleteKey: async (exchange: string) => {
     set({ loading: true, error: null });
     try {
-      const response = await axios.get<string[]>('/api/v1/settings/exchanges');
+      const response = await api.delete<UserSettings>(`/settings/keys/${exchange}`);
+      set({ settings: response.data, loading: false });
+      // Also update the user in the auth store
+      useAuthStore.getState().login(useAuthStore.getState().token!, response.data);
+      alert(`Keys for ${exchange} removed successfully!`);
+    } catch (err: any) {
+      console.error("Failed to delete key", err);
+      set({ error: err.response?.data?.detail || 'Failed to delete key', loading: false });
+      alert(`Failed to delete key: ${err.response?.data?.detail || err.message}`);
+    }
+  },
+
+  fetchSupportedExchanges: async () => {
+
+    set({ loading: true, error: null });
+    try {
+      const response = await api.get<string[]>('/settings/exchanges');
       set({ supportedExchanges: response.data, loading: false });
     } catch (err: any) {
       console.error("Failed to fetch supported exchanges", err);
