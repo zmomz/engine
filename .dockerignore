@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+env
+venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Pytest
+.pytest_cache
+.coverage
+htmlcov
+
+# Frontend (don't copy frontend into backend image)
+frontend/node_modules
+frontend/build
+frontend/coverage
+# We might want to exclude frontend entirely if the backend doesn't serve it directly,
+# but sometimes backend needs templates. 
+# Given the structure, the backend is likely just API. 
+# Safest is to exclude heavy frontend directories.
+frontend
+
+# Logs
+logs
+*.log
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+
+# IDEs
+.idea
+.vscode
+*.swp

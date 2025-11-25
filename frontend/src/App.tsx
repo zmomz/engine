@@ -12,6 +12,8 @@ import LogsPage from './pages/LogsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import NotificationManager from './components/NotificationManager';
+import GlobalConfirmDialog from './components/GlobalConfirmDialog';
 import { Box, Toolbar } from '@mui/material';
 
 function App() {
@@ -22,6 +24,8 @@ function App() {
 
   return (
     <Layout>
+      <NotificationManager />
+      <GlobalConfirmDialog />
       <Header onMenuClick={handleMenuClick} />
       <Sidebar />
       <Box component="main" sx={{ flexGrow: 1, p: 3 }}>

@@ -1,4 +1,5 @@
-import { useDataStore } from '../store/dataStore';
+import usePositionsStore from '../store/positionsStore';
+import useQueueStore from '../store/queueStore';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
@@ -18,14 +19,13 @@ export class WebSocketService {
 
     this.ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      const { updatePositionGroups, updateQueuedSignals } = useDataStore.getState();
 
       switch (message.type) {
         case 'position_groups_update':
-          updatePositionGroups(message.payload);
+          usePositionsStore.getState().setPositions(message.payload);
           break;
         case 'queued_signals_update':
-          updateQueuedSignals(message.payload);
+          useQueueStore.getState().setQueuedSignals(message.payload);
           break;
         default:
           // console.log('Unknown message type:', message.type);

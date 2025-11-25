@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 
 interface LogStore {
   logs: string[];
@@ -21,7 +21,7 @@ const useLogStore = create<LogStore>((set) => ({
         params.level = level.toUpperCase();
       }
       
-      const response = await axios.get('/api/v1/logs', { params });
+      const response = await api.get('/logs', { params });
       set({ logs: response.data.logs, loading: false });
     } catch (error: any) {
       set({ error: error.response?.data?.detail || 'Failed to fetch logs', loading: false });

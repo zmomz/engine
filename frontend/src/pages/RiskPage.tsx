@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Box, Typography, Button, Card, CardContent, Grid, Chip } from '@mui/material';
 import useRiskStore from '../store/riskStore';
+import useConfirmStore from '../store/confirmStore';
 
 const RiskPage: React.FC = () => {
   const { status, loading, error, fetchStatus, runEvaluation, blockGroup, unblockGroup, skipGroup } = useRiskStore();
@@ -11,26 +12,46 @@ const RiskPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
-  const handleRunEvaluation = () => {
-    if (window.confirm('Are you sure you want to run a manual risk evaluation?')) {
+  const handleRunEvaluation = async () => {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Run Evaluation',
+        message: 'Are you sure you want to run a manual risk evaluation?',
+        confirmText: 'Run',
+    });
+    if (confirmed) {
       runEvaluation();
     }
   };
 
-  const handleBlock = (groupId: string) => {
-    if (window.confirm('Are you sure you want to block this position from risk evaluation?')) {
+  const handleBlock = async (groupId: string) => {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Block Position',
+        message: 'Are you sure you want to block this position from risk evaluation?',
+        confirmText: 'Block',
+    });
+    if (confirmed) {
       blockGroup(groupId);
     }
   };
 
-  const handleUnblock = (groupId: string) => {
-    if (window.confirm('Are you sure you want to unblock this position?')) {
+  const handleUnblock = async (groupId: string) => {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Unblock Position',
+        message: 'Are you sure you want to unblock this position?',
+        confirmText: 'Unblock',
+    });
+    if (confirmed) {
       unblockGroup(groupId);
     }
   };
 
-  const handleSkip = (groupId: string) => {
-    if (window.confirm('Are you sure you want to skip the next risk evaluation for this position?')) {
+  const handleSkip = async (groupId: string) => {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Skip Next Evaluation',
+        message: 'Are you sure you want to skip the next risk evaluation for this position?',
+        confirmText: 'Skip',
+    });
+    if (confirmed) {
       skipGroup(groupId);
     }
   };
@@ -51,7 +72,7 @@ const RiskPage: React.FC = () => {
                 <Typography variant="h6" gutterBottom>
                   Risk Engine Status
                 </Typography>
-                <Typography variant="body1">Running: <Chip label={status.risk_engine_running ? 'Yes' : 'No'} color={status.risk_engine_running ? 'success' : 'error'} size="small" /></Typography>
+                <Typography variant="body1" component="div">Running: <Chip label={status.risk_engine_running ? 'Yes' : 'No'} color={status.risk_engine_running ? 'success' : 'error'} size="small" /></Typography>
                 <Typography variant="subtitle1" sx={{ mt: 2 }}>Configuration:</Typography>
                 {status.config && Object.entries(status.config).map(([key, value]) => (
                   <Typography variant="body2" key={key}><strong>{key}:</strong> {String(value)}</Typography>
@@ -81,8 +102,8 @@ const RiskPage: React.FC = () => {
                     <Typography variant="body1">Symbol: {status.identified_loser.symbol}</Typography>
                     <Typography variant="body1">PnL %: {status.identified_loser.unrealized_pnl_percent?.toFixed(2)}%</Typography>
                     <Typography variant="body1">PnL $: ${status.identified_loser.unrealized_pnl_usd?.toFixed(2)}</Typography>
-                    <Typography variant="body1">Blocked: <Chip label={status.identified_loser.risk_blocked ? 'Yes' : 'No'} color={status.identified_loser.risk_blocked ? 'warning' : 'info'} size="small" /></Typography>
-                    <Typography variant="body1">Skip Once: <Chip label={status.identified_loser.risk_skip_once ? 'Yes' : 'No'} color={status.identified_loser.risk_skip_once ? 'warning' : 'info'} size="small" /></Typography>
+                    <Typography variant="body1" component="div">Blocked: <Chip label={status.identified_loser.risk_blocked ? 'Yes' : 'No'} color={status.identified_loser.risk_blocked ? 'warning' : 'info'} size="small" /></Typography>
+                    <Typography variant="body1" component="div">Skip Once: <Chip label={status.identified_loser.risk_skip_once ? 'Yes' : 'No'} color={status.identified_loser.risk_skip_once ? 'warning' : 'info'} size="small" /></Typography>
                     <Box sx={{ mt: 1 }}>
                       {!status.identified_loser.risk_blocked ? (
                         <Button size="small" variant="outlined" color="warning" onClick={() => handleBlock(status.identified_loser!.id)} sx={{ mr: 1 }}>Block</Button>

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import api from '../services/api';
 import useAuthStore from './authStore';
+import useNotificationStore from './notificationStore';
 
 export interface DCALevelConfig {
   gap_percent: number;
@@ -78,11 +79,23 @@ const useConfigStore = create<ConfigState>((set) => ({
       set({ settings: response.data, loading: false });
       // Also update the user in the auth store
       useAuthStore.getState().login(useAuthStore.getState().token!, response.data);
-      alert('Settings updated successfully!');
+      useNotificationStore.getState().showNotification('Settings updated successfully!', 'success');
     } catch (err: any) {
       console.error("Failed to update settings", err);
-      set({ error: err.response?.data?.detail || 'Failed to update settings', loading: false });
-      alert(`Failed to update settings: ${err.response?.data?.detail || err.message}`);
+      let errorMessage = 'Failed to update settings';
+      if (err.response?.data?.detail) {
+          if (Array.isArray(err.response.data.detail)) {
+              errorMessage = err.response.data.detail.map((e: any) => e.msg).join(', ');
+          } else if (typeof err.response.data.detail === 'string') {
+              errorMessage = err.response.data.detail;
+          } else {
+              errorMessage = JSON.stringify(err.response.data.detail);
+          }
+      } else if (err.message) {
+          errorMessage = err.message;
+      }
+      set({ error: errorMessage, loading: false });
+      useNotificationStore.getState().showNotification(`Failed to update settings: ${errorMessage}`, 'error');
     }
   },
 
@@ -93,11 +106,11 @@ const useConfigStore = create<ConfigState>((set) => ({
       set({ settings: response.data, loading: false });
       // Also update the user in the auth store
       useAuthStore.getState().login(useAuthStore.getState().token!, response.data);
-      alert(`Keys for ${exchange} removed successfully!`);
+      useNotificationStore.getState().showNotification(`Keys for ${exchange} removed successfully!`, 'success');
     } catch (err: any) {
       console.error("Failed to delete key", err);
       set({ error: err.response?.data?.detail || 'Failed to delete key', loading: false });
-      alert(`Failed to delete key: ${err.response?.data?.detail || err.message}`);
+      useNotificationStore.getState().showNotification(`Failed to delete key: ${err.response?.data?.detail || err.message}`, 'error');
     }
   },
 

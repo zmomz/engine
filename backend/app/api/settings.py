@@ -42,7 +42,7 @@ async def update_settings(
     user_repo = UserRepository(db)
     
     # Prepare update data
-    update_data = user_update.dict(exclude_unset=True)
+    update_data = user_update.model_dump(mode='json', exclude_unset=True)
     
     # Handle API Key Encryption if provided
     if user_update.api_key and user_update.secret_key:

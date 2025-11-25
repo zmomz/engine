@@ -2,9 +2,16 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import QueuePage from './QueuePage';
 import useQueueStore from '../store/queueStore';
+import useConfirmStore from '../store/confirmStore';
 
-// Mock the store
+// Mock the stores
 jest.mock('../store/queueStore');
+jest.mock('../store/confirmStore', () => ({
+    __esModule: true,
+    default: {
+        getState: jest.fn(),
+    }
+}));
 
 const mockUseQueueStore = useQueueStore as unknown as jest.Mock;
 
@@ -12,6 +19,7 @@ describe('QueuePage', () => {
   const mockFetchQueuedSignals = jest.fn();
   const mockPromoteSignal = jest.fn();
   const mockRemoveSignal = jest.fn();
+  const mockRequestConfirm = jest.fn();
 
   beforeEach(() => {
     mockUseQueueStore.mockReturnValue({
@@ -40,8 +48,11 @@ describe('QueuePage', () => {
       removeSignal: mockRemoveSignal,
     });
     
-    // Mock window.confirm
-    window.confirm = jest.fn(() => true);
+    // Mock requestConfirm
+    mockRequestConfirm.mockResolvedValue(true);
+    (useConfirmStore.getState as jest.Mock).mockReturnValue({
+        requestConfirm: mockRequestConfirm
+    });
   });
 
   afterEach(() => {
@@ -68,21 +79,25 @@ describe('QueuePage', () => {
     expect(removeButtons.length).toBe(2);
   });
 
-  it('calls promoteSignal when Promote is clicked and confirmed', () => {
+  it('calls promoteSignal when Promote is clicked and confirmed', async () => {
     render(<QueuePage />);
     const promoteButtons = screen.getAllByRole('button', { name: /promote/i });
     fireEvent.click(promoteButtons[0]);
 
-    expect(window.confirm).toHaveBeenCalled();
-    expect(mockPromoteSignal).toHaveBeenCalledWith('1');
+    await waitFor(() => {
+        expect(mockRequestConfirm).toHaveBeenCalled();
+        expect(mockPromoteSignal).toHaveBeenCalledWith('1');
+    });
   });
 
-  it('calls removeSignal when Remove is clicked and confirmed', () => {
+  it('calls removeSignal when Remove is clicked and confirmed', async () => {
     render(<QueuePage />);
     const removeButtons = screen.getAllByRole('button', { name: /remove/i });
     fireEvent.click(removeButtons[0]);
 
-    expect(window.confirm).toHaveBeenCalled();
-    expect(mockRemoveSignal).toHaveBeenCalledWith('1');
+    await waitFor(() => {
+        expect(mockRequestConfirm).toHaveBeenCalled();
+        expect(mockRemoveSignal).toHaveBeenCalledWith('1');
+    });
   });
 });

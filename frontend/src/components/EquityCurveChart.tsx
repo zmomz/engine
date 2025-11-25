@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Card, CardContent, Typography } from '@mui/material';
 import useEquityCurveStore from '../store/equityCurveStore';
@@ -11,15 +11,18 @@ const EquityCurveChart: React.FC = () => {
   }, [fetchHistoricalPositions]);
 
   // Process data for the chart: calculate cumulative PnL over time
-  const chartData = historicalPositions
-    .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime())
-    .reduce((acc: { date: string; cumulativePnl: number }[], position) => {
-      const lastCumulativePnl = acc.length > 0 ? acc[acc.length - 1].cumulativePnl : 0;
-      const cumulativePnl = lastCumulativePnl + position.realized_pnl;
-      const date = new Date(position.close_time).toLocaleDateString();
-      acc.push({ date, cumulativePnl });
-      return acc;
-    }, []);
+  const chartData = useMemo(() => {
+      return historicalPositions
+        .slice() // Create a copy to avoid mutating state if sort does in-place (though sort() usually returns reference) - best practice
+        .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime())
+        .reduce((acc: { date: string; cumulativePnl: number }[], position) => {
+          const lastCumulativePnl = acc.length > 0 ? acc[acc.length - 1].cumulativePnl : 0;
+          const cumulativePnl = lastCumulativePnl + position.realized_pnl;
+          const date = new Date(position.close_time).toLocaleDateString();
+          acc.push({ date, cumulativePnl });
+          return acc;
+        }, []);
+  }, [historicalPositions]);
 
   return (
     <Card>

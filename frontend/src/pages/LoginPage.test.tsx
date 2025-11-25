@@ -69,7 +69,7 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/users/login', expect.any(FormData), expect.objectContaining({
+      expect(mockedAxios.post).toHaveBeenCalledWith('/users/login', expect.any(FormData), expect.objectContaining({
         headers: expect.objectContaining({
           'Content-Type': 'application/x-www-form-urlencoded'
         })

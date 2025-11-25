@@ -77,29 +77,4 @@ const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
-// Axios interceptor for JWT
-axios.interceptors.request.use(
-  (config) => {
-    const token = useAuthStore.getState().token;
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-axios.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().logout();
-      // Optionally redirect to login page here, or handle it in specific components
-    }
-    return Promise.reject(error);
-  }
-);
-
 export default useAuthStore;

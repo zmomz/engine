@@ -3,68 +3,28 @@ import { Box, Typography, Button, Collapse, IconButton } from '@mui/material';
 import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import axios from 'axios';
-
-interface DCAOrder {
-  id: string;
-  price: number;
-  amount: number;
-  status: string;
-  order_type: string;
-}
-
-interface Pyramid {
-  id: string;
-  entry_price: number;
-  status: string;
-  dca_orders: DCAOrder[];
-}
-
-interface PositionGroup {
-  id: string;
-  symbol: string;
-  side: string;
-  status: string;
-  pnl: number;
-  pyramids: Pyramid[];
-}
+import useConfirmStore from '../store/confirmStore';
+import usePositionsStore, { PositionGroup } from '../store/positionsStore';
 
 const PositionsPage: React.FC = () => {
-  const [positions, setPositions] = useState<PositionGroup[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const { positions, loading, error, fetchPositions, closePosition } = usePositionsStore();
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
-
-  const fetchPositions = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await axios.get<PositionGroup[]>(`/api/v1/positions/active`);
-      setPositions(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to fetch positions');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     fetchPositions();
-    const interval = setInterval(fetchPositions, 5000); // Poll every 5 seconds
-    return () => clearInterval(interval);
-  }, []);
+    // WebSocket updates will handle real-time data, no need for polling interval
+  }, [fetchPositions]);
 
   const handleForceClose = async (groupId: string) => {
-    if (window.confirm('Are you sure you want to force close this position group?')) {
-      try {
-        await axios.post(`/api/v1/positions/${groupId}/close`);
-        alert('Position close initiated.');
-        fetchPositions(); // Refresh positions after action
-      } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to force close position');
-        console.error(err);
-      }
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Force Close Position',
+        message: 'Are you sure you want to force close this position group?',
+        confirmText: 'Force Close',
+        cancelText: 'Cancel'
+    });
+
+    if (confirmed) {
+        await closePosition(groupId);
     }
   };
 
@@ -96,12 +56,12 @@ const PositionsPage: React.FC = () => {
     { field: 'side', headerName: 'Side', width: 100 },
     { field: 'status', headerName: 'Status', width: 150 },
     {
-      field: 'pnl',
-      headerName: 'PnL',
+      field: 'unrealized_pnl_usd',
+      headerName: 'PnL ($)',
       width: 120,
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography color={params.value >= 0 ? 'success.main' : 'error.main'}>
-          {params.value !== null ? `$${params.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A'}
+        <Typography color={(params.value || 0) >= 0 ? 'success.main' : 'error.main'}>
+          {params.value != null ? `$${Number(params.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A'}
         </Typography>
       ),
     },

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 import useAuthStore from './authStore';
 
 interface HistoricalPosition {
@@ -33,7 +33,7 @@ const useEquityCurveStore = create<EquityCurveState>((set) => ({
     }
 
     try {
-      const response = await axios.get<HistoricalPosition[]>(`/api/v1/positions/${userId}/history`);
+      const response = await api.get<HistoricalPosition[]>(`/positions/${userId}/history`);
       set({ historicalPositions: response.data, loading: false });
     } catch (err: any) {
       console.error("Failed to fetch historical positions", err);

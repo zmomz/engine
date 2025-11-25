@@ -1,6 +1,6 @@
-
 import pytest
 import asyncio
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -215,3 +215,91 @@ async def test_validate_pre_trade_risk_checks(mock_config):
     )
     assert result is False
 
+# --- Test for _evaluate_user_positions execution flow ---
+
+@pytest.mark.asyncio
+async def test_evaluate_user_positions_execution(mock_config):
+    # Setup
+    session = AsyncMock()
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.username = "test"
+    user.risk_config = mock_config.model_dump()
+    user.encrypted_api_keys = {"binance": {"encrypted_data": "dummy"}}
+    
+    loser = MagicMock(spec=PositionGroup)
+    loser.id = uuid.uuid4()
+    loser.symbol = "BTC/USD"
+    loser.exchange = "binance"
+    loser.unrealized_pnl_usd = Decimal("-100")
+    loser.side = "long"
+    loser.total_filled_quantity = Decimal("1.0")
+    loser.user_id = user.id
+    
+    winner = MagicMock(spec=PositionGroup)
+    winner.id = uuid.uuid4()
+    winner.symbol = "ETH/USD"
+    winner.unrealized_pnl_usd = Decimal("200")
+    winner.side = "long"
+    winner.user_id = user.id
+    
+    # Mocks
+    mock_pos_repo = MagicMock()
+    mock_pos_repo.get_all_active_by_user = AsyncMock(return_value=[loser, winner])
+    
+    mock_risk_repo = MagicMock()
+    mock_risk_repo.create = AsyncMock()
+    
+    mock_order_service = MagicMock()
+    mock_order_service_instance = mock_order_service.return_value
+    mock_order_service_instance.place_market_order = AsyncMock()
+    
+    mock_exchange = AsyncMock()
+    mock_exchange.get_precision_rules = AsyncMock(return_value={})
+    
+    # Patch dependencies
+    with (
+        patch("app.services.risk_engine.select_loser_and_winners") as mock_select,
+        patch("app.services.risk_engine.EncryptionService") as MockEnc,
+        patch("app.services.risk_engine.get_exchange_connector") as mock_get_connector,
+        patch("app.services.risk_engine.calculate_partial_close_quantities") as mock_calc_close
+    ):
+        
+        mock_select.return_value = (loser, [winner], Decimal("100"))
+        MockEnc.return_value.decrypt_keys.return_value = ("key", "secret")
+        mock_get_connector.return_value = mock_exchange
+        mock_calc_close.return_value = [(winner, Decimal("0.5"))]
+        
+        service = RiskEngineService(
+            session_factory=lambda: session,
+            position_group_repository_class=MagicMock(return_value=mock_pos_repo),
+            risk_action_repository_class=MagicMock(return_value=mock_risk_repo),
+            dca_order_repository_class=MagicMock(),
+            exchange_connector=MagicMock(),
+            order_service_class=mock_order_service,
+            risk_engine_config=mock_config
+        )
+        
+        await service._evaluate_user_positions(session, user)
+        
+        # Assertions
+        mock_order_service_instance.place_market_order.assert_any_call(
+            user_id=loser.user_id,
+            exchange=loser.exchange,
+            symbol=loser.symbol,
+            side="sell",
+            quantity=loser.total_filled_quantity,
+            position_group_id=loser.id
+        )
+        
+        mock_order_service_instance.place_market_order.assert_any_call(
+            user_id=winner.user_id,
+            exchange=winner.exchange,
+            symbol=winner.symbol,
+            side="sell",
+            quantity=Decimal("0.5"),
+            position_group_id=winner.id
+        )
+        
+        mock_risk_repo.create.assert_called_once()
+        session.commit.assert_called_once()

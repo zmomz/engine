@@ -1,8 +1,17 @@
 import { WebSocketService } from '../services/websocket';
-import { useDataStore } from '../store/dataStore';
+import usePositionsStore from '../store/positionsStore';
+import useQueueStore from '../store/queueStore';
 
-jest.mock('../store/dataStore', () => ({
-  useDataStore: {
+jest.mock('../store/positionsStore', () => ({
+  __esModule: true,
+  default: {
+    getState: jest.fn(),
+  },
+}));
+
+jest.mock('../store/queueStore', () => ({
+  __esModule: true,
+  default: {
     getState: jest.fn(),
   },
 }));
@@ -10,8 +19,8 @@ jest.mock('../store/dataStore', () => ({
 describe('WebSocketService', () => {
   let mockWebSocket: jest.Mocked<WebSocket>;
   let service: WebSocketService;
-  let mockUpdatePositionGroups: jest.Mock;
-  let mockUpdateQueuedSignals: jest.Mock;
+  let mockSetPositions: jest.Mock;
+  let mockSetQueuedSignals: jest.Mock;
 
   beforeEach(() => {
     mockWebSocket = { 
@@ -34,12 +43,15 @@ describe('WebSocketService', () => {
 
     global.WebSocket = mockWebSocketConstructor;
 
-    mockUpdatePositionGroups = jest.fn();
-    mockUpdateQueuedSignals = jest.fn();
+    mockSetPositions = jest.fn();
+    mockSetQueuedSignals = jest.fn();
 
-    (useDataStore.getState as jest.Mock).mockReturnValue({
-      updatePositionGroups: mockUpdatePositionGroups,
-      updateQueuedSignals: mockUpdateQueuedSignals,
+    (usePositionsStore.getState as jest.Mock).mockReturnValue({
+      setPositions: mockSetPositions,
+    });
+    
+    (useQueueStore.getState as jest.Mock).mockReturnValue({
+      setQueuedSignals: mockSetQueuedSignals,
     });
 
     service = new WebSocketService('ws://localhost:8000/ws');
@@ -76,7 +88,7 @@ describe('WebSocketService', () => {
     if (mockWebSocket.onmessage) {
       mockWebSocket.onmessage(messageEvent1);
     }
-    expect(mockUpdatePositionGroups).toHaveBeenCalledWith(positionGroupMessage.payload);
+    expect(mockSetPositions).toHaveBeenCalledWith(positionGroupMessage.payload);
 
     // Simulate receiving a queued signal update message
     const messageEvent2 = new MessageEvent('message', {
@@ -85,7 +97,7 @@ describe('WebSocketService', () => {
     if (mockWebSocket.onmessage) {
       mockWebSocket.onmessage(messageEvent2);
     }
-    expect(mockUpdateQueuedSignals).toHaveBeenCalledWith(queuedSignalMessage.payload);
+    expect(mockSetQueuedSignals).toHaveBeenCalledWith(queuedSignalMessage.payload);
   });
 
   it('should handle WebSocket errors', () => {

@@ -11,6 +11,7 @@ RUN npm ci
 
 # Set CI environment variable to true to treat warnings as non-fatal
 ENV CI=true
+ENV GENERATE_SOURCEMAP=false
 
 # Copy the rest of the application source code
 COPY . .

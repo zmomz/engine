@@ -25,7 +25,7 @@ describe('riskStore', () => {
 
     await useRiskStore.getState().fetchStatus();
 
-    expect(axios.get).toHaveBeenCalledWith('/api/v1/risk/status');
+    expect(axios.get).toHaveBeenCalledWith('/risk/status');
     expect(useRiskStore.getState().status).toEqual(mockStatus);
     expect(useRiskStore.getState().loading).toBe(false);
   });
@@ -37,7 +37,7 @@ describe('riskStore', () => {
 
     await useRiskStore.getState().runEvaluation();
 
-    expect(axios.post).toHaveBeenCalledWith('/api/v1/risk/run-evaluation');
+    expect(axios.post).toHaveBeenCalledWith('/risk/run-evaluation');
     expect(fetchSpy).toHaveBeenCalled();
   });
 
@@ -48,7 +48,7 @@ describe('riskStore', () => {
 
     await useRiskStore.getState().blockGroup('123');
 
-    expect(axios.post).toHaveBeenCalledWith('/api/v1/risk/123/block');
+    expect(axios.post).toHaveBeenCalledWith('/risk/123/block');
     expect(fetchSpy).toHaveBeenCalled();
   });
 });

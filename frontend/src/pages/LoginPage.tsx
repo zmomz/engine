@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
-import axios from 'axios';
+import api from '../services/api';
 import { Container, TextField, Button, Typography, Box, Alert } from '@mui/material';
 
 const LoginPage: React.FC = () => {
@@ -19,7 +19,7 @@ const LoginPage: React.FC = () => {
       formData.append('username', username);
       formData.append('password', password);
 
-      const response = await axios.post('/api/v1/users/login', formData, {
+      const response = await api.post('/users/login', formData, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },

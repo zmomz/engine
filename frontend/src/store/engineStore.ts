@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 
 interface EngineState {
   tvl: number | null;
@@ -17,9 +17,9 @@ const useEngineStore = create<EngineState>((set) => ({
   fetchEngineData: async () => {
     try {
       // Replace with actual API endpoints
-      const tvlResponse = await axios.get('/api/v1/dashboard/tvl');
-      const pnlResponse = await axios.get('/api/v1/dashboard/pnl');
-      const activeGroupsResponse = await axios.get('/api/v1/dashboard/active-groups-count');
+      const tvlResponse = await api.get('/dashboard/tvl');
+      const pnlResponse = await api.get('/dashboard/pnl');
+      const activeGroupsResponse = await api.get('/dashboard/active-groups-count');
 
       set({
         tvl: tvlResponse.data.tvl,

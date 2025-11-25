@@ -51,6 +51,10 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
             side="buy", # Added side for place_tp_order
             filled_quantity=Decimal("0.001") # Added filled_quantity
         )
+        
+        mock_group = MagicMock()
+        mock_group.exchange = "binance"
+        order1.group = mock_group
     
         # Mock the DCAOrderRepository to return our test order
         # Make sure get_open_and_partially_filled_orders is an AsyncMock so it can be awaited

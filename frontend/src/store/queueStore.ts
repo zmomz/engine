@@ -27,12 +27,15 @@ interface QueueState {
   fetchQueuedSignals: () => Promise<void>;
   promoteSignal: (signalId: string) => Promise<void>;
   removeSignal: (signalId: string) => Promise<void>;
+  setQueuedSignals: (signals: QueuedSignal[]) => void;
 }
 
 const useQueueStore = create<QueueState>((set) => ({
   queuedSignals: [],
   loading: false,
   error: null,
+
+  setQueuedSignals: (signals) => set({ queuedSignals: signals }),
 
   fetchQueuedSignals: async () => {
     set({ loading: true, error: null });

@@ -63,8 +63,14 @@ async def test_check_orders_no_orders(mock_order_fill_monitor_service):
 async def test_check_orders_updates_status(mock_order_fill_monitor_service):
     # Setup orders
     group_id = uuid.uuid4()
+    mock_group = MagicMock()
+    mock_group.exchange = "binance"
+    
     order1 = DCAOrder(id=uuid.uuid4(), group_id=group_id, status=OrderStatus.OPEN.value)
+    order1.group = mock_group
+    
     order2 = DCAOrder(id=uuid.uuid4(), status=OrderStatus.PARTIALLY_FILLED.value)
+    order2.group = mock_group
     
     repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
     repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[order1, order2])

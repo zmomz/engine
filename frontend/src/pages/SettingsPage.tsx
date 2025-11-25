@@ -9,6 +9,8 @@ import { useForm, useFieldArray, Controller, Resolver, FieldError, FieldErrors }
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import useConfigStore from '../store/configStore';
+import useConfirmStore from '../store/confirmStore';
+import useNotificationStore from '../store/notificationStore';
 
 // Define Zod schemas for validation
 const exchangeSettingsSchema = z.object({
@@ -19,29 +21,40 @@ const exchangeSettingsSchema = z.object({
 });
 
 const riskEngineConfigSchema = z.object({
-  max_open_positions_global: z.number().min(0),
-  max_open_positions_per_symbol: z.number().min(0),
-  max_total_exposure_usd: z.number().min(0),
-  max_daily_loss_usd: z.number().min(0),
-  loss_threshold_percent: z.number().max(0),
+  max_open_positions_global: z.coerce.number().min(0),
+  max_open_positions_per_symbol: z.coerce.number().min(0),
+  max_total_exposure_usd: z.coerce.number().min(0),
+  max_daily_loss_usd: z.coerce.number().min(0),
+  loss_threshold_percent: z.coerce.number().max(0),
   timer_start_condition: z.string().min(1),
-  post_full_wait_minutes: z.number().min(0),
-  max_winners_to_combine: z.number().min(0),
+  post_full_wait_minutes: z.coerce.number().min(0),
+  max_winners_to_combine: z.coerce.number().min(0),
   use_trade_age_filter: z.boolean(),
-  age_threshold_minutes: z.number().min(0),
+  age_threshold_minutes: z.coerce.number().min(0),
   require_full_pyramids: z.boolean(),
   reset_timer_on_replacement: z.boolean(),
   partial_close_enabled: z.boolean(),
-  min_close_notional: z.number().min(0),
+  min_close_notional: z.coerce.number().min(0),
 });
 
 const dcaLevelConfigSchema = z.object({
-  gap_percent: z.number(),
-  weight_percent: z.number(),
-  tp_percent: z.number(),
+  gap_percent: z.coerce.number(),
+  weight_percent: z.coerce.number().gt(0, "Weight must be greater than 0"),
+  tp_percent: z.coerce.number().gt(0, "Take Profit must be greater than 0"),
 });
 
-const dcaGridConfigSchema = z.array(dcaLevelConfigSchema);
+const dcaGridConfigSchema = z.array(dcaLevelConfigSchema).superRefine((data, ctx) => {
+  if (data.length === 0) return;
+  const totalWeight = data.reduce((sum, item) => sum + item.weight_percent, 0);
+  // Allow for small floating point discrepancies
+  if (Math.abs(totalWeight - 100) > 0.01) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Total weight percent must sum to 100 (current: ${totalWeight.toFixed(2)})`,
+      path: [] // Attach error to the array root
+    });
+  }
+});
 
 const appSettingsSchema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -212,7 +225,13 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleDeleteKey = async (exchange: string) => {
-    if (window.confirm(`Are you sure you want to delete API keys for ${exchange}?`)) {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+      title: 'Delete API Keys',
+      message: `Are you sure you want to delete API keys for ${exchange}?`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel'
+    });
+    if (confirmed) {
       await deleteKey(exchange);
     }
   };
@@ -273,6 +292,7 @@ const SettingsPage: React.FC = () => {
                       error={!!errors.exchangeSettings?.exchange}
                       helperText={errors.exchangeSettings?.exchange?.message || "The exchange used for live trading operations."}
                       SelectProps={{ native: true }}
+                      InputLabelProps={{ shrink: true }}
                     >
                       {supportedExchanges.map((exchange) => (
                         <option key={exchange} value={exchange}>
@@ -349,6 +369,7 @@ const SettingsPage: React.FC = () => {
                                 margin="normal"
                                 error={!!errors.exchangeSettings?.key_target_exchange}
                                 SelectProps={{ native: true }}
+                                InputLabelProps={{ shrink: true }}
                                 >
                                 {supportedExchanges.map((exchange) => (
                                     <option key={exchange} value={exchange}>
@@ -422,7 +443,7 @@ const SettingsPage: React.FC = () => {
                             setValue("exchangeSettings.api_key", "");
                             setValue("exchangeSettings.secret_key", "");
                         } else {
-                            alert("Please enter both API Key and Secret Key.");
+                            useNotificationStore.getState().showNotification("Please enter both API Key and Secret Key.", 'warning');
                         }
                     }}
                 >
@@ -444,14 +465,15 @@ const SettingsPage: React.FC = () => {
                       control={control}
                       render={({ field }) => {
                         const isBoolean = typeof field.value === 'boolean';
-                        const isString = typeof field.value === 'string';
+                        // timer_start_condition is the only string field in this config
+                        const isStringField = key === 'timer_start_condition';
 
                         if (isBoolean) {
                           return (
                             <FormControlLabel
                               control={
                                 <Checkbox
-                                  checked={field.value as unknown as boolean}
+                                  checked={!!field.value}
                                   onChange={(e) => field.onChange(e.target.checked)}
                                 />
                               }
@@ -466,9 +488,9 @@ const SettingsPage: React.FC = () => {
                             label={key.replace(/([A-Z])/g, ' $1').replace(/_([a-z])/g, ' $1').replace(/^./, str => str.toUpperCase())} // Basic label formatting
                             fullWidth
                             margin="normal"
-                            type={isString ? 'text' : 'number'}
+                            type={isStringField ? 'text' : 'number'}
                             inputProps={{ step: 'any' }}
-                            onChange={(e) => field.onChange(isString ? e.target.value : parseFloat(e.target.value))}
+                            onChange={(e) => field.onChange(e.target.value)}
                             error={!!fieldError}
                             helperText={fieldError?.message}
                           />
@@ -499,7 +521,7 @@ const SettingsPage: React.FC = () => {
                           margin="normal"
                           type="number"
                           inputProps={{ step: 'any' }}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                          onChange={(e) => field.onChange(e.target.value)}
                           error={!!errors.dcaGridConfig?.[index]?.gap_percent}
                           helperText={errors.dcaGridConfig?.[index]?.gap_percent?.message}
                         />
@@ -518,7 +540,7 @@ const SettingsPage: React.FC = () => {
                           margin="normal"
                           type="number"
                           inputProps={{ step: 'any' }}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                          onChange={(e) => field.onChange(e.target.value)}
                           error={!!errors.dcaGridConfig?.[index]?.weight_percent}
                           helperText={errors.dcaGridConfig?.[index]?.weight_percent?.message}
                         />
@@ -537,7 +559,7 @@ const SettingsPage: React.FC = () => {
                           margin="normal"
                           type="number"
                           inputProps={{ step: 'any' }}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                          onChange={(e) => field.onChange(e.target.value)}
                           error={!!errors.dcaGridConfig?.[index]?.tp_percent}
                           helperText={errors.dcaGridConfig?.[index]?.tp_percent?.message}
                         />
@@ -553,7 +575,11 @@ const SettingsPage: React.FC = () => {
             <Button variant="outlined" onClick={() => appendDca({ gap_percent: 0, weight_percent: 0, tp_percent: 0 })} sx={{ mt: 2 }}>
               Add DCA Level
             </Button>
-            {errors.dcaGridConfig && <Alert severity="error" sx={{ mt: 2 }}>{errors.dcaGridConfig.message}</Alert>}
+            {errors.dcaGridConfig && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                    {errors.dcaGridConfig.message || (errors.dcaGridConfig as any).root?.message}
+                </Alert>
+            )}
           </CustomTabPanel>
 
           <CustomTabPanel value={currentTab} index={3}>

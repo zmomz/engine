@@ -2,11 +2,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import RiskPage from './RiskPage';
 import useRiskStore from '../store/riskStore';
+import useConfirmStore from '../store/confirmStore';
 import { act } from 'react-dom/test-utils';
 import userEvent from '@testing-library/user-event';
 
 // Mock Store
 jest.mock('../store/riskStore');
+jest.mock('../store/confirmStore', () => ({
+    __esModule: true,
+    default: {
+        getState: jest.fn(),
+    }
+}));
 
 const mockRiskStatus = {
   identified_loser: {
@@ -37,6 +44,7 @@ describe('RiskPage', () => {
   const mockBlockGroup = jest.fn();
   const mockUnblockGroup = jest.fn();
   const mockSkipGroup = jest.fn();
+  const mockRequestConfirm = jest.fn();
 
   beforeEach(() => {
     (useRiskStore as unknown as jest.Mock).mockReturnValue({
@@ -49,6 +57,13 @@ describe('RiskPage', () => {
       unblockGroup: mockUnblockGroup,
       skipGroup: mockSkipGroup,
     });
+    
+    // Mock requestConfirm
+    mockRequestConfirm.mockResolvedValue(true);
+    (useConfirmStore.getState as jest.Mock).mockReturnValue({
+        requestConfirm: mockRequestConfirm
+    });
+    
     jest.clearAllMocks();
   });
 
@@ -77,9 +92,6 @@ describe('RiskPage', () => {
   });
 
   test('triggers manual evaluation', async () => {
-    // Mock window.confirm
-    const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
-
     await act(async () => {
         render(
         <MemoryRouter>
@@ -91,15 +103,13 @@ describe('RiskPage', () => {
     const runButton = screen.getByRole('button', { name: /Run Risk Evaluation Now/i });
     await userEvent.click(runButton);
 
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(mockRunEvaluation).toHaveBeenCalled();
-    
-    confirmSpy.mockRestore();
+    await waitFor(() => {
+        expect(mockRequestConfirm).toHaveBeenCalled();
+        expect(mockRunEvaluation).toHaveBeenCalled();
+    });
   });
 
   test('triggers block position', async () => {
-     const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
-    
     await act(async () => {
         render(
         <MemoryRouter>
@@ -111,15 +121,13 @@ describe('RiskPage', () => {
     const blockButton = screen.getByRole('button', { name: /^Block$/i });
     await userEvent.click(blockButton);
 
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(mockBlockGroup).toHaveBeenCalledWith('loser1');
-    
-    confirmSpy.mockRestore();
+    await waitFor(() => {
+        expect(mockRequestConfirm).toHaveBeenCalled();
+        expect(mockBlockGroup).toHaveBeenCalledWith('loser1');
+    });
   });
 
   test('triggers skip next evaluation', async () => {
-     const confirmSpy = jest.spyOn(window, 'confirm').mockImplementation(() => true);
-    
     await act(async () => {
         render(
         <MemoryRouter>
@@ -131,9 +139,9 @@ describe('RiskPage', () => {
     const skipButton = screen.getByRole('button', { name: /Skip Next/i });
     await userEvent.click(skipButton);
 
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(mockSkipGroup).toHaveBeenCalledWith('loser1');
-    
-    confirmSpy.mockRestore();
+    await waitFor(() => {
+        expect(mockRequestConfirm).toHaveBeenCalled();
+        expect(mockSkipGroup).toHaveBeenCalledWith('loser1');
+    });
   });
 });

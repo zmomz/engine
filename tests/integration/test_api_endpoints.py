@@ -322,7 +322,7 @@ async def test_block_risk_for_group_integration(position_group_repo: PositionGro
         hashed_password="hashedpassword",
         exchange="mock",
         webhook_secret="secret",
-        encrypted_api_keys={"data": "dummy"}
+        encrypted_api_keys={"encrypted_data": "dummy"}
     )
     db_session.add(user)
     await db_session.commit()
@@ -381,7 +381,7 @@ async def test_unblock_risk_for_group_integration(position_group_repo: PositionG
         hashed_password="hashedpassword",
         exchange="mock",
         webhook_secret="secret",
-        encrypted_api_keys={"data": "dummy"}
+        encrypted_api_keys={"encrypted_data": "dummy"}
     )
     db_session.add(user)
     await db_session.commit()
@@ -440,7 +440,7 @@ async def test_skip_next_risk_evaluation_integration(position_group_repo: Positi
         hashed_password="hashedpassword",
         exchange="mock",
         webhook_secret="secret",
-        encrypted_api_keys={"data": "dummy"}
+        encrypted_api_keys={"encrypted_data": "dummy"}
     )
     db_session.add(user)
     await db_session.commit()

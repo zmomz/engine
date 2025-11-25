@@ -2,24 +2,35 @@ import React, { useEffect } from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import useQueueStore from '../store/queueStore';
+import useConfirmStore from '../store/confirmStore';
 
 const QueuePage: React.FC = () => {
   const { queuedSignals, loading, error, fetchQueuedSignals, promoteSignal, removeSignal } = useQueueStore();
 
   useEffect(() => {
     fetchQueuedSignals();
-    const interval = setInterval(fetchQueuedSignals, 5000); // Poll every 5 seconds
-    return () => clearInterval(interval);
+    // WebSocket updates will handle real-time data
   }, [fetchQueuedSignals]);
 
   const handlePromote = async (signalId: string) => {
-    if (window.confirm('Are you sure you want to promote this signal?')) {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Promote Signal',
+        message: 'Are you sure you want to promote this signal?',
+        confirmText: 'Promote'
+    });
+    if (confirmed) {
       await promoteSignal(signalId);
     }
   };
 
   const handleRemove = async (signalId: string) => {
-    if (window.confirm('Are you sure you want to remove this signal from the queue?')) {
+    const confirmed = await useConfirmStore.getState().requestConfirm({
+        title: 'Remove Signal',
+        message: 'Are you sure you want to remove this signal from the queue?',
+        confirmText: 'Remove',
+        cancelText: 'Cancel'
+    });
+    if (confirmed) {
       await removeSignal(signalId);
     }
   };

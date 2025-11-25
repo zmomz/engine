@@ -2,10 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, TextField, Select, MenuItem, FormControl, InputLabel, Button, CircularProgress, Alert } from '@mui/material';
 import useLogStore from '../store/logStore';
 
+const LogLine = React.memo(({ log }: { log: string }) => (
+    <div style={{ marginBottom: '4px', whiteSpace: 'pre-wrap', borderBottom: '1px solid #eee' }}>
+        {log}
+    </div>
+));
+
 const LogsPage: React.FC = () => {
   const { logs, loading, error, fetchLogs } = useLogStore();
   const [logLevel, setLogLevel] = useState('all');
-  const [lineCount] = useState(100);
+  const [lineCount, setLineCount] = useState(100);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -50,6 +56,20 @@ const LogsPage: React.FC = () => {
           </Select>
         </FormControl>
 
+        <FormControl sx={{ minWidth: 100 }} size="small">
+             <InputLabel id="line-count-label">Lines</InputLabel>
+             <Select
+                labelId="line-count-label"
+                value={lineCount}
+                label="Lines"
+                onChange={(e) => setLineCount(Number(e.target.value))}
+             >
+                 <MenuItem value={100}>100</MenuItem>
+                 <MenuItem value={500}>500</MenuItem>
+                 <MenuItem value={1000}>1000</MenuItem>
+             </Select>
+        </FormControl>
+
         <TextField
           variant="outlined"
           placeholder="Search logs..."
@@ -82,9 +102,7 @@ const LogsPage: React.FC = () => {
              </Box>
         ) : filteredLogs.length > 0 ? (
             filteredLogs.map((log, index) => (
-                <div key={index} style={{ marginBottom: '4px', whiteSpace: 'pre-wrap' }}>
-                    {log}
-                </div>
+                <LogLine key={index} log={log} />
             ))
         ) : (
             <Typography color="text.secondary" align="center" sx={{ mt: 2 }}>No logs found.</Typography>

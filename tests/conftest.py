@@ -12,10 +12,13 @@ from httpx import AsyncClient
 from app.models.user import User
 from app.core.security import SECRET_KEY, ALGORITHM, get_password_hash
 
-POSTGRES_USER = os.environ["POSTGRES_USER"]
-POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
-POSTGRES_DB = os.environ["POSTGRES_DB"]
-DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@db:5432/tv_engine_db_test"
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "tv_user")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "postgres")
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "tv_engine_db_test")
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", 
+    f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@db:5432/tv_engine_db_test"
+)
 TEST_PASSWORD = "testpassword"
 
 @pytest.fixture(scope="function")

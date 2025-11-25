@@ -188,13 +188,15 @@ async def test_create_position_group_from_signal_new_position(
 ):
     """Test creating a new PositionGroup from a queued signal with correct timer settings."""
     mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'data': 'test'}
-    mock_db_session.get.return_value = mock_user 
+    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
+    mock_db_session.get.return_value = mock_user
 
-    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_connector.get_precision_rules = AsyncMock(return_value={})
-        mock_get_connector.return_value = mock_connector
+    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
+            mock_connector = MagicMock()
+            mock_connector.get_precision_rules = AsyncMock(return_value={})
+            mock_get_connector.return_value = mock_connector
 
         created_pg = await position_manager_service.create_position_group_from_signal(
             session=mock_db_session, 
@@ -228,7 +230,7 @@ async def test_create_position_group_submits_orders(
     """Test that creating a position group also creates and submits DCA orders."""
     # Arrange
     mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'data': 'test'}
+    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
     mock_db_session.get.return_value = mock_user 
 
     dca_levels = [
@@ -278,16 +280,18 @@ async def test_handle_pyramid_continuation_increment_count(
 ):
     """Test handling a pyramid continuation increments pyramid_count and replacement_count."""
     mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'data': 'test'}
+    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
     mock_db_session.get.return_value = mock_user 
 
     initial_pyramid_count = sample_position_group.pyramid_count
     initial_replacement_count = sample_position_group.replacement_count
 
-    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_connector.get_precision_rules = AsyncMock(return_value={})
-        mock_get_connector.return_value = mock_connector
+    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
+            mock_connector = MagicMock()
+            mock_connector.get_precision_rules = AsyncMock(return_value={})
+            mock_get_connector.return_value = mock_connector
 
         updated_pg = await position_manager_service.handle_pyramid_continuation(
             session=mock_db_session, 
@@ -315,16 +319,18 @@ async def test_handle_pyramid_continuation_reset_timer(
 ):
     """Test handling a pyramid continuation resets the timer when configured."""
     mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'data': 'test'}
+    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
     mock_db_session.get.return_value = mock_user 
 
     sample_risk_config.reset_timer_on_replacement = True # Set config to reset timer
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_connector.get_precision_rules = AsyncMock(return_value={})
-        mock_get_connector.return_value = mock_connector
+    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
+            mock_connector = MagicMock()
+            mock_connector.get_precision_rules = AsyncMock(return_value={})
+            mock_get_connector.return_value = mock_connector
 
         updated_pg = await position_manager_service.handle_pyramid_continuation(
             session=mock_db_session, 
@@ -354,17 +360,19 @@ async def test_handle_pyramid_continuation_no_reset_timer(
 ):
     """Test handling a pyramid continuation does not reset the timer when not configured."""
     mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'data': 'test'}
+    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
     mock_db_session.get.return_value = mock_user 
 
     sample_risk_config.reset_timer_on_replacement = False # Set config to NOT reset timer
     initial_timer_start = sample_position_group.risk_timer_start
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_connector.get_precision_rules = AsyncMock(return_value={})
-        mock_get_connector.return_value = mock_connector
+    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
+            mock_connector = MagicMock()
+            mock_connector.get_precision_rules = AsyncMock(return_value={})
+            mock_get_connector.return_value = mock_connector
 
         updated_pg = await position_manager_service.handle_pyramid_continuation(
             session=mock_db_session, 

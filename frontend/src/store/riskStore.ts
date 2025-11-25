@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 
 interface RiskStatus {
   identified_loser: {
@@ -39,7 +39,7 @@ const useRiskStore = create<RiskStore>((set) => ({
   fetchStatus: async () => {
     set({ loading: true, error: null });
     try {
-      const response = await axios.get('/api/v1/risk/status');
+      const response = await api.get('/risk/status');
       
       if (response.data.status === 'not_configured' || response.data.status === 'error') {
         set({ status: null, error: response.data.message, loading: false });
@@ -53,7 +53,7 @@ const useRiskStore = create<RiskStore>((set) => ({
 
   runEvaluation: async () => {
     try {
-      await axios.post('/api/v1/risk/run-evaluation');
+      await api.post('/risk/run-evaluation');
       // Refresh status after run
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
@@ -64,7 +64,7 @@ const useRiskStore = create<RiskStore>((set) => ({
 
   blockGroup: async (groupId: string) => {
     try {
-      await axios.post(`/api/v1/risk/${groupId}/block`);
+      await api.post(`/risk/${groupId}/block`);
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
         set({ error: error.response?.data?.detail || 'Failed to block group' });
@@ -73,7 +73,7 @@ const useRiskStore = create<RiskStore>((set) => ({
 
   unblockGroup: async (groupId: string) => {
     try {
-      await axios.post(`/api/v1/risk/${groupId}/unblock`);
+      await api.post(`/risk/${groupId}/unblock`);
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
         set({ error: error.response?.data?.detail || 'Failed to unblock group' });
@@ -82,7 +82,7 @@ const useRiskStore = create<RiskStore>((set) => ({
 
   skipGroup: async (groupId: string) => {
     try {
-      await axios.post(`/api/v1/risk/${groupId}/skip`);
+      await api.post(`/risk/${groupId}/skip`);
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
         set({ error: error.response?.data?.detail || 'Failed to skip group' });
