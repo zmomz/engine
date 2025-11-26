@@ -141,13 +141,10 @@ class MockConnector(ExchangeInterface):
                 response = await client.get("/balance")
                 response.raise_for_status()
                 data = response.json()
-                # Convert floats to Decimals
+                # Convert floats to Decimals and return flat structure (totals only)
+                # Matches BinanceConnector/BybitConnector behavior
                 return {
-                    k: {
-                        "free": Decimal(str(v["free"])),
-                        "used": Decimal(str(v["used"])),
-                        "total": Decimal(str(v["total"]))
-                    }
+                    k: Decimal(str(v["total"]))
                     for k, v in data.items()
                 }
             except Exception as e:

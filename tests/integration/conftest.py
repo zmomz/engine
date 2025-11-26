@@ -21,6 +21,18 @@ from app.repositories.dca_order import DCAOrderRepository
 
 # Add authorized client fixture
 from app.core.security import create_access_token
+from unittest.mock import patch, MagicMock
+from contextlib import asynccontextmanager
+from app.core.security import EncryptionService as RealEncryptionService # Rename original for use in mock
+
+class MockEncryptionService:
+    """A mock EncryptionService that can return specific mock keys for 'dummy_mock_key'."""
+    def decrypt_keys(self, encrypted_data: dict) -> tuple[str, str]:
+        if "dummy_mock_key" in str(encrypted_data):
+            return "mock_api_key", "mock_secret_key"
+        # For non-mock encrypted_data, attempt to use the real decryption logic
+        return RealEncryptionService().decrypt_keys(encrypted_data)
+
 
 @pytest.fixture(scope="function")
 async def http_client(test_user) -> AsyncClient:
@@ -31,7 +43,7 @@ async def http_client(test_user) -> AsyncClient:
     async with AsyncClient(app=app, base_url="http://test", headers=headers) as client:
         yield client
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(scope="function")
 async def override_get_db_session_for_integration_tests(db_session: AsyncSession, test_user: User):
     """Overrides the get_db_session dependency for integration tests and initializes services."""
     app.dependency_overrides = {}
@@ -98,9 +110,6 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
     app.dependency_overrides[get_db_session] = lambda: db_session
     
     # Patch AsyncSessionLocal used in SignalRouter to use our test db_session
-    from contextlib import asynccontextmanager
-    from unittest.mock import MagicMock, patch
-
     @asynccontextmanager
     async def mock_session_ctx():
         yield db_session
@@ -109,6 +118,8 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
     mock_factory.side_effect = mock_session_ctx
     
     with patch("app.services.signal_router.AsyncSessionLocal", new=mock_factory):
-        yield
+        with patch("app.core.security.EncryptionService", new=MockEncryptionService):
+            with patch("app.api.risk.EncryptionService", new=MockEncryptionService):
+                yield
         
     app.dependency_overrides = {}

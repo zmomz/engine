@@ -7,14 +7,14 @@ import asyncio
 import httpx
 from app.models.position_group import PositionGroup
 from app.models.dca_order import DCAOrder
-from tests.integration.utils import generate_tradingview_signature
 from app.models.user import User
 
 @pytest.mark.asyncio
 async def test_full_signal_flow_new_position(
     http_client: AsyncClient,
     db_session: AsyncSession,
-    test_user: User
+    test_user: User,
+    override_get_db_session_for_integration_tests
 ):
     """
     Tests the full signal flow for a new position:
@@ -30,13 +30,13 @@ async def test_full_signal_flow_new_position(
 
     # 1. Send a valid webhook payload
     # Update user to use mock exchange to avoid real API calls/errors
-    test_user.exchange = "mock"
+    test_user.exchange = "MOCK"
     db_session.add(test_user)
     await db_session.commit()
 
     webhook_payload = {
         "user_id": str(test_user.id),
-        "secret": "your-super-secret-key",
+        "secret": test_user.webhook_secret, # Use the actual secret from the user
         "source": "tradingview",
         "timestamp": "2025-11-19T14:00:00Z",
         "tv": {
@@ -69,13 +69,8 @@ async def test_full_signal_flow_new_position(
             "max_slippage_percent": 0.1
         }
     }
-    payload_str = json.dumps(webhook_payload)
-    secret = test_user.webhook_secret
-    headers = {
-        "X-Signature": generate_tradingview_signature(payload_str, secret)
-    }
 
-    response = await http_client.post(f"/api/v1/webhooks/{test_user.id}/tradingview", json=webhook_payload, headers=headers)
+    response = await http_client.post(f"/api/v1/webhooks/{test_user.id}/tradingview", json=webhook_payload)
     assert response.status_code == 202, f"API call failed: {response.text}"
 
     # 2. Promote the signal from the queue to create the position group

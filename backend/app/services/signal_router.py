@@ -23,9 +23,9 @@ class SignalRouterService:
     """
     Service for routing a validated signal for a specific user.
     """
-    def __init__(self, user: User):
+    def __init__(self, user: User, encryption_service: EncryptionService = None):
         self.user = user
-
+        self.encryption_service = encryption_service or EncryptionService()
     async def route(self, signal: WebhookPayload, db_session: AsyncSession) -> str:
         """
         Routes the signal.
@@ -36,7 +36,6 @@ class SignalRouterService:
         queue_service = QueueManagerService(AsyncSessionLocal, user=self.user, execution_pool_manager=exec_pool)
         
         # Initialize Exchange Connector
-        enc_service = EncryptionService()
         
         target_exchange = signal.tv.exchange
         encrypted_data = self.user.encrypted_api_keys
@@ -48,7 +47,7 @@ class SignalRouterService:
                  return f"Configuration Error: No API keys for {target_exchange}"
 
         try:
-            api_key, api_secret = enc_service.decrypt_keys(encrypted_data)
+            api_key, api_secret = self.encryption_service.decrypt_keys(encrypted_data)
             exchange = get_exchange_connector(target_exchange, api_key=api_key, secret_key=api_secret)
         except Exception as e:
             logger.error(f"Signal Router: Failed to decrypt keys for {target_exchange}: {e}")
@@ -77,11 +76,13 @@ class SignalRouterService:
         total_capital = Decimal("1000")
         try:
             balance = await exchange.fetch_balance()
-            # specific coin extraction logic depends on exchange connector
-            # assuming total USDT for now, but connector might return generic struct
-            # For MockConnector, it returns {'total': {'USDT': 100000}}
-            if isinstance(balance, dict) and 'total' in balance:
-                total_capital = Decimal(str(balance['total'].get('USDT', 1000)))
+            # Standardized flat structure (e.g., {'USDT': 1000.0})
+            # Handle legacy/standard CCXT nested structure if present (robustness)
+            if "total" in balance and isinstance(balance["total"], dict):
+                balance = balance["total"]
+
+            if isinstance(balance, dict):
+                total_capital = Decimal(str(balance.get('USDT', 1000)))
         except Exception as e:
              logger.warning(f"Failed to fetch balance, using default: {e}")
 

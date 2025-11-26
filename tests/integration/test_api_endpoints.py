@@ -12,7 +12,7 @@ from app.models.queued_signal import QueuedSignal, QueueStatus
 from app.db.database import get_db_session, AsyncSession
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.queued_signal import QueuedSignalRepository
-from app.core.security import create_access_token
+from app.core.security import create_access_token, EncryptionService
 from app.models.user import User
 
 # --- Fixtures for repositories ---
@@ -30,10 +30,16 @@ def get_auth_headers(user: User):
     token = create_access_token(data={"sub": user.username})
     return {"Authorization": f"Bearer {token}"}
 
+# --- Helper for encrypted keys ---
+def get_encrypted_keys(exchange: str = "MOCK"):
+    encryption_service = EncryptionService()
+    encrypted_data = encryption_service.encrypt_keys("dummy_api", "dummy_secret")
+    return {exchange: encrypted_data}
+
 # --- Tests for /positions endpoints ---
 
 @pytest.mark.asyncio
-async def test_get_all_positions_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
+async def test_get_all_positions_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user = User(
         id=uuid.uuid4(),
         username="testuser_positions",
@@ -113,7 +119,7 @@ async def test_get_all_positions_integration(position_group_repo: PositionGroupR
     assert response_data[1]["symbol"] == "ETHUSDT"
 
 @pytest.mark.asyncio
-async def test_get_position_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
+async def test_get_position_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user_id = uuid.uuid4()
     group_id = uuid.uuid4()
     
@@ -172,7 +178,7 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
     assert response_data["symbol"] == "BTCUSDT"
 
 @pytest.mark.asyncio
-async def test_get_position_group_not_found_integration(db_session: AsyncSession):
+async def test_get_position_group_not_found_integration(db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user = User(
         id=uuid.uuid4(),
         username="testuser_notfound",
@@ -195,7 +201,7 @@ async def test_get_position_group_not_found_integration(db_session: AsyncSession
 # --- Tests for /queue endpoints ---
 
 @pytest.mark.asyncio
-async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession, test_user: User):
+async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession, test_user: User, override_get_db_session_for_integration_tests):
     user_id = test_user.id
     # Create some queued signals directly in the database
     qs1 = QueuedSignal(
@@ -247,7 +253,7 @@ async def test_get_all_queued_signals_integration(queued_signal_repo: QueuedSign
     assert "ETHUSDT" in symbols
 
 @pytest.mark.asyncio
-async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession, test_user: User):
+async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignalRepository, db_session: AsyncSession, test_user: User, override_get_db_session_for_integration_tests):
     user_id = test_user.id
     signal_id = uuid.uuid4()
     qs = QueuedSignal(
@@ -292,7 +298,7 @@ async def test_remove_queued_signal_integration(queued_signal_repo: QueuedSignal
     assert removed_signal is None
 
 @pytest.mark.asyncio
-async def test_remove_queued_signal_not_found_integration(db_session: AsyncSession):
+async def test_remove_queued_signal_not_found_integration(db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user = User(
         id=uuid.uuid4(),
         username="testuser_remove_queue_notfound",
@@ -314,15 +320,15 @@ async def test_remove_queued_signal_not_found_integration(db_session: AsyncSessi
 # --- Tests for /risk endpoints ---
 
 @pytest.mark.asyncio
-async def test_block_risk_for_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
+async def test_block_risk_for_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user = User(
         id=uuid.uuid4(),
         username="testuser_block_risk",
         email="test_block_risk@example.com",
         hashed_password="hashedpassword",
-        exchange="mock",
+        exchange="MOCK",
         webhook_secret="secret",
-        encrypted_api_keys={"encrypted_data": "dummy"}
+        encrypted_api_keys=get_encrypted_keys("MOCK")
     )
     db_session.add(user)
     await db_session.commit()
@@ -333,7 +339,7 @@ async def test_block_risk_for_group_integration(position_group_repo: PositionGro
     pg = PositionGroup(
         id=group_id,
         user_id=user.id,
-        exchange="binance",
+        exchange="MOCK",
         symbol="BTCUSDT",
         timeframe=15,
         side="long",
@@ -373,15 +379,15 @@ async def test_block_risk_for_group_integration(position_group_repo: PositionGro
     assert updated_pg.risk_blocked is True
 
 @pytest.mark.asyncio
-async def test_unblock_risk_for_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
+async def test_unblock_risk_for_group_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user = User(
         id=uuid.uuid4(),
         username="testuser_unblock_risk",
         email="test_unblock_risk@example.com",
         hashed_password="hashedpassword",
-        exchange="mock",
+        exchange="MOCK",
         webhook_secret="secret",
-        encrypted_api_keys={"encrypted_data": "dummy"}
+        encrypted_api_keys=get_encrypted_keys("MOCK")
     )
     db_session.add(user)
     await db_session.commit()
@@ -392,7 +398,7 @@ async def test_unblock_risk_for_group_integration(position_group_repo: PositionG
     pg = PositionGroup(
         id=group_id,
         user_id=user.id,
-        exchange="binance",
+        exchange="MOCK",
         symbol="BTCUSDT",
         timeframe=15,
         side="long",
@@ -432,15 +438,15 @@ async def test_unblock_risk_for_group_integration(position_group_repo: PositionG
     assert updated_pg.risk_blocked is False
 
 @pytest.mark.asyncio
-async def test_skip_next_risk_evaluation_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession):
+async def test_skip_next_risk_evaluation_integration(position_group_repo: PositionGroupRepository, db_session: AsyncSession, override_get_db_session_for_integration_tests):
     user = User(
         id=uuid.uuid4(),
         username="testuser_skip_risk",
         email="test_skip_risk@example.com",
         hashed_password="hashedpassword",
-        exchange="mock",
+        exchange="MOCK",
         webhook_secret="secret",
-        encrypted_api_keys={"encrypted_data": "dummy"}
+        encrypted_api_keys=get_encrypted_keys("MOCK")
     )
     db_session.add(user)
     await db_session.commit()

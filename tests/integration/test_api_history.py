@@ -13,6 +13,7 @@ async def test_get_position_history(
     authorized_client: AsyncClient,
     test_user: User,
     db_session,
+    override_get_db_session_for_integration_tests
 ):
     # Create some historical (closed) positions
     closed_position_1 = PositionGroup(

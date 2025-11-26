@@ -35,14 +35,14 @@ async def test_login_empty_credentials(client: AsyncClient):
     assert response.status_code in [400, 422, 401]
 
 @pytest.mark.asyncio
-async def test_risk_block_invalid_uuid(authorized_client: AsyncClient):
+async def test_risk_block_invalid_uuid(authorized_client: AsyncClient, override_get_db_session_for_integration_tests):
     """Test blocking risk for an invalid UUID."""
     invalid_uuid = "not-a-uuid"
     response = await authorized_client.post(f"/api/v1/risk/{invalid_uuid}/block")
     assert response.status_code == 422 # Pydantic validation error for UUID
 
 @pytest.mark.asyncio
-async def test_risk_block_nonexistent_group(authorized_client: AsyncClient):
+async def test_risk_block_nonexistent_group(authorized_client: AsyncClient, override_get_db_session_for_integration_tests):
     """Test blocking risk for a non-existent position group."""
     random_uuid = str(uuid.uuid4())
     response = await authorized_client.post(f"/api/v1/risk/{random_uuid}/block")

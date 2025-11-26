@@ -347,8 +347,13 @@ class QueueManagerService:
 
                                 if exchange:
                                     balance = await exchange.fetch_balance()
-                                    if isinstance(balance, dict) and 'total' in balance:
-                                        total_capital = Decimal(str(balance['total'].get('USDT', 1000)))
+                                    # Standardized flat structure (e.g., {'USDT': 1000.0})
+                                    # Handle legacy/standard CCXT nested structure if present (robustness)
+                                    if "total" in balance and isinstance(balance["total"], dict):
+                                        balance = balance["total"]
+                                    
+                                    if isinstance(balance, dict):
+                                        total_capital = Decimal(str(balance.get('USDT', 1000)))
                             except Exception:
                                 pass
 

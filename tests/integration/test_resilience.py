@@ -23,18 +23,23 @@ from decimal import Decimal
 import json
 import uuid
 from datetime import datetime
-from tests.integration.utils import generate_tradingview_signature
 from app.core.security import EncryptionService
 
 @pytest.mark.asyncio
 async def test_exchange_api_timeout_on_order_submission(
     http_client: AsyncClient,
     db_session: AsyncSession,
-    test_user: User
+    test_user: User,
+    override_get_db_session_for_integration_tests
 ):
     """
     Test that the system handles an exchange API timeout gracefully during order submission.
     """
+    # Ensure user exchange is set correctly
+    test_user.exchange = "MOCK"
+    db_session.add(test_user)
+    await db_session.commit()
+
     # 0. Set up mock exchange to simulate a TimeoutError
     mock_exchange_connector = MagicMock()
     # We mock place_order because OrderService uses it
@@ -59,14 +64,16 @@ async def test_exchange_api_timeout_on_order_submission(
     with (
         patch('app.services.position_manager.get_exchange_connector', return_value=mock_exchange_connector),
         patch('app.services.exchange_abstraction.factory.get_exchange_connector', return_value=mock_exchange_connector),
-        patch.object(EncryptionService, 'decrypt_keys', return_value=("dummy_key", "dummy_secret")),
+        # We don't need to patch EncryptionService here as it's handled by the fixture override_get_db_session_for_integration_tests 
+        # and we want it to work normally (or use the MockEncryptionService provided by fixture)
+        # If we needed to patch it, we would patch app.core.security.EncryptionService
         patch('app.services.signal_router.ExecutionPoolManager', return_value=mock_exec_pool)
     ):
          
         # 1. Send a valid webhook payload to trigger signal processing
         webhook_payload_data = {
             "user_id": str(test_user.id),
-            "secret": "your-super-secret-key",
+            "secret": test_user.webhook_secret, # Use the actual secret
             "source": "tradingview",
             "timestamp": "2025-11-19T14:00:00Z",
             "tv": {
@@ -97,13 +104,8 @@ async def test_exchange_api_timeout_on_order_submission(
                 "max_slippage_percent": 0.5
             }
         }
-        payload_str = json.dumps(webhook_payload_data)
-        secret = test_user.webhook_secret
-        headers = {
-            "X-Signature": generate_tradingview_signature(payload_str, secret)
-        }
 
-        response = await http_client.post(f"/api/v1/webhooks/{test_user.id}/tradingview", json=webhook_payload_data, headers=headers)
+        response = await http_client.post(f"/api/v1/webhooks/{test_user.id}/tradingview", json=webhook_payload_data)
         assert response.status_code == 202, f"API call failed: {response.text}"
 
         # Verify signal is in queue

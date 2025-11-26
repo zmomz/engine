@@ -16,6 +16,9 @@ from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.models.user import User
 from app.api.dependencies.users import get_current_active_user
 from app.core.security import EncryptionService
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -31,23 +34,22 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exchange API keys are missing.")
     
     # Extract keys for the current exchange
-    encrypted_data = user.encrypted_api_keys
-    if isinstance(encrypted_data, dict):
-        # If it's the new multi-exchange format, look up the specific exchange
-        if user.exchange in encrypted_data:
-             encrypted_data = encrypted_data[user.exchange]
-        # Check if it's legacy single-key format (contains encrypted_data directly)
-        elif "encrypted_data" not in encrypted_data:
-             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"API keys for {user.exchange} are not configured.")
+    exchange_name = user.exchange
+    if not isinstance(user.encrypted_api_keys, dict) or exchange_name not in user.encrypted_api_keys:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"API keys for {exchange_name} are not configured correctly.")
+    
+    encrypted_data_for_exchange = user.encrypted_api_keys[exchange_name]
     
     try:
-        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
+        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data_for_exchange)
     except Exception as e:
+        logger.error(f"Failed to decrypt API keys: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to decrypt API keys: {str(e)}")
 
     try:
         exchange_connector: ExchangeInterface = get_exchange_connector(user.exchange, api_key, secret_key)
     except Exception as e:
+        logger.error(f"Failed to connect to exchange: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to connect to exchange: {str(e)}")
 
     try:
@@ -140,7 +142,9 @@ async def block_risk_for_group(
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.error(f"Error blocking risk for group {group_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 
 @router.post("/{group_id}/unblock", response_model=PositionGroupSchema)
 async def unblock_risk_for_group(

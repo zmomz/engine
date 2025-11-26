@@ -125,7 +125,8 @@ async def test_fetch_balance(connector, mock_client):
     mock_client.get.return_value = resp
     
     balance = await connector.fetch_balance()
-    assert balance["USDT"]["free"] == Decimal("1000.0")
+    # Expect flat total
+    assert balance["USDT"] == Decimal("1000.0")
 
 @pytest.mark.asyncio
 async def test_fetch_balance_error(connector, mock_client):

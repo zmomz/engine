@@ -13,6 +13,7 @@ async def test_force_close_position(
     authorized_client: AsyncClient,
     test_user: User,
     db_session,
+    override_get_db_session_for_integration_tests
 ):
     # Create an active position that we will try to force close
     active_position = PositionGroup(

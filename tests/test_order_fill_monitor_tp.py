@@ -84,11 +84,21 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
         mock_user.id = uuid.uuid4()
         mock_user.encrypted_api_keys = {"encrypted_data": "mock"}
         mock_user.exchange = "binance"
+        
+        # Mock encryption service on the instance
+        mock_encryption_service = MagicMock()
+        mock_encryption_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+        mock_order_fill_monitor_service.encryption_service = mock_encryption_service
 
         with patch("app.services.order_fill_monitor.UserRepository") as mock_user_repo_cls, \
-             patch("app.services.order_fill_monitor.get_exchange_connector"):
+             patch("app.services.order_fill_monitor.get_exchange_connector", new_callable=AsyncMock) as mock_get_conn:
+            
             mock_user_repo_instance = mock_user_repo_cls.return_value
             mock_user_repo_instance.get_all_active_users = AsyncMock(return_value=[mock_user])
+            
+            # Mock connector
+            mock_connector = AsyncMock()
+            mock_get_conn.return_value = mock_connector
 
             await mock_order_fill_monitor_service._check_orders()
     

@@ -12,7 +12,22 @@ from sqlalchemy.future import select
 from app.models.position_group import PositionGroup
 from app.models.dca_order import DCAOrder
 from app.models.user import User
-from tests.integration.utils import generate_tradingview_signature
+from app.core.security import EncryptionService
+
+import pytest
+import os
+import json
+import asyncio
+import httpx
+import ccxt.async_support as ccxt
+from decimal import Decimal
+from unittest.mock import patch
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.models.position_group import PositionGroup
+from app.models.dca_order import DCAOrder
+from app.models.user import User
 from app.core.security import EncryptionService
 
 # Constants for Binance Testnet
@@ -27,7 +42,8 @@ BINANCE_TESTNET_SECRET_KEY = os.getenv("TEST_BINANCE_SECRET_KEY")
 async def test_binance_live_flow(
     http_client: httpx.AsyncClient,
     db_session: AsyncSession,
-    test_user: User
+    test_user: User,
+    override_get_db_session_for_integration_tests
 ):
     """
     Tests the full flow against the ACTUAL Binance Testnet.
@@ -54,7 +70,10 @@ async def test_binance_live_flow(
 
         # Get current price to place realistic Limit orders
         ticker = await exchange.fetch_ticker(symbol)
-        current_price = ticker['last']
+        print(f"[Setup] Fetched ticker: {ticker}")
+        current_price = ticker.get('last')
+        if current_price is None:
+            print("[Setup] Error: 'last' price not found in ticker.")
         print(f"[Setup] Current {symbol} Price: {current_price}")
         
         # Set entry price slightly below market for Long (so they sit as Limit orders)
@@ -73,7 +92,7 @@ async def test_binance_live_flow(
         # We use the provided test_user but update its exchange preference conceptually (though the connector uses the keys)
         webhook_payload = {
             "user_id": str(test_user.id),
-            "secret": "your-super-secret-key",
+            "secret": test_user.webhook_secret, # Use the actual secret
             "source": "tradingview",
             "timestamp": "2025-11-19T14:00:00Z",
             "tv": {
@@ -107,13 +126,9 @@ async def test_binance_live_flow(
             }
         }
         
-        payload_str = json.dumps(webhook_payload)
-        headers = {
-            "X-Signature": generate_tradingview_signature(payload_str, test_user.webhook_secret)
-        }
-
         print("[Test] Sending Webhook...")
-        response = await http_client.post(f"/api/v1/webhooks/{test_user.id}/tradingview", json=webhook_payload, headers=headers)
+        response = await http_client.post(f"/api/v1/webhooks/{test_user.id}/tradingview", json=webhook_payload)
+        print(f"[Test] Webhook Response Status: {response.status_code}, Text: {response.text}")
         assert response.status_code == 202, f"Webhook failed: {response.text}"
 
         # 3. Manually trigger Queue Processing
@@ -183,12 +198,14 @@ async def test_binance_live_flow(
         await db_session.commit()
         result = await db_session.execute(select(PositionGroup).where(PositionGroup.user_id == test_user.id))
         position_group = result.scalars().first()
+        print(f"[Test] PositionGroup retrieved from DB: {position_group}")
         assert position_group is not None
         assert position_group.status == "live"
         print(f"[Test] PositionGroup Created: {position_group.id}")
 
         result = await db_session.execute(select(DCAOrder).where(DCAOrder.group_id == position_group.id))
         dca_orders = result.scalars().all()
+        print(f"[Test] DCA orders retrieved from DB: {len(dca_orders)}")
         assert len(dca_orders) > 0
         print(f"[Test] Created {len(dca_orders)} DCA orders in DB.")
 
@@ -199,6 +216,7 @@ async def test_binance_live_flow(
         
         # We expect at least the amount of DCA orders we created (assuming no immediate fills)
         # Note: If price moved fast, some might have filled or not placed due to filters, but we check > 0
+        print(f"[Test] Asserting that open_orders count ({len(open_orders)}) is greater than 0.")
         assert len(open_orders) > 0
         
         # Cleanup

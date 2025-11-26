@@ -12,11 +12,6 @@ import json
 import hmac
 import hashlib
 
-# Helper function to generate HMAC-SHA256 signature
-def generate_signature(payload: dict, secret: str) -> str:
-    json_payload = json.dumps(payload, separators=(',', ':')) # Ensure no extra whitespace
-    return hmac.new(secret.encode(), json_payload.encode(), hashlib.sha256).hexdigest()
-
 # Mock the get_db_session dependency for testing
 @pytest.fixture
 async def test_db_session():
@@ -49,8 +44,7 @@ async def test_webhook_invalid_signature_rejection(test_db_session, mocker):
 
     app.dependency_overrides[get_db_session] = lambda: test_db_session
     async with AsyncClient(app=app, base_url="http://test") as ac:
-        # Simulate an invalid signature
-        headers = {"X-Signature": "invalid_signature"}
+        # Simulate an invalid signature by sending a wrong secret
         payload = {
             "tv": {
                 "exchange": "binance",
@@ -79,16 +73,16 @@ async def test_webhook_invalid_signature_rejection(test_db_session, mocker):
             "risk": {
                 "max_slippage_percent": 0.5
             },
-            "secret": "some_secret",
+            "secret": "some_secret", # This does not match "valid_secret"
             "source": "tradingview",
             "timestamp": "2023-01-01T00:00:00Z",
             "user_id": str(user_id)
         }
         # Use the correct URL with user_id
-        response = await ac.post(f"/api/v1/webhooks/{user_id}/tradingview", json=payload, headers=headers)
+        response = await ac.post(f"/api/v1/webhooks/{user_id}/tradingview", json=payload)
 
         assert response.status_code == 403
-        assert response.json() == {"detail": "Invalid signature."}
+        assert response.json() == {"detail": "Invalid secret."}
     app.dependency_overrides = {}
 
 @pytest.mark.asyncio
@@ -138,13 +132,13 @@ async def test_webhook_missing_required_fields(test_db_session, mocker):
                 "alert_message": "test_message"
             },
             "risk": { "max_slippage_percent": 0.5 },
-            "secret": "some_secret",
+            "secret": "valid_secret", # Must be valid to pass auth and reach validation
             "source": "tradingview",
             "user_id": str(user_id)
+            # Missing "timestamp"
         }
         json_payload = json.dumps(payload, separators=(',', ':'))
         headers = {
-            "X-Signature": generate_signature(payload, mock_user_instance.webhook_secret),
             "Content-Type": "application/json"
         }
         response = await ac.post(f"/api/v1/webhooks/{user_id}/tradingview", content=json_payload, headers=headers)
@@ -198,14 +192,13 @@ async def test_webhook_unreplaced_placeholders(test_db_session, mocker):
                 "alert_message": "test_message"
             },
             "risk": { "max_slippage_percent": 0.5 },
-            "secret": "some_secret",
+            "secret": "valid_secret", # Must be valid
             "source": "tradingview",
             "timestamp": "2023-01-01T00:00:00Z",
             "user_id": str(user_id)
         }
         json_payload = json.dumps(payload, separators=(',', ':'))
         headers = {
-            "X-Signature": generate_signature(payload, mock_user_instance.webhook_secret),
             "Content-Type": "application/json"
         }
         response = await ac.post(f"/api/v1/webhooks/{user_id}/tradingview", content=json_payload, headers=headers)
@@ -213,10 +206,6 @@ async def test_webhook_unreplaced_placeholders(test_db_session, mocker):
         
         payload["tv"]["entry_price"] = "{{close}}" # This will definitely fail float conversion
         json_payload = json.dumps(payload, separators=(',', ':'))
-        headers = {
-            "X-Signature": generate_signature(payload, mock_user_instance.webhook_secret),
-            "Content-Type": "application/json"
-        }
         response = await ac.post(f"/api/v1/webhooks/{user_id}/tradingview", content=json_payload, headers=headers)
         assert response.status_code == 422
     app.dependency_overrides = {}

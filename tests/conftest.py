@@ -10,7 +10,7 @@ from app.models.base import Base
 from app.main import app
 from httpx import AsyncClient
 from app.models.user import User
-from app.core.security import SECRET_KEY, ALGORITHM, get_password_hash
+from app.core.security import SECRET_KEY, ALGORITHM, get_password_hash, EncryptionService
 
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "tv_user")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "postgres")
@@ -41,6 +41,14 @@ async def client(db_session: AsyncSession, test_user: User):
 
 @pytest.fixture(scope="function")
 async def test_db_engine():
+    # SAFETY CHECK: Prevent running tests against non-test databases
+    if "test" not in DATABASE_URL and "test" not in POSTGRES_DB:
+        raise pytest.UsageError(
+            f"CRITICAL: Attempting to run tests against a non-test database ({DATABASE_URL}). "
+            "Tests perform destructive actions (DROP ALL TABLES). "
+            "Please set DATABASE_URL to a test database (e.g., ending in '_test')."
+        )
+
     engine = create_async_engine(DATABASE_URL, echo=True)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -54,14 +62,21 @@ async def db_session(test_db_engine):
         test_db_engine, class_=AsyncSession, expire_on_commit=False
     )
     async with async_session() as session:
-        await session.begin_nested()
         yield session
-        await session.rollback()
+        await session.close() # Ensure the session is closed after the test
 
 
 @pytest.fixture(scope="function")
 async def test_user(db_session: AsyncSession):
     hashed_pwd = get_password_hash(TEST_PASSWORD)
+    
+    # Generate valid encrypted keys
+    encryption_service = EncryptionService()
+    valid_encrypted_keys = {
+        "binance": encryption_service.encrypt_keys("dummy_api", "dummy_secret"),
+        "MOCK": encryption_service.encrypt_keys("dummy_mock_api", "dummy_mock_secret")
+    }
+    
     user = User(
         username="testuser", 
         email="test@example.com", 
@@ -69,7 +84,7 @@ async def test_user(db_session: AsyncSession):
         exchange="binance", 
         webhook_secret="secret", 
         is_active=True,
-        encrypted_api_keys={"encrypted_data": "dummy_encrypted_key"},
+        encrypted_api_keys=valid_encrypted_keys,
         dca_grid_config=[
             {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
             {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
@@ -101,10 +116,6 @@ async def authorized_client(client: AsyncClient, test_user: User):
     }) as auth_client:
         yield auth_client
 
-@pytest.fixture(scope="function", autouse=True)
-def mock_encryption():
-    with patch("app.core.security.EncryptionService.decrypt_keys", return_value=("mock_api_key", "mock_secret_key")):
-        yield
 
 
 @pytest.fixture

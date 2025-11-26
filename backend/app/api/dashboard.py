@@ -50,8 +50,17 @@ async def get_tvl(
         # Fetch balance
         try:
             balances = await connector.fetch_balance()
-            # Assuming USDT is the primary collateral.
-            tvl = balances.get("USDT", 0.0)
+            
+            # Connectors usually return the 'total' dict directly (e.g. {'USDT': 100.0})
+            # But standard CCXT structure is {'total': {'USDT': 100.0}, ...}
+            # We handle both cases for robustness.
+            if "total" in balances and isinstance(balances["total"], dict):
+                total_balances = balances["total"]
+            else:
+                total_balances = balances
+                
+            tvl = total_balances.get("USDT", 0.0)
+            
             return {"tvl": float(tvl)}
         finally:
              # Cleanup connection if possible

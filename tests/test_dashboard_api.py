@@ -8,13 +8,21 @@ from app.models.position_group import PositionGroup, PositionGroupStatus
 async def test_get_tvl(authorized_client):
     # Mock connector
     mock_connector = AsyncMock()
-    mock_connector.fetch_balance.return_value = {"USDT": 5000.50}
+    # CCXT structure: {'total': {'USDT': 5000.50}, ...}
+    mock_connector.fetch_balance.return_value = {"total": {"USDT": 5000.50}}
     mock_connector.exchange = AsyncMock() # For close()
 
-    with patch("app.api.dashboard.get_exchange_connector", return_value=mock_connector) as mock_get_conn:
+    with patch("app.api.dashboard.get_exchange_connector", return_value=mock_connector) as mock_get_conn, \
+         patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
+        
+        # Mock the instance returned by EncryptionService()
+        mock_encrypt_service = mock_encrypt_service_cls.return_value
+        mock_encrypt_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+
         response = await authorized_client.get("/api/v1/dashboard/tvl")
         
         assert response.status_code == 200
+
         assert response.json() == {"tvl": 5000.50}
         
         # Verify cleanup

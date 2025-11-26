@@ -58,30 +58,36 @@ class PositionManagerService:
         total_capital_usd: Decimal
     ) -> PositionGroup:
         print(f"DEBUG: Entering create_position_group_from_signal for user {user_id}")
-        # 1. Get user and decrypt API keys to instantiate exchange connector
+        
+        # 1. Get user 
         user = await session.get(User, user_id)
         if not user:
             print("DEBUG: User not found")
             raise UserNotFoundException(f"User {user_id} not found")
-        
-        encryption_service = EncryptionService() 
-        
-        # Handle multi-exchange keys
-        encrypted_data = user.encrypted_api_keys
-        if isinstance(encrypted_data, dict):
-             if signal.exchange in encrypted_data:
-                 encrypted_data = encrypted_data[signal.exchange]
-             elif "encrypted_data" not in encrypted_data:
-                 raise ValueError(f"No API keys found for exchange {signal.exchange}")
 
-        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-        print(f"DEBUG: Decrypted keys. API Key len: {len(api_key)}")
+        if self.exchange_connector:
+            exchange_connector = self.exchange_connector
+        else:
+            # Decrypt API keys to instantiate exchange connector
+            encryption_service = EncryptionService() 
+            
+            # Handle multi-exchange keys
+            encrypted_data = user.encrypted_api_keys
+            if isinstance(encrypted_data, dict):
+                 if signal.exchange in encrypted_data:
+                     encrypted_data = encrypted_data[signal.exchange]
+                 elif "encrypted_data" not in encrypted_data:
+                     raise ValueError(f"No API keys found for exchange {signal.exchange}")
+
+            api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
+            print(f"DEBUG: Decrypted keys. API Key len: {len(api_key)}")
+            
+            exchange_connector = get_exchange_connector(
+                exchange_type=signal.exchange,
+                api_key=api_key,
+                secret_key=secret_key
+            )
         
-        exchange_connector = get_exchange_connector(
-            exchange_type=signal.exchange,
-            api_key=api_key,
-            secret_key=secret_key
-        )
         print(f"DEBUG: Got exchange connector: {exchange_connector}")
 
         # 2. Fetch precision rules
@@ -190,27 +196,31 @@ class PositionManagerService:
         dca_grid_config: DCAGridConfig,
         total_capital_usd: Decimal
     ) -> PositionGroup:
-        # 1. Get user and decrypt API keys
+        # 1. Get user 
         user = await session.get(User, user_id)
         if not user:
             raise UserNotFoundException(f"User {user_id} not found")
-        
-        encryption_service = EncryptionService() 
-        
-        # Handle multi-exchange keys
-        encrypted_data = user.encrypted_api_keys
-        if isinstance(encrypted_data, dict):
-             if signal.exchange in encrypted_data:
-                 encrypted_data = encrypted_data[signal.exchange]
-             elif "encrypted_data" not in encrypted_data:
-                 raise ValueError(f"No API keys found for exchange {signal.exchange}")
 
-        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-        exchange_connector = get_exchange_connector(
-            exchange_type=signal.exchange,
-            api_key=api_key,
-            secret_key=secret_key
-        )
+        if self.exchange_connector:
+            exchange_connector = self.exchange_connector
+        else:
+            # Decrypt API keys
+            encryption_service = EncryptionService() 
+            
+            # Handle multi-exchange keys
+            encrypted_data = user.encrypted_api_keys
+            if isinstance(encrypted_data, dict):
+                 if signal.exchange in encrypted_data:
+                     encrypted_data = encrypted_data[signal.exchange]
+                 elif "encrypted_data" not in encrypted_data:
+                     raise ValueError(f"No API keys found for exchange {signal.exchange}")
+
+            api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
+            exchange_connector = get_exchange_connector(
+                exchange_type=signal.exchange,
+                api_key=api_key,
+                secret_key=secret_key
+            )
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()

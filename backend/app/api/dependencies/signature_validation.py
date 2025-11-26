@@ -19,11 +19,23 @@ async def get_webhook_payload(request: Request) -> WebhookPayload:
 class SignatureValidator:
     async def __call__(self, user_id: str, request: Request, db_session: AsyncSession = Depends(get_db_session)):
         user_repo = UserRepository(db_session)
-        signature = request.headers.get("X-Signature")
-        if not signature:
+        
+        # We need to parse the body to get the secret inside the payload
+        try:
+            # Parse the JSON body. We use request.json() which caches the result 
+            # so subsequent calls in the endpoint won't fail.
+            payload = await request.json()
+        except Exception:
+             raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid JSON payload.",
+            )
+
+        received_secret = payload.get("secret")
+        if not received_secret:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing signature.",
+                detail="Missing secret in payload.",
             )
 
         user = await user_repo.get_by_id(user_id)
@@ -33,18 +45,12 @@ class SignatureValidator:
                 detail="User not found.",
             )
 
-        # Read the raw body for signature verification
-        # This prevents parsing large JSON payloads if the signature is invalid
-        body = await request.body()
-        secret = user.webhook_secret
-        expected_signature = hmac.new(
-            key=secret.encode(), msg=body, digestmod=hashlib.sha256
-        ).hexdigest()
-
-        if not hmac.compare_digest(expected_signature, signature):
+        # Validate the secret
+        # Use hmac.compare_digest to prevent timing attacks
+        if not hmac.compare_digest(user.webhook_secret, received_secret):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid signature.",
+                detail="Invalid secret.",
             )
         
         # Attach user to request state for later use
