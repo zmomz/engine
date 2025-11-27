@@ -477,14 +477,19 @@ class PositionManagerService:
             
             position_group.filled_dca_legs = len(filled_orders)
             
+            logger.debug(f"PositionGroup {group_id}: Status {position_group.status}, Filled Legs: {len(filled_orders)}, Total Legs: {position_group.total_dca_legs}")
+
             if position_group.status == PositionGroupStatus.LIVE:
-                    if len(filled_orders) == len(position_group.dca_orders):
+                    if len(filled_orders) >= position_group.total_dca_legs:
                         position_group.status = PositionGroupStatus.ACTIVE
+                        logger.info(f"PositionGroup {group_id} transitioning from LIVE to ACTIVE")
                     else:
                         position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+                        logger.info(f"PositionGroup {group_id} transitioning from LIVE to PARTIALLY_FILLED")
             elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
-                    if len(filled_orders) == len(position_group.dca_orders):
+                    if len(filled_orders) >= position_group.total_dca_legs:
                         position_group.status = PositionGroupStatus.ACTIVE
+                        logger.info(f"PositionGroup {group_id} transitioning from PARTIALLY_FILLED to ACTIVE")
             
             # Auto-close if everything is sold
             if net_qty == 0 and total_qty_in > 0:
