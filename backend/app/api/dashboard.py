@@ -8,6 +8,9 @@ from app.repositories.position_group import PositionGroupRepository
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.core.security import EncryptionService
 from app.schemas.dashboard import DashboardOutput
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -67,7 +70,7 @@ async def get_account_summary(
             free_usdt = free_balances.get("USDT", total_balances.get("USDT", 0.0))
 
             for asset, amount in total_balances.items():
-                if amount > 0:
+                if amount > 0 and asset != current_user.exchange:
                     if asset == "USDT":
                         tvl += amount
                     else:
@@ -77,7 +80,7 @@ async def get_account_summary(
                             price_in_usdt = await connector.get_current_price(f"{asset}/USDT")
                             tvl += amount * price_in_usdt
                         except Exception as e:
-                            print(f"Could not fetch price for {asset}/USDT: {e}")
+                            logger.error(f"Could not fetch price for {asset}/USDT: {e}")
                             # If price fetching fails, we might just skip this asset
                             # or log a warning. For now, we skip it for TVL calculation.
             
@@ -89,7 +92,7 @@ async def get_account_summary(
 
     except Exception as e:
         # In a real app, we should log this error
-        print(f"Error fetching TVL: {e}")
+        logger.error(f"Error fetching TVL: {e}")
         return {"tvl": 0.0}
 
 @router.get("/pnl")
@@ -105,8 +108,10 @@ async def get_pnl(
     # 2. Calculate Unrealized PnL for active positions
     unrealized_pnl = 0.0
     active_groups = await repo.get_active_position_groups_for_user(current_user.id)
+    logger.debug(f"get_pnl: Found {len(active_groups)} active position groups for user {current_user.id}")
     
     if active_groups and current_user.encrypted_api_keys:
+        logger.debug(f"get_pnl: User {current_user.id} has encrypted API keys. Attempting unrealized PnL calculation.")
         try:
             encrypted_data = current_user.encrypted_api_keys
             target_data = None
@@ -131,10 +136,12 @@ async def get_pnl(
                 
                 try:
                     for group in active_groups:
+                        logger.debug(f"get_pnl: Processing active group {group.id} (Symbol: {group.symbol})")
                         try:
                             current_price = await connector.get_current_price(group.symbol)
                             qty = float(group.total_filled_quantity)
                             avg_entry = float(group.weighted_avg_entry)
+                            logger.debug(f"get_pnl: {group.symbol} - Current Price: {current_price}, Quantity: {qty}, Avg Entry: {avg_entry}")
                             
                             if qty > 0:
                                 if group.side == "long":
@@ -142,15 +149,17 @@ async def get_pnl(
                                 else:
                                     pnl = (avg_entry - current_price) * qty
                                 unrealized_pnl += pnl
+                                logger.debug(f"Calculated unrealized PnL for {group.symbol}: {pnl}")
                         except Exception as e:
-                            print(f"Error fetching price for {group.symbol}: {e}")
+                            logger.error(f"Error fetching price for {group.symbol}: {e}")
                 finally:
                     if hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
                          await connector.exchange.close()
         except Exception as e:
-            print(f"Error calculating unrealized PnL context: {e}")
+            logger.error(f"Error calculating unrealized PnL context: {e}")
 
     total_pnl = float(realized_pnl) + unrealized_pnl
+    logger.debug(f"Total Realized PnL: {realized_pnl}, Total Unrealized PnL: {unrealized_pnl}, Total PnL: {total_pnl}")
     return {"pnl": total_pnl}
 
 @router.get("/active-groups-count")

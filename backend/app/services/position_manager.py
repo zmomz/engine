@@ -189,6 +189,10 @@ class PositionManagerService:
             # But the caller might need to know. 
             # However, if we suppress, the PG is saved as FAILED.
             pass
+        
+        # Update pyramid status after orders are submitted
+        new_pyramid.status = PyramidStatus.SUBMITTED
+        await session.flush() # Ensure pyramid status is updated
 
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
         
@@ -389,7 +393,7 @@ class PositionManagerService:
         else:
             async with self.session_factory() as new_session:
                 await self._execute_update_position_stats(new_session, group_id)
-                await new_session.commit()
+                await new_session.commit() # Commit here when a new session is created
 
     async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID):
         position_group_repo = self.position_group_repository_class(session)
@@ -398,17 +402,41 @@ class PositionManagerService:
             logger.error(f"PositionGroup {group_id} not found for stats update.")
             return
 
-        # Flush any pending changes (e.g., tp_hit updates) before querying
-        await session.flush()
-        
         # Query DCAOrder directly instead of relying on the relationship
         # because the relationship has lazy='noload' which prevents loading
         from sqlalchemy import select
         from app.models.dca_order import DCAOrder
-        
+        from app.models.pyramid import Pyramid, PyramidStatus # Import Pyramid and PyramidStatus
+
         stmt = select(DCAOrder).where(DCAOrder.group_id == group_id)
         result = await session.execute(stmt)
         all_orders = result.scalars().all()
+        
+        # Group orders by pyramid_id
+        pyramid_orders = {}
+        for order in all_orders:
+            pyramid_orders.setdefault(order.pyramid_id, []).append(order)
+
+        # Update pyramid statuses based on their DCA orders
+        for pyramid_id, orders_in_pyramid in pyramid_orders.items():
+            pyramid = await session.get(Pyramid, pyramid_id)
+            if not pyramid: # Should not happen if pyramid_orders map is built correctly
+                continue
+
+            any_order_submitted_or_filled = any(
+                o.status in [OrderStatus.OPEN, OrderStatus.FILLED] 
+                for o in orders_in_pyramid
+            )
+            all_orders_for_pyramid_filled = all(o.status == OrderStatus.FILLED for o in orders_in_pyramid)
+            
+            if all_orders_for_pyramid_filled and pyramid.status != PyramidStatus.FILLED:
+                pyramid.status = PyramidStatus.FILLED
+                logger.info(f"Pyramid {pyramid.id} status updated to FILLED.")
+                # No need to flush here, outer commit will handle it
+            elif any_order_submitted_or_filled and pyramid.status == PyramidStatus.PENDING:
+                pyramid.status = PyramidStatus.SUBMITTED
+                logger.info(f"Pyramid {pyramid.id} status updated to SUBMITTED (some orders submitted/filled).")
+                # No need to flush here, outer commit will handle it
         
         filled_orders = [o for o in all_orders if o.status == OrderStatus.FILLED]
         

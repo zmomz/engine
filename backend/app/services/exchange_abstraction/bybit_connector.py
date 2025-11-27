@@ -107,3 +107,10 @@ class BybitConnector(ExchangeInterface):
         """
         balance = await self.exchange.fetch_balance()
         return balance['total']
+
+    async def close(self):
+        """
+        Closes the underlying ccxt exchange instance.
+        """
+        if self.exchange:
+            await self.exchange.close()

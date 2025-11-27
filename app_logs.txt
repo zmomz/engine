@@ -1,0 +1,273 @@
+Attaching to engine_app_1
+[36mapp_1       |[0m INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+[36mapp_1       |[0m INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+[36mapp_1       |[0m INFO  [alembic.runtime.migration] Will assume transactional DDL.
+[36mapp_1       |[0m INFO  [alembic.runtime.migration] Will assume transactional DDL.
+[36mapp_1       |[0m INFO:     Will watch for changes in these directories: ['/app']
+[36mapp_1       |[0m INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[36mapp_1       |[0m INFO:     Started reloader process [13] using StatReload
+[36mapp_1       |[0m /app/.venv/lib/python3.10/site-packages/pydantic/_internal/_config.py:317: UserWarning: Valid config keys have changed in V2:
+[36mapp_1       |[0m * 'allow_population_by_field_name' has been renamed to 'populate_by_name'
+[36mapp_1       |[0m   warnings.warn(message, UserWarning)
+[36mapp_1       |[0m INFO:     Started server process [17]
+[36mapp_1       |[0m INFO:     Waiting for application startup.
+[36mapp_1       |[0m 2025-11-27 14:34:42,017 - app.main - INFO - Starting up in development mode
+[36mapp_1       |[0m 2025-11-27 14:34:42,020 - app.main - INFO - CORS Allowed Origins: ['http://167.172.91.44:3000']
+[36mapp_1       |[0m 2025-11-27 14:34:42,021 - app.services.order_fill_monitor - INFO - OrderFillMonitorService monitoring task started.
+[36mapp_1       |[0m 2025-11-27 14:34:42,021 - app.services.queue_manager - INFO - Queue Promotion Task Started
+[36mapp_1       |[0m INFO:     Application startup complete.
+[36mapp_1       |[0m 2025-11-27 14:34:42,301 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:34:42,369 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:34:42,370 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:34:42,371 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:34:49,380 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:34:49,401 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:34:49,402 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:34:49,403 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:34:54,162 - multipart.multipart - DEBUG - Calling on_part_begin with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,163 - multipart.multipart - DEBUG - Calling on_header_field with data[42:61]
+[36mapp_1       |[0m 2025-11-27 14:34:54,163 - multipart.multipart - DEBUG - Calling on_header_value with data[63:89]
+[36mapp_1       |[0m 2025-11-27 14:34:54,164 - multipart.multipart - DEBUG - Calling on_header_end with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,165 - multipart.multipart - DEBUG - Calling on_headers_finished with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,165 - multipart.multipart - DEBUG - Calling on_part_data with data[93:97]
+[36mapp_1       |[0m 2025-11-27 14:34:54,166 - multipart.multipart - DEBUG - Calling on_part_end with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,167 - multipart.multipart - DEBUG - Calling on_part_begin with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,167 - multipart.multipart - DEBUG - Calling on_header_field with data[141:160]
+[36mapp_1       |[0m 2025-11-27 14:34:54,168 - multipart.multipart - DEBUG - Calling on_header_value with data[162:188]
+[36mapp_1       |[0m 2025-11-27 14:34:54,168 - multipart.multipart - DEBUG - Calling on_header_end with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,169 - multipart.multipart - DEBUG - Calling on_headers_finished with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,169 - multipart.multipart - DEBUG - Calling on_part_data with data[192:202]
+[36mapp_1       |[0m 2025-11-27 14:34:54,170 - multipart.multipart - DEBUG - Calling on_part_end with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,170 - multipart.multipart - DEBUG - Calling on_end with no data
+[36mapp_1       |[0m 2025-11-27 14:34:54,181 - passlib.handlers.bcrypt - WARNING - (trapped) error reading bcrypt version
+[36mapp_1       |[0m Traceback (most recent call last):
+[36mapp_1       |[0m   File "/app/.venv/lib/python3.10/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+[36mapp_1       |[0m     version = _bcrypt.__about__.__version__
+[36mapp_1       |[0m AttributeError: module 'bcrypt' has no attribute '__about__'
+[36mapp_1       |[0m 2025-11-27 14:34:54,183 - passlib.handlers.bcrypt - DEBUG - detected 'bcrypt' backend, version '<unknown>'
+[36mapp_1       |[0m 2025-11-27 14:34:54,184 - passlib.handlers.bcrypt - DEBUG - 'bcrypt' backend lacks $2$ support, enabling workaround
+[36mapp_1       |[0m INFO:     172.18.0.4:34894 - "POST /api/v1/users/login HTTP/1.0" 200 OK
+[36mapp_1       |[0m INFO:     172.18.0.4:34904 - "GET /api/v1/positions/f281cda9-86f3-4328-a0f7-6eb919ee2bbe/history HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:34:56,541 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:34:56,548 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:34:56,548 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:34:56,549 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:34:59,214 - app.api.dashboard - ERROR - Could not fetch price for TRY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+[36mapp_1       |[0m 2025-11-27 14:34:59,215 - app.api.dashboard - ERROR - Could not fetch price for ZAR/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ZAR/USDT
+[36mapp_1       |[0m 2025-11-27 14:34:59,215 - app.api.dashboard - ERROR - Could not fetch price for UAH/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol UAH/USDT
+[36mapp_1       |[0m 2025-11-27 14:34:59,314 - app.api.dashboard - ERROR - Could not fetch price for DAI/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol DAI/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:00,697 - app.api.dashboard - ERROR - Could not fetch price for BRL/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol BRL/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:03,372 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:03,377 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:03,378 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:03,379 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:06,413 - app.api.dashboard - ERROR - Could not fetch price for PLN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol PLN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:06,844 - app.api.dashboard - ERROR - Could not fetch price for RON/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol RON/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:06,943 - app.api.dashboard - ERROR - Could not fetch price for ARS/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ARS/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:08,123 - app.api.dashboard - ERROR - Could not fetch price for JPY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol JPY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:08,338 - app.api.dashboard - ERROR - Could not fetch price for MXN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol MXN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:08,435 - app.api.dashboard - ERROR - Could not fetch price for COP/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol COP/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:09,403 - app.api.dashboard - ERROR - Could not fetch price for CZK/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol CZK/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:34906 - "GET /api/v1/dashboard/account-summary HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:10,491 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:10,858 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:10,859 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:10,860 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:13,465 - app.api.dashboard - DEBUG - Total Realized PnL: 0E-10, Total Unrealized PnL: 0.0, Total PnL: 0.0
+[36mapp_1       |[0m INFO:     172.18.0.4:43620 - "GET /api/v1/dashboard/pnl HTTP/1.0" 200 OK
+[36mapp_1       |[0m INFO:     172.18.0.4:40082 - "GET /api/v1/dashboard/active-groups-count HTTP/1.0" 200 OK
+[36mapp_1       |[0m INFO:     172.18.0.4:40088 - "GET /api/v1/positions/active HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:15,737 - app.api.dashboard - ERROR - Could not fetch price for TRY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:15,738 - app.api.dashboard - ERROR - Could not fetch price for ZAR/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ZAR/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:15,739 - app.api.dashboard - ERROR - Could not fetch price for UAH/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol UAH/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:15,842 - app.api.dashboard - ERROR - Could not fetch price for DAI/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol DAI/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:16,919 - app.api.dashboard - ERROR - Could not fetch price for BRL/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol BRL/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:40104 - "GET /api/v1/positions/f281cda9-86f3-4328-a0f7-6eb919ee2bbe/history HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:19,797 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:19,805 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:19,805 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:19,806 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m INFO:     172.18.0.4:40106 - "GET /api/v1/positions/active HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:22,929 - app.api.dashboard - ERROR - Could not fetch price for PLN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol PLN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:23,395 - app.api.dashboard - ERROR - Could not fetch price for RON/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol RON/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:23,491 - app.api.dashboard - ERROR - Could not fetch price for ARS/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ARS/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:24,467 - app.api.dashboard - ERROR - Could not fetch price for JPY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol JPY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:24,666 - app.api.dashboard - ERROR - Could not fetch price for MXN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol MXN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:24,765 - app.api.dashboard - ERROR - Could not fetch price for COP/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol COP/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:26,688 - app.api.dashboard - ERROR - Could not fetch price for CZK/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol CZK/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:26,720 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:26,745 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:26,746 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:26,747 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m INFO:     172.18.0.4:43616 - "GET /api/v1/dashboard/account-summary HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:31,080 - app.api.dashboard - DEBUG - Total Realized PnL: 0E-10, Total Unrealized PnL: 0.0, Total PnL: 0.0
+[36mapp_1       |[0m INFO:     172.18.0.4:32784 - "GET /api/v1/dashboard/pnl HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:31,512 - app.api.dashboard - ERROR - Could not fetch price for TRY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:31,514 - app.api.dashboard - ERROR - Could not fetch price for ZAR/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ZAR/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:31,515 - app.api.dashboard - ERROR - Could not fetch price for UAH/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol UAH/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:31,618 - app.api.dashboard - ERROR - Could not fetch price for DAI/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol DAI/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:32794 - "GET /api/v1/dashboard/active-groups-count HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:32,404 - app.api.dashboard - ERROR - Could not fetch price for TRY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:32,405 - app.api.dashboard - ERROR - Could not fetch price for ZAR/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ZAR/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:32,406 - app.api.dashboard - ERROR - Could not fetch price for UAH/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol UAH/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:32,505 - app.api.dashboard - ERROR - Could not fetch price for DAI/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol DAI/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:32,689 - app.api.dashboard - ERROR - Could not fetch price for BRL/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol BRL/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:33,571 - app.api.dashboard - ERROR - Could not fetch price for BRL/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol BRL/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:33,677 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:33,683 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:33,684 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:33,684 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:39,136 - app.api.dashboard - ERROR - Could not fetch price for TRY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:39,140 - app.api.dashboard - ERROR - Could not fetch price for ZAR/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ZAR/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:39,141 - app.api.dashboard - ERROR - Could not fetch price for UAH/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol UAH/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:39,241 - app.api.dashboard - ERROR - Could not fetch price for DAI/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol DAI/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:39,756 - app.api.dashboard - ERROR - Could not fetch price for PLN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol PLN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:39,954 - app.api.dashboard - ERROR - Could not fetch price for RON/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol RON/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,029 - app.api.dashboard - ERROR - Could not fetch price for BRL/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol BRL/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,192 - app.api.dashboard - ERROR - Could not fetch price for ARS/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ARS/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,440 - app.api.dashboard - ERROR - Could not fetch price for TRY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,441 - app.api.dashboard - ERROR - Could not fetch price for ZAR/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ZAR/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,442 - app.api.dashboard - ERROR - Could not fetch price for UAH/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol UAH/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,453 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:40,497 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:40,498 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:40,499 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:40,548 - app.api.dashboard - ERROR - Could not fetch price for DAI/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol DAI/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:40,783 - app.api.dashboard - ERROR - Could not fetch price for PLN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol PLN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:42,402 - app.api.dashboard - ERROR - Could not fetch price for RON/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol RON/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:42,508 - app.api.dashboard - ERROR - Could not fetch price for ARS/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ARS/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:42,893 - app.api.dashboard - ERROR - Could not fetch price for JPY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol JPY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:42,897 - app.api.dashboard - ERROR - Could not fetch price for BRL/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol BRL/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:43,384 - app.api.dashboard - ERROR - Could not fetch price for MXN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol MXN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:43,485 - app.api.dashboard - ERROR - Could not fetch price for COP/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol COP/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:43,790 - app.api.dashboard - ERROR - Could not fetch price for JPY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol JPY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:44,132 - app.api.dashboard - ERROR - Could not fetch price for MXN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol MXN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:44,230 - app.api.dashboard - ERROR - Could not fetch price for COP/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol COP/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:44,470 - app.api.dashboard - ERROR - Could not fetch price for CZK/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol CZK/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:60998 - "GET /api/v1/dashboard/account-summary HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:45,205 - app.api.dashboard - ERROR - Could not fetch price for CZK/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol CZK/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:32774 - "GET /api/v1/dashboard/account-summary HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:46,637 - app.api.dashboard - ERROR - Could not fetch price for PLN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol PLN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:46,775 - app.api.dashboard - DEBUG - Total Realized PnL: 0E-10, Total Unrealized PnL: 0.0, Total PnL: 0.0
+[36mapp_1       |[0m INFO:     172.18.0.4:37282 - "GET /api/v1/dashboard/pnl HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:46,926 - app.api.dashboard - ERROR - Could not fetch price for RON/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol RON/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:47,015 - app.api.dashboard - ERROR - Could not fetch price for ARS/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ARS/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:37296 - "GET /api/v1/dashboard/active-groups-count HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:47,479 - app.api.dashboard - ERROR - Could not fetch price for PLN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol PLN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:48,700 - app.api.dashboard - ERROR - Could not fetch price for RON/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol RON/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:48,707 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:48,718 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:48,719 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:48,719 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:48,831 - app.api.dashboard - ERROR - Could not fetch price for ARS/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol ARS/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:48,836 - app.api.dashboard - DEBUG - Total Realized PnL: 0E-10, Total Unrealized PnL: 0.0, Total PnL: 0.0
+[36mapp_1       |[0m INFO:     172.18.0.4:37294 - "GET /api/v1/dashboard/pnl HTTP/1.0" 200 OK
+[36mapp_1       |[0m INFO:     172.18.0.4:37302 - "GET /api/v1/dashboard/active-groups-count HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:49,332 - app.api.dashboard - ERROR - Could not fetch price for JPY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol JPY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:50,582 - app.api.dashboard - ERROR - Could not fetch price for MXN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol MXN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:50,685 - app.api.dashboard - ERROR - Could not fetch price for COP/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol COP/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:51,329 - app.api.dashboard - ERROR - Could not fetch price for JPY/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol JPY/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:51,526 - app.api.dashboard - ERROR - Could not fetch price for MXN/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol MXN/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:51,622 - app.api.dashboard - ERROR - Could not fetch price for COP/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol COP/USDT
+[36mapp_1       |[0m 2025-11-27 14:35:51,673 - app.api.dashboard - ERROR - Could not fetch price for CZK/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol CZK/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:52514 - "GET /api/v1/dashboard/account-summary HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:52,606 - app.api.dashboard - ERROR - Could not fetch price for CZK/USDT: An unknown exchange error occurred. Original error: binance does not have market symbol CZK/USDT
+[36mapp_1       |[0m INFO:     172.18.0.4:52516 - "GET /api/v1/dashboard/account-summary HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:54,427 - app.api.dashboard - DEBUG - Total Realized PnL: 0E-10, Total Unrealized PnL: 0.0, Total PnL: 0.0
+[36mapp_1       |[0m INFO:     172.18.0.4:37724 - "GET /api/v1/dashboard/pnl HTTP/1.0" 200 OK
+[36mapp_1       |[0m INFO:     172.18.0.4:37734 - "GET /api/v1/dashboard/active-groups-count HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:35:56,594 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:35:56,600 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:35:56,601 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:56,602 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:35:56,733 - app.api.dashboard - DEBUG - Total Realized PnL: 0E-10, Total Unrealized PnL: 0.0, Total PnL: 0.0
+[36mapp_1       |[0m INFO:     172.18.0.4:37748 - "GET /api/v1/dashboard/pnl HTTP/1.0" 200 OK
+[36mapp_1       |[0m INFO:     172.18.0.4:37756 - "GET /api/v1/dashboard/active-groups-count HTTP/1.0" 200 OK
+[36mapp_1       |[0m 2025-11-27 14:36:03,427 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:03,433 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:03,433 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:03,434 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:10,029 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:10,034 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:10,035 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:10,035 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:16,830 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:16,836 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:16,837 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:16,837 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:23,425 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:23,447 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:23,447 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:23,448 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:30,229 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:30,236 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:30,238 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:30,239 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:37,191 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:37,197 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:37,198 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:37,198 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:43,909 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:43,915 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:43,916 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:43,916 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:50,863 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:50,869 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:50,874 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:50,877 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:57,878 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:36:57,892 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:36:57,899 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:36:57,902 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:04,837 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:04,844 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:04,844 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:04,845 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:11,478 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:11,491 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:11,492 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:11,493 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:18,338 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:18,344 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:18,345 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:18,346 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:25,354 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:25,360 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:25,361 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:25,362 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:31,985 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:31,990 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:31,991 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:31,991 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:38,778 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:38,783 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:38,784 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:38,785 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:45,628 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:45,633 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:45,634 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:45,634 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:52,249 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:52,255 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:52,256 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:52,257 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:59,063 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:37:59,069 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:37:59,070 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:37:59,070 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:05,722 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:38:05,729 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:38:05,730 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:05,732 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:12,976 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:38:12,981 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:38:12,982 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:12,983 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:19,715 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:38:19,721 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:38:19,722 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:19,723 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:26,543 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Found 1 active users.
+[36mapp_1       |[0m 2025-11-27 14:38:26,549 - app.services.order_fill_monitor - INFO - OrderFillMonitor: User f281cda9-86f3-4328-a0f7-6eb919ee2bbe - Found 2 open/partially filled orders.
+[36mapp_1       |[0m 2025-11-27 14:38:26,550 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order 4e0dba49-4e30-4bac-93e3-537b9f440810 with initial status filled.
+[36mapp_1       |[0m 2025-11-27 14:38:26,550 - app.services.order_fill_monitor - INFO - OrderFillMonitor: Processing order ae7bbcf0-6fed-483f-b800-972ee7462844 with initial status filled.

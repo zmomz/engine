@@ -149,3 +149,9 @@ class MockConnector(ExchangeInterface):
                 }
             except Exception as e:
                 raise APIError(f"MockConnector fetch_balance failed: {e}")
+
+    async def close(self):
+        """
+        No-op for MockConnector as it manages client context per request.
+        """
+        pass

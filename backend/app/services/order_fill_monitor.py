@@ -108,46 +108,49 @@ class OrderFillMonitorService:
                                  logger.error(f"Failed to setup connector for {exchange_name}: {e}")
                                  continue
                              
-                             order_service = self.order_service_class(
-                                session=session,
-                                user=user,
-                                exchange_connector=connector
-                             )
-                             
-                             position_manager = self.position_manager_service_class(
-                                session_factory=self.session_factory,
-                                user=user,
-                                position_group_repository_class=self.position_group_repository_class,
-                                grid_calculator_service=None, 
-                                order_service_class=None, 
-                                exchange_connector=connector
-                             )
+                             try:
+                                 order_service = self.order_service_class(
+                                    session=session,
+                                    user=user,
+                                    exchange_connector=connector
+                                 )
+                                 
+                                 position_manager = self.position_manager_service_class(
+                                    session_factory=self.session_factory,
+                                    user=user,
+                                    position_group_repository_class=self.position_group_repository_class,
+                                    grid_calculator_service=None, 
+                                    order_service_class=None, 
+                                    exchange_connector=connector
+                                 )
 
-                             for order in orders_to_check:
-                                try:
-                                    # If already filled, we are here to check the TP order
-                                    if order.status == OrderStatus.FILLED.value:
-                                        updated_order = await order_service.check_tp_status(order)
-                                        if updated_order.tp_hit:
-                                            logger.info(f"TP hit for order {order.id}. Updating position stats.")
-                                            # Flush tp_hit update before recalculating stats
+                                 for order in orders_to_check:
+                                    try:
+                                        # If already filled, we are here to check the TP order
+                                        if order.status == OrderStatus.FILLED.value:
+                                            updated_order = await order_service.check_tp_status(order)
+                                            if updated_order.tp_hit:
+                                                logger.info(f"TP hit for order {order.id}. Updating position stats.")
+                                                # Flush tp_hit update before recalculating stats
+                                                await session.flush()
+                                                await position_manager.update_position_stats(updated_order.group_id, session=session)
+                                            continue
+
+                                        updated_order = await order_service.check_order_status(order)
+                                        if updated_order.status in ["filled", "cancelled", "failed"]:
+                                             logger.info(f"Order {order.id} status updated to {updated_order.status}")
+                                             
+                                        if updated_order.status == OrderStatus.FILLED.value:
+                                            # Flush order status update before recalculating stats
                                             await session.flush()
                                             await position_manager.update_position_stats(updated_order.group_id, session=session)
-                                        continue
-
-                                    updated_order = await order_service.check_order_status(order)
-                                    if updated_order.status in ["filled", "cancelled", "failed"]:
-                                         logger.info(f"Order {order.id} status updated to {updated_order.status}")
-                                         
-                                    if updated_order.status == OrderStatus.FILLED.value:
-                                        # Flush order status update before recalculating stats
-                                        await session.flush()
-                                        await position_manager.update_position_stats(updated_order.group_id, session=session)
-                                        await order_service.place_tp_order(updated_order)
-                                        logger.info(f"Placed TP order for {updated_order.id}")
-                                        
-                                except Exception as e:
-                                    logger.error(f"Failed to check status for order {order.id}: {e}")
+                                            await order_service.place_tp_order(updated_order)
+                                            logger.info(f"Placed TP order for {updated_order.id}")
+                                            
+                                    except Exception as e:
+                                        logger.error(f"Failed to check status for order {order.id}: {e}")
+                             finally:
+                                 await connector.close()
                         
                         await session.commit()
                     except Exception as e:

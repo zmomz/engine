@@ -357,6 +357,13 @@ class QueueManagerService:
                             except Exception:
                                 pass
 
+                            # Apply max total exposure from risk config if set
+                            if risk_config.max_total_exposure_usd:
+                                max_exposure = Decimal(str(risk_config.max_total_exposure_usd))
+                                if total_capital > max_exposure:
+                                    logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
+                                    total_capital = max_exposure
+
                             if is_pyramid:
                                 existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
                                 if existing_group:

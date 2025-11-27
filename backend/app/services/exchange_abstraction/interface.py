@@ -31,3 +31,10 @@ class ExchangeInterface(ABC):
     @abstractmethod
     async def fetch_balance(self):
         pass
+
+    @abstractmethod
+    async def close(self):
+        """
+        Closes the exchange connection and releases resources.
+        """
+        pass
