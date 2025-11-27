@@ -1,5 +1,6 @@
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 import uuid
 from decimal import Decimal
@@ -34,6 +35,8 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         query = select(self.model).where(
             self.model.user_id == user_id,
             self.model.status.in_(["live", "partially_filled", "active", "closing"])
+        ).options(
+            selectinload(self.model.pyramids).selectinload(self.model.pyramids.property.mapper.class_.dca_orders)
         )
         if for_update:
             query = query.with_for_update()
@@ -87,6 +90,18 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         result = await self.session.execute(
             select(
                 func.sum(self.model.realized_pnl_usd) + func.sum(self.model.unrealized_pnl_usd)
+            ).where(self.model.user_id == user_id)
+        )
+        total_pnl = result.scalar()
+        return total_pnl if total_pnl is not None else Decimal("0")
+
+    async def get_total_realized_pnl_only(self, user_id: uuid.UUID) -> Decimal:
+        """
+        Calculates the total realized PnL for a user (ignoring unrealized).
+        """
+        result = await self.session.execute(
+            select(
+                func.sum(self.model.realized_pnl_usd)
             ).where(self.model.user_id == user_id)
         )
         total_pnl = result.scalar()

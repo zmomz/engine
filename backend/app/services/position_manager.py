@@ -178,9 +178,17 @@ class PositionManagerService:
         
         print(f"DEBUG: About to submit {len(orders_to_submit)} orders")
         # 9. Asynchronously submit all orders
-        for order in orders_to_submit:
-            print(f"DEBUG: Submitting order {order.leg_index}")
-            await order_service.submit_order(order)
+        try:
+            for order in orders_to_submit:
+                print(f"DEBUG: Submitting order {order.leg_index}")
+                await order_service.submit_order(order)
+        except Exception as e:
+            logger.error(f"Failed to submit orders for PositionGroup {new_position_group.id}: {e}")
+            new_position_group.status = PositionGroupStatus.FAILED
+            # We don't raise here to allow the transaction to commit the FAILED status
+            # But the caller might need to know. 
+            # However, if we suppress, the PG is saved as FAILED.
+            pass
 
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
         
@@ -394,14 +402,38 @@ class PositionManagerService:
         
         filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
         
-        total_qty = sum(o.filled_quantity for o in filled_orders)
-        total_cost = sum(o.filled_quantity * (o.avg_fill_price or o.price) for o in filled_orders)
+        total_qty_in = Decimal("0")
+        total_cost_in = Decimal("0")
+        realized_pnl = Decimal("0")
+        total_qty_out = Decimal("0")
         
-        if total_qty > 0:
-            weighted_avg = total_cost / total_qty
-            position_group.total_filled_quantity = total_qty
-            position_group.total_invested_usd = total_cost
-            position_group.weighted_avg_entry = weighted_avg
+        for o in filled_orders:
+            qty = o.filled_quantity
+            price = o.avg_fill_price or o.price
+            total_qty_in += qty
+            total_cost_in += qty * price
+            
+            print(f"DEBUG: Order {o.id}, Status: {o.status}, TP Hit: {o.tp_hit}, Qty: {qty}, Price: {price}")
+            
+            if o.tp_hit:
+                total_qty_out += qty
+                exit_val = qty * o.tp_price
+                entry_val = qty * price
+                
+                if position_group.side == "long":
+                    realized_pnl += (exit_val - entry_val)
+                else:
+                    realized_pnl += (entry_val - exit_val)
+                print(f"DEBUG: PnL Accumulated: {realized_pnl}")
+        
+        net_qty = total_qty_in - total_qty_out
+        
+        if total_qty_in > 0:
+            avg_entry = total_cost_in / total_qty_in
+            position_group.weighted_avg_entry = avg_entry
+            position_group.total_filled_quantity = net_qty
+            position_group.total_invested_usd = net_qty * avg_entry
+            position_group.realized_pnl_usd = realized_pnl
             
             position_group.filled_dca_legs = len(filled_orders)
             
@@ -413,6 +445,11 @@ class PositionManagerService:
             elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
                     if len(filled_orders) == len(position_group.dca_orders):
                         position_group.status = PositionGroupStatus.ACTIVE
+            
+            # Auto-close if everything is sold
+            if net_qty == 0 and total_qty_in > 0:
+                 position_group.status = PositionGroupStatus.CLOSED
+                 position_group.closed_at = datetime.utcnow()
 
             await position_group_repo.update(position_group)
             

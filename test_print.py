@@ -1,0 +1,1 @@
+print("Hello from inside Docker app container!")

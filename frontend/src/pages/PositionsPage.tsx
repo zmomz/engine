@@ -118,7 +118,7 @@ const PositionsPage: React.FC = () => {
                   {pyramid.dca_orders && pyramid.dca_orders.length > 0 ? (
                     pyramid.dca_orders.map((dca) => (
                       <Typography key={dca.id} variant="body2" sx={{ ml: 2 }}>
-                        - {dca.order_type} @ ${dca.price.toLocaleString()} Qty: {dca.amount} ({dca.status})
+                        - {dca.order_type} @ ${dca.price.toLocaleString()} Qty: {dca.quantity} ({dca.status})
                       </Typography>
                     ))
                   ) : (

@@ -5,7 +5,7 @@ import useNotificationStore from './notificationStore';
 export interface DCAOrder {
   id: string;
   price: number;
-  amount: number;
+  quantity: number;
   status: string;
   order_type: string;
 }

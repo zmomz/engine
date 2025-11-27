@@ -4,10 +4,11 @@ import useEngineStore, { startEngineDataPolling, stopEngineDataPolling } from '.
 import TvlGauge from '../components/TvlGauge';
 import PnlCard from '../components/PnlCard';
 import ActiveGroupsWidget from '../components/ActiveGroupsWidget';
+import FreeUsdtCard from '../components/FreeUsdtCard';
 import EquityCurveChart from '../components/EquityCurveChart';
 
 const DashboardPage: React.FC = () => {
-  const { tvl, pnl, activeGroupsCount, fetchEngineData } = useEngineStore();
+  const { tvl, pnl, activeGroupsCount, free_usdt, fetchEngineData } = useEngineStore();
 
   useEffect(() => {
     // Fetch data immediately on mount
@@ -29,6 +30,9 @@ const DashboardPage: React.FC = () => {
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
             <TvlGauge tvl={tvl} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+          <FreeUsdtCard freeUsdt={free_usdt} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
           <PnlCard pnl={pnl} />

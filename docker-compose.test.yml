@@ -13,20 +13,12 @@ services:
 
       - DATABASE_URL=postgresql+asyncpg://tv_user:postgres@db:5432/tv_engine_db_test
       - SECRET_KEY=test_secret_key_for_integration_tests_only
-      - ENCRYPTION_KEY=test_encryption_key_for_integration_tests_only
+      - ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     depends_on:
       mock-exchange:
         condition: service_healthy
       db:
         condition: service_healthy
-    command: tail -f /dev/null
-    ports:
-      - "8001:8001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - test_net
 

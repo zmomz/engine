@@ -5,11 +5,14 @@ from app.models.position_group import PositionGroup, PositionGroupStatus
 
 # Test TVL
 @pytest.mark.asyncio
-async def test_get_tvl(authorized_client):
+async def test_get_account_summary(authorized_client):
     # Mock connector
     mock_connector = AsyncMock()
-    # CCXT structure: {'total': {'USDT': 5000.50}, ...}
-    mock_connector.fetch_balance.return_value = {"total": {"USDT": 5000.50}}
+    # CCXT structure: {'total': {'USDT': 5000.50, 'BTC': 0.1}, ...}
+    mock_connector.fetch_balance.return_value = {"total": {"USDT": 5000.50, "BTC": 0.1}}
+    mock_connector.get_current_price.side_effect = lambda symbol: {
+        "BTC/USDT": 40000.0,
+    }.get(symbol)
     mock_connector.exchange = AsyncMock() # For close()
 
     with patch("app.api.dashboard.get_exchange_connector", return_value=mock_connector) as mock_get_conn, \
@@ -19,11 +22,13 @@ async def test_get_tvl(authorized_client):
         mock_encrypt_service = mock_encrypt_service_cls.return_value
         mock_encrypt_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
 
-        response = await authorized_client.get("/api/v1/dashboard/tvl")
+        response = await authorized_client.get("/api/v1/dashboard/account-summary")
         
         assert response.status_code == 200
 
-        assert response.json() == {"tvl": 5000.50}
+        # Expected TVL: 5000.50 (USDT) + 0.1 * 40000.0 (BTC) = 5000.50 + 4000 = 9000.50
+        # Expected free_usdt: 5000.50
+        assert response.json() == {"tvl": 9000.50, "free_usdt": 5000.50}
         
         # Verify cleanup
         if hasattr(mock_connector, 'exchange') and hasattr(mock_connector.exchange, 'close'):
@@ -57,19 +62,34 @@ async def test_get_pnl(authorized_client, test_user, db_session):
         total_dca_legs=3,
         base_entry_price=Decimal("3000"),
         weighted_avg_entry=Decimal("3000"),
+        total_filled_quantity=Decimal("0.1"), # Needed for calculation
         tp_mode="aggregate",
         status=PositionGroupStatus.ACTIVE.value,
         realized_pnl_usd=Decimal("10.00"),
-        unrealized_pnl_usd=Decimal("50.50")
+        unrealized_pnl_usd=Decimal("50.50") # This is ignored now by the API logic
     )
     db_session.add_all([p1, p2])
     await db_session.commit()
 
-    response = await authorized_client.get("/api/v1/dashboard/pnl")
-    
-    assert response.status_code == 200
-    # 100 + 10 + 50.50 = 160.50
-    assert response.json() == {"pnl": 160.50}
+    # Mock connector
+    mock_connector = AsyncMock()
+    mock_connector.get_current_price.side_effect = lambda symbol: {
+        "ETH/USDT": 3505.0, # (3505 - 3000) * 0.1 = 50.5
+    }.get(symbol)
+    mock_connector.exchange = AsyncMock() # For close()
+
+    with patch("app.api.dashboard.get_exchange_connector", return_value=mock_connector), \
+         patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
+        
+        # Mock the instance returned by EncryptionService()
+        mock_encrypt_service = mock_encrypt_service_cls.return_value
+        mock_encrypt_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+
+        response = await authorized_client.get("/api/v1/dashboard/pnl")
+        
+        assert response.status_code == 200
+        # 100 + 10 + 50.50 = 160.50
+        assert response.json() == {"pnl": 160.50}
 
 # Test Active Groups Count
 @pytest.mark.asyncio

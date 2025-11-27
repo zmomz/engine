@@ -13,12 +13,13 @@ const EquityCurveChart: React.FC = () => {
   // Process data for the chart: calculate cumulative PnL over time
   const chartData = useMemo(() => {
       return historicalPositions
+        .filter(p => p.closed_at) // Ensure closed_at exists
         .slice() // Create a copy to avoid mutating state if sort does in-place (though sort() usually returns reference) - best practice
-        .sort((a, b) => new Date(a.close_time).getTime() - new Date(b.close_time).getTime())
+        .sort((a, b) => new Date(a.closed_at).getTime() - new Date(b.closed_at).getTime())
         .reduce((acc: { date: string; cumulativePnl: number }[], position) => {
           const lastCumulativePnl = acc.length > 0 ? acc[acc.length - 1].cumulativePnl : 0;
-          const cumulativePnl = lastCumulativePnl + position.realized_pnl;
-          const date = new Date(position.close_time).toLocaleDateString();
+          const cumulativePnl = lastCumulativePnl + position.realized_pnl_usd;
+          const date = new Date(position.closed_at).toLocaleDateString();
           acc.push({ date, cumulativePnl });
           return acc;
         }, []);

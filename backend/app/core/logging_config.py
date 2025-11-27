@@ -34,7 +34,7 @@ def setup_logging():
     Configures the logging for the application.
     Writes logs to stdout and to a rotating file in the logs/ directory.
     """
-    log_dir = Path("logs")
+    log_dir = Path("/tmp/logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "app.log"
 

@@ -56,7 +56,7 @@ def main():
     elif args.type == 'integration':
         targets = ["tests/integration"]
 
-    pytest_cmd = ["poetry", "run", "pytest", "-v"]
+    pytest_cmd = ["poetry", "run", "pytest", "-v", "-s"]
     if args.coverage:
         pytest_cmd.extend(["--cov=app", "--cov-report=term-missing"])
     

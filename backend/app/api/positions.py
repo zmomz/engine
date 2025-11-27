@@ -3,10 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 import uuid
 
-from app.db.database import get_db_session
+from app.db.database import get_db_session, AsyncSessionLocal
 from app.schemas.position_group import PositionGroupSchema
 from app.repositories.position_group import PositionGroupRepository
 from app.services.order_management import OrderService # New import
+from app.services.position_manager import PositionManagerService
+from app.services.grid_calculator import GridCalculatorService
 from app.api.dependencies.users import get_current_active_user # New import
 from app.models.user import User # New import
 from app.exceptions import APIError # New import
@@ -80,7 +82,8 @@ async def get_current_user_active_positions(
     Retrieves all active position groups for the current authenticated user.
     """
     repo = PositionGroupRepository(db)
-    positions = await repo.get_all_active_by_user(current_user.id)
+    # Use the more inclusive getter that matches dashboard logic (includes live, partially_filled, closing)
+    positions = await repo.get_active_position_groups_for_user(current_user.id)
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 @router.get("/{user_id}", response_model=List[PositionGroupSchema])
@@ -96,7 +99,8 @@ async def get_all_positions(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this user's positions.")
 
     repo = PositionGroupRepository(db)
-    positions = await repo.get_all_active_by_user(user_id)
+    # Use the more inclusive getter that matches dashboard logic
+    positions = await repo.get_active_position_groups_for_user(user_id)
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 @router.get("/{user_id}/{group_id}", response_model=PositionGroupSchema)
@@ -127,10 +131,27 @@ async def force_close_position(
     """
     Initiates the force-closing process for an active position group.
     """
-    # Optional: Add a check if current_user.id matches the position_group.user_id for authorization
-    # For now, we rely on the service to handle the find by ID which will fail if not found
     try:
+        # 1. Mark as CLOSING via order_service (checks permissions and current status)
         updated_position = await order_service.execute_force_close(group_id)
+
+        # 2. Execute the actual close logic immediately
+        # Initialize PositionManagerService
+        # We use AsyncSessionLocal as the session factory for the separate transaction in handle_exit_signal
+        position_manager = PositionManagerService(
+            session_factory=AsyncSessionLocal,
+            user=current_user,
+            position_group_repository_class=PositionGroupRepository,
+            grid_calculator_service=GridCalculatorService(), # Stateless service
+            order_service_class=OrderService,
+            exchange_connector=order_service.exchange_connector
+        )
+
+        await position_manager.handle_exit_signal(updated_position)
+        
+        # Refresh the position object in the current session to reflect the changes (status=CLOSED)
+        await order_service.session.refresh(updated_position)
+
         return PositionGroupSchema.from_orm(updated_position)
     except APIError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))

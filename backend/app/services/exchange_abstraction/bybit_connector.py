@@ -80,9 +80,10 @@ class BybitConnector(ExchangeInterface):
     async def get_order_status(self, order_id: str, symbol: str = None):
         """
         Fetches the status of a specific order by its ID.
+        Returns the full order dictionary.
         """
         order = await self.exchange.fetch_order(order_id, symbol)
-        return order['status']
+        return order
 
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):

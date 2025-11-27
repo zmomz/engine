@@ -18,7 +18,7 @@ def get_exchange_connector(exchange_type: str, api_key: str = "", secret_key: st
         testnet = os.getenv("EXCHANGE_TESTNET", "false").lower() == "true"
     
     if default_type is None:
-        default_type = os.getenv("EXCHANGE_DEFAULT_TYPE", "future")
+        default_type = os.getenv("EXCHANGE_DEFAULT_TYPE", "spot")
 
     exchange_type = exchange_type.lower()
 

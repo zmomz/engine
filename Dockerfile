@@ -16,6 +16,9 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
+# Create logs directory and set ownership
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+
 # Install poetry
 RUN pip install poetry
 
@@ -36,4 +39,4 @@ RUN chown -R appuser:appuser /app
 USER appuser
 
 # Command to run the application
-CMD ["bash"]
+CMD bash -c "python /app/scripts/wait-for-db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"

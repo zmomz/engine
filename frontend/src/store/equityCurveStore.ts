@@ -6,9 +6,8 @@ interface HistoricalPosition {
   id: string;
   symbol: string;
   side: string;
-  close_time: string;
-  realized_pnl: number;
-  // Add other relevant fields if needed
+  closed_at: string;
+  realized_pnl_usd: number;
 }
 
 interface EquityCurveState {

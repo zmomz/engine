@@ -37,21 +37,21 @@ class SignalRouterService:
         
         # Initialize Exchange Connector
         
-        target_exchange = signal.tv.exchange
+        target_exchange = signal.tv.exchange.lower()
         encrypted_data = self.user.encrypted_api_keys
         if isinstance(encrypted_data, dict):
              if target_exchange in encrypted_data:
                  encrypted_data = encrypted_data[target_exchange]
              elif "encrypted_data" not in encrypted_data:
                  logger.error(f"Signal Router: No keys configured for {target_exchange}")
-                 return f"Configuration Error: No API keys for {target_exchange}"
+                 return f"Configuration Error: No API keys for {signal.tv.exchange}"
 
         try:
             api_key, api_secret = self.encryption_service.decrypt_keys(encrypted_data)
             exchange = get_exchange_connector(target_exchange, api_key=api_key, secret_key=api_secret)
         except Exception as e:
             logger.error(f"Signal Router: Failed to decrypt keys for {target_exchange}: {e}")
-            return f"Configuration Error: Failed to decrypt keys for {target_exchange}"
+            return f"Configuration Error: Failed to decrypt keys for {signal.tv.exchange}"
         
         grid_calc = GridCalculatorService()
         
@@ -86,6 +86,15 @@ class SignalRouterService:
         except Exception as e:
              logger.warning(f"Failed to fetch balance, using default: {e}")
 
+        # Map 'buy'/'sell' to 'long'/'short'
+        raw_action = signal.tv.action.lower()
+        if raw_action == "buy":
+            signal_side = "long"
+        elif raw_action == "sell":
+            signal_side = "short"
+        else:
+            signal_side = raw_action # Fallback or error if needed
+
         if existing_group:
             # Pyramid Logic
             max_pyramids = 5 # Default as not in config schemas currently
@@ -97,7 +106,7 @@ class SignalRouterService:
                         exchange=signal.tv.exchange,
                         symbol=signal.tv.symbol,
                         timeframe=signal.tv.timeframe,
-                        side=signal.tv.action,
+                        side=signal_side,
                         entry_price=Decimal(str(signal.tv.entry_price)),
                         signal_payload=signal.dict()
                     )
@@ -133,7 +142,7 @@ class SignalRouterService:
                         exchange=signal.tv.exchange,
                         symbol=signal.tv.symbol,
                         timeframe=signal.tv.timeframe,
-                        side=signal.tv.action,
+                        side=signal_side,
                         entry_price=Decimal(str(signal.tv.entry_price)),
                         signal_payload=signal.dict()
                     )
@@ -153,5 +162,11 @@ class SignalRouterService:
                     return f"New position execution failed: {e}"
             else:
                 # Add to Queue
+                # Update the payload side to match 'long'/'short' before queuing? 
+                # Or just update the model object. The model object takes 'side'.
+                # The 'signal' passed to add_signal_to_queue is the payload object.
+                # We should update the payload object or modify add_signal_to_queue.
+                # Let's modify the payload object side to be safe.
+                signal.tv.action = signal_side 
                 await queue_service.add_signal_to_queue(signal)
                 return f"Pool full. Signal queued for {signal.tv.symbol}"

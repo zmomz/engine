@@ -148,31 +148,51 @@ class OrderService:
             raise APIError("Cannot check status for order without an exchange_order_id.")
 
         try:
+            logger.info(f"Checking order {dca_order.id} on exchange. Exchange Order ID: {dca_order.exchange_order_id}, Symbol: {dca_order.symbol}")
             exchange_order_data = await self.exchange_connector.get_order_status(
                 order_id=dca_order.exchange_order_id,
                 symbol=dca_order.symbol
             )
+            logger.info(f"Exchange response for order {dca_order.id}: {exchange_order_data}")
 
             exchange_status = exchange_order_data["status"]
-            if exchange_status == "canceled":
-                new_status = OrderStatus.CANCELLED.value
-            else:
-                new_status = OrderStatus(exchange_status)
+            
+            # Map specific exchange statuses if necessary, but CCXT usually standardizes to lowercase 'open', 'closed', 'canceled'
+            # Our Enum is lowercase: 'open', 'filled', 'cancelled'
+            mapped_status = exchange_status.lower()
+            if mapped_status == "closed":
+                mapped_status = "filled" 
+            elif mapped_status == "canceled":
+                mapped_status = "cancelled"
+            # If status is 'new' (Binance raw), map to 'open'
+            elif mapped_status == "new":
+                mapped_status = "open"
+                
+            try:
+                new_status = OrderStatus(mapped_status)
+            except ValueError:
+                 logger.warning(f"Unknown order status '{exchange_status}' from exchange for order {dca_order.id}. Defaulting to current status.")
+                 # Fallback: keep current status if unknown
+                 new_status = OrderStatus(dca_order.status)
+
             # Check if any relevant fields have changed before updating
             changed = False
-            if dca_order.status != new_status:
-                dca_order.status = new_status
+            if dca_order.status != new_status.value: # Compare with .value
+                logger.info(f"Order {dca_order.id}: Status changed from {dca_order.status} to {new_status.value}")
+                dca_order.status = new_status.value
                 changed = True
             
             if new_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
                 filled_quantity_from_exchange = Decimal(str(exchange_order_data.get("filled", 0)))
                 if dca_order.filled_quantity != filled_quantity_from_exchange:
+                    logger.info(f"Order {dca_order.id}: Filled quantity changed from {dca_order.filled_quantity} to {filled_quantity_from_exchange}")
                     dca_order.filled_quantity = filled_quantity_from_exchange
                     changed = True
 
-                avg_fill_price_from_exchange = Decimal(str(exchange_order_data.get("price", 0))) # Assuming 'price' is avg_fill_price for filled orders
+                avg_fill_price_from_exchange = Decimal(str(exchange_order_data.get("average", 0))) # Use 'average' for avg_fill_price
                 if (dca_order.avg_fill_price is None and avg_fill_price_from_exchange != Decimal("0")) or \
                    (dca_order.avg_fill_price is not None and dca_order.avg_fill_price != avg_fill_price_from_exchange):
+                    logger.info(f"Order {dca_order.id}: Average fill price changed from {dca_order.avg_fill_price} to {avg_fill_price_from_exchange}")
                     dca_order.avg_fill_price = avg_fill_price_from_exchange
                     changed = True
 
@@ -210,6 +230,32 @@ class OrderService:
                 # Log the error but continue with other orders
             except Exception as e:
                 logger.error(f"OrderService: Unexpected error during reconciliation for order {order.id}: {e}")
+
+    async def check_tp_status(self, dca_order: DCAOrder) -> DCAOrder:
+        """
+        Checks the status of the TP order associated with this DCA order.
+        """
+        if not dca_order.tp_order_id:
+            return dca_order
+
+        try:
+            exchange_order_data = await self.exchange_connector.get_order_status(
+                order_id=dca_order.tp_order_id,
+                symbol=dca_order.symbol
+            )
+            
+            status = exchange_order_data["status"].lower()
+            
+            if status == "closed" or status == "filled":
+                dca_order.tp_hit = True
+                dca_order.tp_executed_at = datetime.utcnow()
+                await self.dca_order_repository.update(dca_order)
+                logger.info(f"TP order {dca_order.tp_order_id} for DCA order {dca_order.id} hit!")
+                
+            return dca_order
+        except Exception as e:
+            logger.error(f"Failed to check TP status for order {dca_order.id}: {e}")
+            return dca_order
 
     async def execute_force_close(self, group_id: uuid.UUID) -> PositionGroup:
         """

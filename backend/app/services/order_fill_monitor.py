@@ -57,15 +57,18 @@ class OrderFillMonitorService:
             try:
                 user_repo = UserRepository(session)
                 active_users = await user_repo.get_all_active_users()
+                logger.info(f"OrderFillMonitor: Found {len(active_users)} active users.")
 
                 for user in active_users:
                     try:
                         if not user.encrypted_api_keys:
+                            logger.info(f"OrderFillMonitor: User {user.id} has no API keys, skipping.")
                             continue
 
                         dca_order_repo = self.dca_order_repository_class(session)
                         # Fetch all open orders for user, eagerly loading the position group
                         all_orders = await dca_order_repo.get_open_and_partially_filled_orders(user_id=user.id)
+                        logger.info(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
 
                         if not all_orders:
                             continue
@@ -73,8 +76,9 @@ class OrderFillMonitorService:
                         # Group orders by exchange
                         orders_by_exchange = {}
                         for order in all_orders:
+                            logger.info(f"OrderFillMonitor: Processing order {order.id} with initial status {order.status}.")
                             if not order.group:
-                                logger.warning(f"Order {order.id} has no position group attached. Skipping.")
+                                logger.error(f"Order {order.id} has no position group attached. This should not happen. Skipping.")
                                 continue
                             ex = order.group.exchange
                             if ex not in orders_by_exchange:
@@ -82,19 +86,18 @@ class OrderFillMonitorService:
                             orders_by_exchange[ex].append(order)
                             
                         # Process each exchange
-                        for exchange_name, orders_to_check in orders_by_exchange.items():
+                        for raw_exchange_name, orders_to_check in orders_by_exchange.items():
+                             exchange_name = raw_exchange_name.lower()
                              # Decrypt keys for this exchange
                              try:
-                                 # Multi-key lookup logic
-                                 encrypted_data = user.encrypted_api_keys
-                                 if isinstance(encrypted_data, dict):
-                                     if exchange_name in encrypted_data:
-                                         encrypted_data = encrypted_data[exchange_name]
-                                     elif "encrypted_data" not in encrypted_data:
-                                         logger.warning(f"No keys for {exchange_name}, skipping orders.")
-                                         continue
+                                 # Expecting user.encrypted_api_keys to be a dict of {'exchange_name': {'encrypted_data': '...'}}
+                                 exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
+
+                                 if not exchange_keys_data:
+                                     logger.warning(f"No API keys found for exchange {exchange_name} (from {raw_exchange_name}) for user {user.id}, skipping orders for this exchange.")
+                                     continue
                                  
-                                 api_key, secret_key = self.encryption_service.decrypt_keys(encrypted_data)
+                                 api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
                                  
                                  connector = get_exchange_connector(
                                     exchange_name, 
@@ -122,6 +125,14 @@ class OrderFillMonitorService:
 
                              for order in orders_to_check:
                                 try:
+                                    # If already filled, we are here to check the TP order
+                                    if order.status == OrderStatus.FILLED.value:
+                                        updated_order = await order_service.check_tp_status(order)
+                                        if updated_order.tp_hit:
+                                            logger.info(f"TP hit for order {order.id}. Updating position stats.")
+                                            await position_manager.update_position_stats(updated_order.group_id, session=session)
+                                        continue
+
                                     updated_order = await order_service.check_order_status(order)
                                     if updated_order.status in ["filled", "cancelled", "failed"]:
                                          logger.info(f"Order {order.id} status updated to {updated_order.status}")

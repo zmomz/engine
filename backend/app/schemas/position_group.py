@@ -1,3 +1,4 @@
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 from uuid import UUID
@@ -18,6 +19,26 @@ class TPMode(str, Enum):
     PER_LEG = "per_leg"
     AGGREGATE = "aggregate"
     HYBRID = "hybrid"
+
+class DCAOrderSchema(BaseModel):
+    id: UUID
+    leg_index: int
+    order_type: str
+    price: Decimal
+    quantity: Decimal
+    status: str
+    filled_quantity: Decimal | None = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class PyramidSchema(BaseModel):
+    id: UUID
+    pyramid_index: int
+    entry_price: Decimal
+    status: str
+    dca_orders: List[DCAOrderSchema] = []
+
+    model_config = ConfigDict(from_attributes=True)
 
 class PositionGroupSchema(BaseModel):
     id: UUID
@@ -49,5 +70,7 @@ class PositionGroupSchema(BaseModel):
     created_at: datetime
     updated_at: datetime
     closed_at: datetime | None = None
+    
+    pyramids: List[PyramidSchema] = []
 
     model_config = ConfigDict(from_attributes=True)

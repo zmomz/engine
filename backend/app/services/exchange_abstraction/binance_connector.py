@@ -6,7 +6,7 @@ class BinanceConnector(ExchangeInterface):
     """
     Binance exchange connector implementing ExchangeInterface.
     """
-    def __init__(self, api_key: str, secret_key: str, testnet: bool = False, default_type: str = "future"):
+    def __init__(self, api_key: str, secret_key: str, testnet: bool = False, default_type: str = "spot"):
         self.exchange = ccxt.binance({
             'apiKey': api_key,
             'secret': secret_key,
@@ -88,9 +88,10 @@ class BinanceConnector(ExchangeInterface):
     async def get_order_status(self, order_id: str, symbol: str = None):
         """
         Fetches the status of a specific order by its ID.
+        Returns the full order dictionary.
         """
         order = await self.exchange.fetch_order(order_id, symbol)
-        return order['status']
+        return order
 
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):

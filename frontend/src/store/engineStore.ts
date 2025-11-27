@@ -5,6 +5,7 @@ interface EngineState {
   tvl: number | null;
   pnl: number | null;
   activeGroupsCount: number | null;
+  free_usdt: number | null;
   fetchEngineData: () => Promise<void>;
   // Add other state properties as needed for the dashboard widgets
 }
@@ -13,16 +14,17 @@ const useEngineStore = create<EngineState>((set) => ({
   tvl: null,
   pnl: null,
   activeGroupsCount: null,
+  free_usdt: null,
 
   fetchEngineData: async () => {
     try {
-      // Replace with actual API endpoints
-      const tvlResponse = await api.get('/dashboard/tvl');
+      const accountSummaryResponse = await api.get('/dashboard/account-summary');
       const pnlResponse = await api.get('/dashboard/pnl');
       const activeGroupsResponse = await api.get('/dashboard/active-groups-count');
 
       set({
-        tvl: tvlResponse.data.tvl,
+        tvl: accountSummaryResponse.data.tvl,
+        free_usdt: accountSummaryResponse.data.free_usdt,
         pnl: pnlResponse.data.pnl,
         activeGroupsCount: activeGroupsResponse.data.count,
       });
