@@ -398,9 +398,21 @@ class PositionManagerService:
             logger.error(f"PositionGroup {group_id} not found for stats update.")
             return
 
-        await session.refresh(position_group, attribute_names=["dca_orders"])
+        # Flush any pending changes (e.g., tp_hit updates) before querying
+        await session.flush()
         
-        filled_orders = [o for o in position_group.dca_orders if o.status == OrderStatus.FILLED]
+        # Query DCAOrder directly instead of relying on the relationship
+        # because the relationship has lazy='noload' which prevents loading
+        from sqlalchemy import select
+        from app.models.dca_order import DCAOrder
+        
+        stmt = select(DCAOrder).where(DCAOrder.group_id == group_id)
+        result = await session.execute(stmt)
+        all_orders = result.scalars().all()
+        
+        filled_orders = [o for o in all_orders if o.status == OrderStatus.FILLED]
+        
+        logger.info(f"PositionGroup {group_id}: Found {len(filled_orders)} filled orders out of {len(all_orders)} total orders")
         
         total_qty_in = Decimal("0")
         total_cost_in = Decimal("0")
@@ -413,7 +425,7 @@ class PositionManagerService:
             total_qty_in += qty
             total_cost_in += qty * price
             
-            print(f"DEBUG: Order {o.id}, Status: {o.status}, TP Hit: {o.tp_hit}, Qty: {qty}, Price: {price}")
+            logger.debug(f"Order {o.id}, Status: {o.status}, TP Hit: {o.tp_hit}, Qty: {qty}, Price: {price}")
             
             if o.tp_hit:
                 total_qty_out += qty
@@ -424,7 +436,7 @@ class PositionManagerService:
                     realized_pnl += (exit_val - entry_val)
                 else:
                     realized_pnl += (entry_val - exit_val)
-                print(f"DEBUG: PnL Accumulated: {realized_pnl}")
+                logger.debug(f"PnL Accumulated: {realized_pnl}")
         
         net_qty = total_qty_in - total_qty_out
         
@@ -450,6 +462,7 @@ class PositionManagerService:
             if net_qty == 0 and total_qty_in > 0:
                  position_group.status = PositionGroupStatus.CLOSED
                  position_group.closed_at = datetime.utcnow()
+                 logger.info(f"PositionGroup {group_id} auto-closed. Realized PnL: {realized_pnl}, Total Qty In: {total_qty_in}, Total Qty Out: {total_qty_out}")
 
             await position_group_repo.update(position_group)
             

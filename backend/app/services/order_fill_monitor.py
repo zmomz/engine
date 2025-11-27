@@ -130,6 +130,8 @@ class OrderFillMonitorService:
                                         updated_order = await order_service.check_tp_status(order)
                                         if updated_order.tp_hit:
                                             logger.info(f"TP hit for order {order.id}. Updating position stats.")
+                                            # Flush tp_hit update before recalculating stats
+                                            await session.flush()
                                             await position_manager.update_position_stats(updated_order.group_id, session=session)
                                         continue
 
@@ -138,6 +140,8 @@ class OrderFillMonitorService:
                                          logger.info(f"Order {order.id} status updated to {updated_order.status}")
                                          
                                     if updated_order.status == OrderStatus.FILLED.value:
+                                        # Flush order status update before recalculating stats
+                                        await session.flush()
                                         await position_manager.update_position_stats(updated_order.group_id, session=session)
                                         await order_service.place_tp_order(updated_order)
                                         logger.info(f"Placed TP order for {updated_order.id}")
