@@ -125,37 +125,75 @@ async def get_position_group(
 @router.post("/{group_id}/close", response_model=PositionGroupSchema)
 async def force_close_position(
     group_id: uuid.UUID,
-    order_service: OrderService = Depends(get_order_service),
-    current_user: User = Depends(get_current_active_user) # Ensure user is authenticated
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Initiates the force-closing process for an active position group.
     """
     try:
-        # 1. Mark as CLOSING via order_service (checks permissions and current status)
+        # 1. Fetch the position group to identify the exchange
+        repo = PositionGroupRepository(db)
+        position_group = await repo.get_by_user_and_id(current_user.id, group_id)
+        if not position_group:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
+
+        # 2. Get credentials for the specific exchange
+        target_exchange = position_group.exchange
+        encryption_service = EncryptionService()
+        
+        api_key = None
+        secret_key = None
+        
+        # Handle multi-exchange keys
+        encrypted_data = current_user.encrypted_api_keys
+        if isinstance(encrypted_data, dict):
+             if target_exchange in encrypted_data:
+                 encrypted_data = encrypted_data[target_exchange]
+                 api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
+             elif "encrypted_data" in encrypted_data and (current_user.exchange == target_exchange or not current_user.exchange):
+                  # Legacy fallback
+                 api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
+        
+        if not api_key:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"No API keys configured for exchange: {target_exchange}"
+            )
+
+        # 3. Initialize OrderService dynamically
+        exchange_connector = get_exchange_connector(
+            exchange_type=target_exchange,
+            api_key=api_key,
+            secret_key=secret_key
+        )
+        
+        order_service = OrderService(
+            session=db,
+            user=current_user,
+            exchange_connector=exchange_connector
+        )
+
+        # 4. Mark as CLOSING
         updated_position = await order_service.execute_force_close(group_id)
         
-        # Commit the transaction to release the lock on the position row.
-        # This prevents a deadlock when PositionManagerService opens a new session/transaction
-        # to process the exit signal on the same position.
-        await order_service.session.commit()
+        # Commit to release lock
+        await db.commit()
 
-        # 2. Execute the actual close logic immediately
-        # Initialize PositionManagerService
-        # We use AsyncSessionLocal as the session factory for the separate transaction in handle_exit_signal
+        # 5. Execute the actual close logic
         position_manager = PositionManagerService(
             session_factory=AsyncSessionLocal,
             user=current_user,
             position_group_repository_class=PositionGroupRepository,
-            grid_calculator_service=GridCalculatorService(), # Stateless service
+            grid_calculator_service=GridCalculatorService(),
             order_service_class=OrderService,
-            exchange_connector=order_service.exchange_connector
+            exchange_connector=exchange_connector
         )
 
         await position_manager.handle_exit_signal(updated_position.id)
         
-        # Refresh the position object in the current session to reflect the changes (status=CLOSED)
-        await order_service.session.refresh(updated_position)
+        # Refresh
+        await db.refresh(updated_position)
 
         return PositionGroupSchema.from_orm(updated_position)
     except APIError as e:

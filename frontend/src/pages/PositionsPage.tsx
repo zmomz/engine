@@ -52,6 +52,7 @@ const PositionsPage: React.FC = () => {
         </IconButton>
       ),
     },
+    { field: 'exchange', headerName: 'Exchange', width: 120 },
     { field: 'symbol', headerName: 'Symbol', width: 150 },
     { field: 'side', headerName: 'Side', width: 100 },
     { field: 'status', headerName: 'Status', width: 150 },

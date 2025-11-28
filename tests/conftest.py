@@ -51,6 +51,13 @@ async def test_db_engine():
 
     engine = create_async_engine(DATABASE_URL, echo=False)
     async with engine.begin() as conn:
+        from sqlalchemy import text
+        try:
+            await conn.execute(text("CREATE TYPE group_status_enum AS ENUM ('waiting', 'live', 'partially_filled', 'active', 'closing', 'closed', 'failed')"))
+            await conn.execute(text("CREATE TYPE position_side_enum AS ENUM ('long', 'short')"))
+            await conn.execute(text("CREATE TYPE tp_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid')"))
+        except Exception:
+            pass # Type might already exist
         await conn.run_sync(Base.metadata.create_all)
     yield engine
     async with engine.begin() as conn:
