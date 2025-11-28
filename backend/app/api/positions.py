@@ -134,6 +134,11 @@ async def force_close_position(
     try:
         # 1. Mark as CLOSING via order_service (checks permissions and current status)
         updated_position = await order_service.execute_force_close(group_id)
+        
+        # Commit the transaction to release the lock on the position row.
+        # This prevents a deadlock when PositionManagerService opens a new session/transaction
+        # to process the exit signal on the same position.
+        await order_service.session.commit()
 
         # 2. Execute the actual close logic immediately
         # Initialize PositionManagerService
@@ -147,7 +152,7 @@ async def force_close_position(
             exchange_connector=order_service.exchange_connector
         )
 
-        await position_manager.handle_exit_signal(updated_position)
+        await position_manager.handle_exit_signal(updated_position.id)
         
         # Refresh the position object in the current session to reflect the changes (status=CLOSED)
         await order_service.session.refresh(updated_position)

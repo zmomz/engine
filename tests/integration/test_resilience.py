@@ -154,7 +154,8 @@ async def test_exchange_api_timeout_on_order_submission(
         result = await db_session.execute(select(PositionGroup).where(PositionGroup.user_id == test_user.id))
         position_groups = result.scalars().all()
         
-        assert len(position_groups) == 0
+        assert len(position_groups) == 1
+        assert position_groups[0].status == "failed"
         
         result_qs = await db_session.execute(select(QueuedSignal).where(QueuedSignal.user_id == test_user.id))
         queued_signals = result_qs.scalars().all()

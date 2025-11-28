@@ -3,6 +3,13 @@ from unittest.mock import AsyncMock, patch
 from decimal import Decimal
 from app.models.position_group import PositionGroup, PositionGroupStatus
 
+import pytest
+from unittest.mock import AsyncMock, patch
+from decimal import Decimal
+from app.models.position_group import PositionGroup, PositionGroupStatus
+from app.main import app
+from app.api.dependencies.users import get_current_active_user
+
 # Test TVL
 @pytest.mark.asyncio
 async def test_get_account_summary(authorized_client):
@@ -15,24 +22,36 @@ async def test_get_account_summary(authorized_client):
     }.get(symbol)
     mock_connector.exchange = AsyncMock() # For close()
 
-    with patch("app.api.dashboard.get_exchange_connector", return_value=mock_connector) as mock_get_conn, \
-         patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
-        
-        # Mock the instance returned by EncryptionService()
-        mock_encrypt_service = mock_encrypt_service_cls.return_value
-        mock_encrypt_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+    mock_user = AsyncMock()
+    mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock_encrypted_data"}}
+    
+    async def mock_get_user():
+        return mock_user
 
-        response = await authorized_client.get("/api/v1/dashboard/account-summary")
-        
-        assert response.status_code == 200
+    app.dependency_overrides[get_current_active_user] = mock_get_user
 
-        # Expected TVL: 5000.50 (USDT) + 0.1 * 40000.0 (BTC) = 5000.50 + 4000 = 9000.50
-        # Expected free_usdt: 5000.50
-        assert response.json() == {"tvl": 9000.50, "free_usdt": 5000.50}
-        
-        # Verify cleanup
-        if hasattr(mock_connector, 'exchange') and hasattr(mock_connector.exchange, 'close'):
-             mock_connector.exchange.close.assert_called_once()
+    try:
+        with patch("app.api.dashboard.get_exchange_connector", return_value=mock_connector), \
+             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
+            
+            # Mock the instance returned by EncryptionService()
+            mock_encrypt_service = mock_encrypt_service_cls.return_value
+            mock_encrypt_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+
+            response = await authorized_client.get("/api/v1/dashboard/account-summary")
+            
+            assert response.status_code == 200
+            print(f"Actual response: {response.json()}") # Debug print
+            # Expected TVL: 5000.50 (USDT) + 0.1 * 40000.0 (BTC) = 5000.50 + 4000 = 9000.50
+            # Expected free_usdt: 5000.50
+            assert response.json() == {"tvl": 9000.50, "free_usdt": 5000.50}
+            
+            # Verify cleanup
+            if hasattr(mock_connector, 'exchange') and hasattr(mock_connector.exchange, 'close'):
+                 mock_connector.exchange.close.assert_called_once()
+    finally:
+        del app.dependency_overrides[get_current_active_user]
+
 
 
 # Test PnL

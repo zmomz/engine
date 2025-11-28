@@ -8,7 +8,7 @@ from app.services.order_fill_monitor import OrderFillMonitorService
 from app.models.dca_order import DCAOrder, OrderStatus
 from app.repositories.position_group import PositionGroupRepository # Added
 from decimal import Decimal
-from app.services.order_management import OrderService
+from app.services.order_management import OrderService # Added
 from app.services.position_manager import PositionManagerService # Added
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def mock_order_fill_monitor_service():
 
     dca_order_repo_cls = MagicMock()
     position_group_repo_cls = MagicMock(spec=PositionGroupRepository) # Added
-    order_service_cls = MagicMock()
+    order_service_cls = MagicMock(spec=OrderService) # Changed to MagicMock(spec=OrderService)
     position_manager_service_cls = MagicMock(spec=PositionManagerService) # Added
     
     service = OrderFillMonitorService(
@@ -62,7 +62,7 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
         mock_repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[order1])
     
         # Create a mock instance of OrderService that will be returned when OrderService is instantiated
-        mock_order_service_instance = AsyncMock(spec=OrderService)
+        mock_order_service_instance = AsyncMock(spec=OrderService) # This is already AsyncMock
         
         # Configure the mock OrderService *class* to return our pre-configured instance
         mock_order_fill_monitor_service.order_service_class.return_value = mock_order_service_instance
@@ -71,18 +71,21 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
         async def mock_check_order_status_side_effect(order_to_check):
             order_to_check.status = OrderStatus.FILLED.value
             order_to_check.filled_at = datetime.utcnow()
+            order_to_check.avg_fill_price = Decimal("60000") # Ensure avg_fill_price is set
             return order_to_check
         mock_order_service_instance.check_order_status.side_effect = mock_check_order_status_side_effect
     
         # Mock place_tp_order
         mock_order_service_instance.place_tp_order = AsyncMock(return_value=order1)
-    
+        mock_order_service_instance.check_tp_status = AsyncMock(return_value=order1) # Added mock for check_tp_status
+
         # Mock PositionManagerService's update_position_stats method
-        mock_order_fill_monitor_service.position_manager_service_class.return_value.update_position_stats = AsyncMock()
+        mock_position_manager_instance = mock_order_fill_monitor_service.position_manager_service_class.return_value
+        mock_position_manager_instance.update_position_stats = AsyncMock()
     
         mock_user = MagicMock()
         mock_user.id = uuid.uuid4()
-        mock_user.encrypted_api_keys = {"encrypted_data": "mock"}
+        mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}} # Updated to multi-exchange format
         mock_user.exchange = "binance"
         
         # Mock encryption service on the instance

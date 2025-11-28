@@ -14,7 +14,7 @@ const FreeUsdtCard: React.FC<FreeUsdtCardProps> = ({ freeUsdt }) => {
         </Typography>
         <Box sx={{ mt: 2 }}>
           <Typography variant="h4" sx={{ color: 'text.primary' }}>
-            {freeUsdt !== null ? `$${freeUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Loading...'}
+            {typeof freeUsdt === 'number' ? `$${freeUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Loading...'}
           </Typography>
         </Box>
       </CardContent>

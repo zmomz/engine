@@ -196,6 +196,7 @@ async def test_check_order_status_filled(order_service, mock_exchange_connector,
         "type": "limit",
         "side": "buy",
         "price": 60000,
+        "average": 60000,
         "amount": 0.001,
         "filled": 0.001,
         "remaining": 0,
@@ -311,7 +312,7 @@ async def test_startup_reconciliation(order_service, mock_exchange_connector, mo
         {
             "id": "exchange_order_2", "status": "filled", "datetime": datetime.utcnow().isoformat(),
             "timestamp": datetime.utcnow().timestamp() * 1000, "symbol": "ETH/USDT", "type": "limit",
-            "side": "buy", "price": 3000, "amount": 0.01, "filled": 0.01, "remaining": 0,
+            "side": "buy", "price": 3000, "average": 3000, "amount": 0.01, "filled": 0.01, "remaining": 0,
             "cost": 30, "fee": 0.03, "fee_currency": "USDT", "info": {}
         },
         # Status for db_order_3 (cancelled on exchange)

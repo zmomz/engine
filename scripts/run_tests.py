@@ -10,6 +10,7 @@ import subprocess
 import argparse
 import sys
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -75,7 +76,8 @@ def main():
         run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "up", "-d", "--build"], check=True, env=test_env)
 
         # 3. Wait for DB
-        logger.info("Waiting for database...")
+        logger.info("Waiting for database (with a 10s delay to allow app container to start)...")
+        time.sleep(10) # Give the app container time to fully start
         run_command(
             ["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "exec", "-u", "root", SERVICE_APP, "python", "/app/scripts/wait-for-db.py"],
             check=True, env=test_env

@@ -22,6 +22,17 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         )
         return result.scalars().all()
 
+    async def get_with_orders(self, group_id: uuid.UUID) -> PositionGroup | None:
+        """
+        Retrieves a position group by ID, eagerly loading its DCA orders.
+        """
+        result = await self.session.execute(
+            select(self.model)
+            .where(self.model.id == group_id)
+            .options(selectinload(self.model.dca_orders))
+        )
+        return result.scalars().first()
+
     async def get_active_position_groups(self, for_update: bool = False) -> list[PositionGroup]:
         """
         Retrieves all position groups with status 'active'.

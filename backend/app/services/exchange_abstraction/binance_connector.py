@@ -91,7 +91,7 @@ class BinanceConnector(ExchangeInterface):
         Returns the full order dictionary.
         """
         order = await self.exchange.fetch_order(order_id, symbol)
-        return order
+        return order['status']
 
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):

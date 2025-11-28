@@ -308,13 +308,21 @@ class PositionManagerService:
         logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
         return existing_position_group
 
-    async def handle_exit_signal(self, position_group: PositionGroup):
+    async def handle_exit_signal(self, position_group_id: uuid.UUID):
         """
         Handles an exit signal for a position group.
         1. Cancels all open DCA orders.
         2. Places a market order to close the total filled quantity.
         """
         async with self.session_factory() as session:
+            # Re-fetch position group with orders attached in this session
+            position_group_repo = self.position_group_repository_class(session)
+            position_group = await position_group_repo.get_with_orders(position_group_id)
+            
+            if not position_group:
+                logger.error(f"PositionGroup {position_group_id} not found for exit signal.")
+                return
+
             order_service = self.order_service_class(session=session, user=self.user, exchange_connector=self.exchange_connector)
 
             # 1. Cancel open orders
@@ -338,7 +346,6 @@ class PositionManagerService:
             else:
                 logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
 
-            position_group_repo = self.position_group_repository_class(session)
             position_group.status = PositionGroupStatus.CLOSED
             
             current_price = await self.exchange_connector.get_current_price(position_group.symbol)

@@ -22,6 +22,9 @@ class MockExchange(ExchangeInterface):
     async def fetch_balance(self):
         pass
 
+    async def close(self):
+        pass
+
 @pytest.mark.asyncio
 async def test_exchange_interface_methods():
     """

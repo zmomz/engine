@@ -49,7 +49,7 @@ async def test_db_engine():
             "Please set DATABASE_URL to a test database (e.g., ending in '_test')."
         )
 
-    engine = create_async_engine(DATABASE_URL, echo=True)
+    engine = create_async_engine(DATABASE_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -74,7 +74,7 @@ async def test_user(db_session: AsyncSession):
     encryption_service = EncryptionService()
     valid_encrypted_keys = {
         "binance": encryption_service.encrypt_keys("dummy_api", "dummy_secret"),
-        "MOCK": encryption_service.encrypt_keys("dummy_mock_api", "dummy_mock_secret")
+        "mock": encryption_service.encrypt_keys("dummy_mock_api", "dummy_mock_secret")
     }
     
     user = User(

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build:
@@ -18,12 +16,17 @@ services:
       - SECRET_KEY=test_secret_key_for_integration_tests_only
       - ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
     depends_on:
-      mock-exchange:
-        condition: service_healthy
-      db:
-        condition: service_healthy
+      - mock-exchange
+      - db
     networks:
       - test_net
+    command: bash -c "while true; do sleep 1; done" # Keep container alive for tests
+    healthcheck:
+      test: ["CMD-SHELL", "poetry run python /app/scripts/wait-for-db.py --check-only"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   db:
     image: postgres:15

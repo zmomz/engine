@@ -3,6 +3,7 @@ from httpx import AsyncClient
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.user import User
@@ -16,9 +17,9 @@ async def test_force_close_position(
     override_get_db_session_for_integration_tests
 ):
     # Create an active position that we will try to force close
-    active_position = PositionGroup(
-        user_id=test_user.id,
-        exchange="binance",
+    active_position = PositionGroup(                           
+        user_id=test_user.id,                                  
+        exchange="mock",                                    
         symbol="BTCUSDT",
         timeframe=60,
         side="long",
@@ -41,18 +42,23 @@ async def test_force_close_position(
     await db_session.commit()
     await db_session.refresh(active_position)
 
-    # Attempt to force close the position
-    response = await authorized_client.post(f"/api/v1/positions/{active_position.id}/close")
+    # Mock exchange connector
+    mock_connector = AsyncMock()
+    mock_connector.get_current_price.return_value = Decimal("50000")
+    
+    with patch("app.api.positions.get_exchange_connector", return_value=mock_connector):
+        # Attempt to force close the position
+        response = await authorized_client.post(f"/api/v1/positions/{active_position.id}/close")
 
     assert response.status_code == 200
 
-    # Verify the position status has transitioned to CLOSING in the database
+    # Verify the position status has transitioned to CLOSED in the database
     await db_session.refresh(active_position)
-    assert active_position.status == PositionGroupStatus.CLOSING.value
+    assert active_position.status == PositionGroupStatus.CLOSED.value
 
     response_data = response.json()
     assert response_data["id"] == str(active_position.id)
-    assert response_data["status"] == PositionGroupStatus.CLOSING.value
+    assert response_data["status"] == PositionGroupStatus.CLOSED.value
 
     # Test with a non-existent position
     non_existent_uuid = UUID('12345678-1234-5678-1234-567812345678')

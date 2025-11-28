@@ -60,6 +60,7 @@ def mock_position_group_repository_class():
     mock_instance.get_by_id = AsyncMock()
     mock_instance.create = AsyncMock()
     mock_instance.update = AsyncMock()
+    mock_instance.get_with_orders = AsyncMock() # Added mock
     mock_class = MagicMock(return_value=mock_instance)
     return mock_class
 
@@ -70,6 +71,7 @@ def mock_exchange_connector():
 @pytest.fixture
 def mock_db_session():
     session = AsyncMock()
+    session.add = MagicMock() # Ensure add is a synchronous mock
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     return session
@@ -394,7 +396,8 @@ async def test_handle_pyramid_continuation_no_reset_timer(
 async def test_handle_exit_signal(
     position_manager_service, 
     mock_order_service_class,
-    sample_position_group
+    sample_position_group,
+    mock_position_group_repository_class # Added fixture dependency
 ):
     """
     Test that handle_exit_signal cancels open orders and closes the filled position.
@@ -404,7 +407,11 @@ async def test_handle_exit_signal(
     open_order = DCAOrder(status=OrderStatus.OPEN, filled_quantity=Decimal("0"))
     sample_position_group.dca_orders = [filled_order, open_order]
     
-    await position_manager_service.handle_exit_signal(sample_position_group)
+    # Configure the repository mock to return our sample position group
+    mock_repo_instance = mock_position_group_repository_class.return_value
+    mock_repo_instance.get_with_orders.return_value = sample_position_group
+
+    await position_manager_service.handle_exit_signal(sample_position_group.id)
 
     # Get the mock instance that was created inside the method
     # In this setup, the instance is the same as the one returned by the class mock

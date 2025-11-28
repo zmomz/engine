@@ -189,7 +189,7 @@ class OrderService:
                     dca_order.filled_quantity = filled_quantity_from_exchange
                     changed = True
 
-                avg_fill_price_from_exchange = Decimal(str(exchange_order_data.get("average", 0))) # Use 'average' for avg_fill_price
+                avg_fill_price_from_exchange = Decimal(str(exchange_order_data.get("average", Decimal("0"))))
                 if (dca_order.avg_fill_price is None and avg_fill_price_from_exchange != Decimal("0")) or \
                    (dca_order.avg_fill_price is not None and dca_order.avg_fill_price != avg_fill_price_from_exchange):
                     logger.info(f"Order {dca_order.id}: Average fill price changed from {dca_order.avg_fill_price} to {avg_fill_price_from_exchange}")
