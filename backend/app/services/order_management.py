@@ -174,6 +174,11 @@ class OrderService:
                  logger.warning(f"Unknown order status '{exchange_status}' from exchange for order {dca_order.id}. Defaulting to current status.")
                  # Fallback: keep current status if unknown
                  new_status = OrderStatus(dca_order.status)
+            
+            # Special handling for partial fills where exchange still reports 'open'
+            filled_quantity_from_exchange = Decimal(str(exchange_order_data.get("filled", 0)))
+            if new_status == OrderStatus.OPEN and filled_quantity_from_exchange > 0 and filled_quantity_from_exchange < dca_order.quantity:
+                new_status = OrderStatus.PARTIALLY_FILLED
 
             # Check if any relevant fields have changed before updating
             changed = False
@@ -183,7 +188,6 @@ class OrderService:
                 changed = True
             
             if new_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
-                filled_quantity_from_exchange = Decimal(str(exchange_order_data.get("filled", 0)))
                 if dca_order.filled_quantity != filled_quantity_from_exchange:
                     logger.info(f"Order {dca_order.id}: Filled quantity changed from {dca_order.filled_quantity} to {filled_quantity_from_exchange}")
                     dca_order.filled_quantity = filled_quantity_from_exchange
