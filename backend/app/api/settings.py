@@ -45,34 +45,34 @@ async def update_settings(
     update_data = user_update.model_dump(mode='json', exclude_unset=True)
     
     # Handle API Key Encryption if provided
+    # Handle API Key Encryption if provided
     if user_update.api_key and user_update.secret_key:
         encryption_service = EncryptionService()
-        new_encrypted_keys = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
-        
-        # Get existing keys or initialize empty dict
-        # CRITICAL: Create a copy to ensure SQLAlchemy detects the change to the JSON column
+        new_encrypted_keys_data = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
+
+        # Create a dictionary for the new exchange's configuration
+        exchange_config = {"encrypted_data": new_encrypted_keys_data}
+        if user_update.testnet is not None:
+            exchange_config["testnet"] = user_update.testnet
+        if user_update.account_type:
+            exchange_config["account_type"] = user_update.account_type
+
         current_keys = dict(current_user.encrypted_api_keys or {})
-        
-        # Determine which exchange these keys are for
-        # Use the explicit target, or the exchange from the update, or fallback to the user's current active exchange
         raw_target = user_update.key_target_exchange or user_update.exchange or current_user.exchange
         target_exchange = raw_target.lower() if raw_target else None
-        
-        if target_exchange:
-            # Update the keys for this specific exchange
-            current_keys[target_exchange] = new_encrypted_keys
-            
-            # Explicitly set the field on the user object with the NEW dictionary
-            # This ensures SQLAlchemy sees the 'set' event on the JSON column
-            update_data["encrypted_api_keys"] = current_keys
-            
-            # Also direct assignment to be double sure before repository update (though loop below handles it)
-            current_user.encrypted_api_keys = current_keys
 
+        if target_exchange:
+            # Update the config for this specific exchange
+            current_keys[target_exchange] = exchange_config
+
+            update_data["encrypted_api_keys"] = current_keys
+            current_user.encrypted_api_keys = current_keys
     # Remove raw keys and target from update data as they are not DB columns
     update_data.pop("api_key", None)
     update_data.pop("secret_key", None)
     update_data.pop("key_target_exchange", None)
+    update_data.pop("testnet", None) # Added to remove from update_data
+    update_data.pop("account_type", None) # Added to remove from update_data
     
     # Normalize 'exchange' field if present in update
     if "exchange" in update_data and update_data["exchange"]:

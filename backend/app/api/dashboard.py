@@ -26,16 +26,8 @@ async def get_account_summary(
         total_free_usdt = 0.0
         
         api_keys_to_process = {}
-        
-        if current_user.encrypted_api_keys:
-            # Check if it's the legacy single-key format: {"encrypted_data": "..."}
-            if isinstance(current_user.encrypted_api_keys, dict) and "encrypted_data" in current_user.encrypted_api_keys:
-                exchange = current_user.exchange or "binance"
-                api_keys_to_process[exchange] = current_user.encrypted_api_keys
-            elif isinstance(current_user.encrypted_api_keys, dict):
-                # Assume it's the new multi-key format: {"binance": {...}, "bybit": {...}}
-                api_keys_to_process = current_user.encrypted_api_keys
-            # else: current_user.encrypted_api_keys is not a dict or not in a recognized format, api_keys_to_process remains empty
+        if current_user.encrypted_api_keys and isinstance(current_user.encrypted_api_keys, dict):
+            api_keys_to_process = current_user.encrypted_api_keys
 
         logger.info(f"API Keys to process: {api_keys_to_process}")
 
@@ -52,15 +44,12 @@ async def get_account_summary(
 
             connector = None
             try:
-                # Decrypt keys
-                api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-                
-                # Connect to exchange
+                # The factory will now handle decryption and parameter extraction
                 try:
+                    # Pass all relevant config details, not just encrypted_data
                     connector = get_exchange_connector(
                         exchange_type=exchange_name,
-                        api_key=api_key,
-                        secret_key=secret_key
+                        exchange_config=encrypted_data # This now contains testnet, account_type, etc.
                     )
                 except Exception as e:
                     logger.warning(f"Skipping account summary for {exchange_name}: {e}")
@@ -141,13 +130,8 @@ async def get_pnl(
             
         # Normalize user keys
         api_keys_map = {}
-        raw_keys = current_user.encrypted_api_keys
-        if isinstance(raw_keys, dict):
-            if "encrypted_data" in raw_keys:
-                 exchange = current_user.exchange or "binance"
-                 api_keys_map[exchange] = raw_keys
-            else:
-                 api_keys_map = raw_keys
+        if current_user.encrypted_api_keys and isinstance(current_user.encrypted_api_keys, dict):
+            api_keys_map = current_user.encrypted_api_keys
 
         encryption_service = EncryptionService()
 
@@ -160,13 +144,11 @@ async def get_pnl(
             encrypted_data = api_keys_map[exchange_name]
             connector = None
             try:
-                api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-                
+                # The factory will now handle decryption and parameter extraction
                 try:
                     connector = get_exchange_connector(
                         exchange_type=exchange_name,
-                        api_key=api_key,
-                        secret_key=secret_key
+                        exchange_config=encrypted_data
                     )
                 except Exception as e:
                     logger.warning(f"get_pnl: Could not create connector for {exchange_name}: {e}")

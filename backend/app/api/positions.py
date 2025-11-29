@@ -33,17 +33,21 @@ async def get_order_service(
     try:
         # Handle multi-exchange keys
         encrypted_data = current_user.encrypted_api_keys
+        target_exchange_config = None
+
         if isinstance(encrypted_data, dict):
              if current_user.exchange in encrypted_data:
-                 encrypted_data = encrypted_data[current_user.exchange]
-             elif "encrypted_data" not in encrypted_data:
-                 raise ValueError(f"No API keys found for exchange {current_user.exchange}")
+                 target_exchange_config = encrypted_data[current_user.exchange]
+             elif "encrypted_data" in encrypted_data:
+                 # Legacy fallback for single key
+                 target_exchange_config = encrypted_data
+        
+        if not target_exchange_config:
+            raise ValueError(f"No API keys or configuration found for exchange {current_user.exchange}")
 
-        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
         exchange_connector = get_exchange_connector(
             exchange_type=current_user.exchange or "binance", # Default to binance if not set
-            api_key=api_key,
-            secret_key=secret_key
+            exchange_config=target_exchange_config
         )
     except Exception as e:
         raise HTTPException(
@@ -138,34 +142,29 @@ async def force_close_position(
 
     try:
 
-        # 2. Get credentials for the specific exchange
+        # 2. Get credentials and config for the specific exchange
         target_exchange = position_group.exchange
-        encryption_service = EncryptionService()
-        
-        api_key = None
-        secret_key = None
-        
+        exchange_config_data = None
+
         # Handle multi-exchange keys
-        encrypted_data = current_user.encrypted_api_keys
-        if isinstance(encrypted_data, dict):
-             if target_exchange in encrypted_data:
-                 encrypted_data = encrypted_data[target_exchange]
-                 api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-             elif "encrypted_data" in encrypted_data and (current_user.exchange == target_exchange or not current_user.exchange):
-                  # Legacy fallback
-                 api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
+        encrypted_keys_map = current_user.encrypted_api_keys
+        if isinstance(encrypted_keys_map, dict):
+             if target_exchange in encrypted_keys_map:
+                 exchange_config_data = encrypted_keys_map[target_exchange]
+             elif "encrypted_data" in encrypted_keys_map and (current_user.exchange == target_exchange or not current_user.exchange):
+                  # Legacy fallback for single key
+                 exchange_config_data = encrypted_keys_map
         
-        if not api_key:
+        if not exchange_config_data:
              raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"No API keys configured for exchange: {target_exchange}"
             )
 
-        # 3. Initialize OrderService dynamically
+        # 3. Initialize OrderService dynamically, passing the full config
         exchange_connector = get_exchange_connector(
             exchange_type=target_exchange,
-            api_key=api_key,
-            secret_key=secret_key
+            exchange_config=exchange_config_data
         )
         
         order_service = OrderService(

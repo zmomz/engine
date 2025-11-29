@@ -10,15 +10,18 @@ class UnsupportedExchangeError(Exception):
     """
     pass
 
-def get_exchange_connector(exchange_type: str, api_key: str = "", secret_key: str = "", testnet: bool = None, default_type: str = None) -> ExchangeInterface:
+from app.core.security import EncryptionService
+
+def get_exchange_connector(exchange_type: str, exchange_config: dict) -> ExchangeInterface:
     """
-    Factory function to get an exchange connector instance.
+    Factory function to get an exchange connector instance from a configuration dictionary.
     """
-    if testnet is None:
-        testnet = os.getenv("EXCHANGE_TESTNET", "false").lower() == "true"
-    
-    if default_type is None:
-        default_type = os.getenv("EXCHANGE_DEFAULT_TYPE", "spot")
+    encryption_service = EncryptionService()
+    api_key, secret_key = encryption_service.decrypt_keys(exchange_config["encrypted_data"]["encrypted_data"])
+
+    testnet = exchange_config.get("testnet", False)
+    account_type = exchange_config.get("account_type", "UNIFIED") # Default to UNIFIED for Bybit if not specified
+    default_type = exchange_config.get("default_type", "spot") # Default to spot for Binance if not specified
 
     exchange_type = exchange_type.lower()
 
@@ -27,7 +30,7 @@ def get_exchange_connector(exchange_type: str, api_key: str = "", secret_key: st
     elif exchange_type == "binance":
         return BinanceConnector(api_key=api_key, secret_key=secret_key, testnet=testnet, default_type=default_type)
     elif exchange_type == "bybit":
-        return BybitConnector(api_key=api_key, secret_key=secret_key)
+        return BybitConnector(api_key=api_key, secret_key=secret_key, testnet=testnet, account_type=account_type)
     else:
         raise UnsupportedExchangeError(f"Exchange type '{exchange_type}' is not supported.")
 

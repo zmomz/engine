@@ -125,7 +125,7 @@ class PositionManagerService:
             tp_mode=dca_grid_config.tp_mode, # Get from user config
             tp_aggregate_percent=dca_grid_config.tp_aggregate_percent,
             pyramid_count=0,
-            max_pyramids=5, # TODO: Get from user config
+            max_pyramids=dca_grid_config.max_pyramids, # Updated to use config
             risk_timer_start=None,
             risk_timer_expires=None
         )
@@ -428,26 +428,24 @@ class PositionManagerService:
             logger.error(f"PositionGroup {group_id} not found for stats update.")
             return
 
-        # Query DCAOrder directly instead of relying on the relationship
-        # because the relationship has lazy='noload' which prevents loading
+        # Query DCAOrder directly
         from sqlalchemy import select
         from app.models.dca_order import DCAOrder
-        from app.models.pyramid import Pyramid, PyramidStatus # Import Pyramid and PyramidStatus
+        from app.models.pyramid import Pyramid, PyramidStatus
 
         stmt = select(DCAOrder).where(DCAOrder.group_id == group_id)
         result = await session.execute(stmt)
         all_orders = result.scalars().all()
         
-        # Group orders by pyramid_id
+        # --- 1. Update Pyramid Statuses ---
         pyramid_orders = {}
         for order in all_orders:
-            pyramid_orders.setdefault(order.pyramid_id, []).append(order)
+            if order.pyramid_id:
+                pyramid_orders.setdefault(order.pyramid_id, []).append(order)
 
-        # Update pyramid statuses based on their DCA orders
         for pyramid_id, orders_in_pyramid in pyramid_orders.items():
             pyramid = await session.get(Pyramid, pyramid_id)
-            if not pyramid: # Should not happen if pyramid_orders map is built correctly
-                continue
+            if not pyramid: continue
 
             any_order_submitted_or_filled = any(
                 o.status in [OrderStatus.OPEN, OrderStatus.FILLED] 
@@ -458,122 +456,160 @@ class PositionManagerService:
             if all_orders_for_pyramid_filled and pyramid.status != PyramidStatus.FILLED:
                 pyramid.status = PyramidStatus.FILLED
                 logger.info(f"Pyramid {pyramid.id} status updated to FILLED.")
-                # No need to flush here, outer commit will handle it
             elif any_order_submitted_or_filled and pyramid.status == PyramidStatus.PENDING:
                 pyramid.status = PyramidStatus.SUBMITTED
-                logger.info(f"Pyramid {pyramid.id} status updated to SUBMITTED (some orders submitted/filled).")
-                # No need to flush here, outer commit will handle it
-        
+                logger.info(f"Pyramid {pyramid.id} status updated to SUBMITTED.")
+
+        # --- 2. Calculate Stats from Filled Orders (Chronological Replay) ---
         filled_orders = [o for o in all_orders if o.status == OrderStatus.FILLED]
         
-        logger.info(f"PositionGroup {group_id}: Found {len(filled_orders)} filled orders out of {len(all_orders)} total orders")
+        # Sort by filled_at to ensure correct sequence of Entry -> Exit
+        # If filled_at is missing, fallback to created_at
+        filled_orders.sort(key=lambda x: x.filled_at or x.created_at or datetime.min)
         
-        total_qty_in = Decimal("0")
-        total_cost_in = Decimal("0")
-        realized_pnl = Decimal("0")
-        total_qty_out = Decimal("0")
+        current_qty = Decimal("0")
+        current_invested_usd = Decimal("0")
+        total_realized_pnl = Decimal("0")
         
-        current_price = await exchange_connector.get_current_price(position_group.symbol)
+        # Track weighted avg dynamically
+        current_avg_price = Decimal("0")
         
-        # Calculate aggregate TP price if applicable
-        aggregate_tp_price = Decimal("0")
-        if position_group.tp_mode in ["aggregate", "hybrid"] and position_group.tp_aggregate_percent > Decimal("0"):
-            if position_group.side == "long":
-                aggregate_tp_price = position_group.weighted_avg_entry * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
-            else: # short
-                aggregate_tp_price = position_group.weighted_avg_entry * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
-            logger.debug(f"Aggregate TP Price for {position_group.symbol}: {aggregate_tp_price}")
-
         for o in filled_orders:
+            # Normalize side
+            order_side = o.side.lower()
+            group_side = position_group.side.lower()
+            
             qty = o.filled_quantity
             price = o.avg_fill_price or o.price
             
-            tp_triggered_for_order = False
+            is_entry = False
+            if group_side == "long" and order_side == "buy":
+                is_entry = True
+            elif group_side == "short" and order_side == "sell":
+                is_entry = True
 
-            # Per-Leg TP Check (always primary if set)
-            if o.tp_hit:
-                tp_triggered_for_order = True
-            
-            # Aggregate / Hybrid TP Check
-            if not tp_triggered_for_order and position_group.tp_mode in ["aggregate", "hybrid"]:
-                if (position_group.side == "long" and current_price >= aggregate_tp_price) or \
-                   (position_group.side == "short" and current_price <= aggregate_tp_price):
-                    
-                    if position_group.tp_mode == "aggregate" or (position_group.tp_mode == "hybrid" and not o.tp_hit):
-                        o.tp_hit = True
-                        o.tp_price = current_price # Record current price as TP price
-                        tp_triggered_for_order = True
-                        logger.info(f"Order {o.id} TP triggered by {position_group.tp_mode} mode at {current_price}")
-            
-            total_qty_in += qty
-            total_cost_in += qty * price # This is for weighted average calculation
-
-            if tp_triggered_for_order and o.tp_price:
-                total_qty_out += qty
-                exit_val = qty * o.tp_price
-                entry_val = qty * price
+            if is_entry:
+                # --- ENTRY ---
+                new_invested = current_invested_usd + (qty * price)
+                new_qty = current_qty + qty
                 
-                if position_group.side == "long":
-                    realized_pnl += (exit_val - entry_val)
-                else: # short
-                    realized_pnl += (entry_val - exit_val)
-                logger.debug(f"PnL Accumulated for order {o.id}: {realized_pnl}")
-        
-        net_qty = total_qty_in - total_qty_out
-        
-        if total_qty_in > 0:
-            if net_qty > 0: # Only update avg_entry if there's still open quantity
-                # Recalculate weighted average entry for remaining open quantity
-                # This is a simplified approach. A more accurate one would track entries/exits separately.
-                # For now, we assume if total_qty_out is > 0, some portion of initial capital is freed.
-                # If all quantities are out, avg_entry shouldn't be relevant.
-                position_group.weighted_avg_entry = total_cost_in / total_qty_in
-                position_group.total_invested_usd = net_qty * position_group.weighted_avg_entry
-            else: # All quantity is closed
-                position_group.weighted_avg_entry = Decimal("0")
-                position_group.total_invested_usd = Decimal("0")
-
-            position_group.total_filled_quantity = net_qty
-            position_group.realized_pnl_usd = realized_pnl
-            
-            # Calculate unrealized PnL for remaining open quantity
-            if net_qty > 0 and position_group.weighted_avg_entry > 0:
-                if position_group.side == "long":
-                    position_group.unrealized_pnl_usd = (current_price - position_group.weighted_avg_entry) * net_qty
-                else: # short
-                    position_group.unrealized_pnl_usd = (position_group.weighted_avg_entry - current_price) * net_qty
+                if new_qty > 0:
+                    current_avg_price = new_invested / new_qty
                 
-                position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100") if position_group.total_invested_usd > 0 else Decimal("0")
+                current_qty = new_qty
+                current_invested_usd = new_invested
+                
             else:
-                position_group.unrealized_pnl_usd = Decimal("0")
-                position_group.unrealized_pnl_percent = Decimal("0")
+                # --- EXIT ---
+                # Calculate PnL against CURRENT average entry
+                if group_side == "long":
+                    trade_pnl = (price - current_avg_price) * qty
+                else:
+                    trade_pnl = (current_avg_price - price) * qty
+                
+                total_realized_pnl += trade_pnl
+                
+                # Reduce Quantity
+                current_qty -= qty
+                # Reduce Invested Amount proportionally (maintain avg price)
+                current_invested_usd = current_qty * current_avg_price
 
+                # Safety: If qty goes to 0 or negative (shouldn't happen), reset
+                if current_qty <= 0:
+                    current_qty = Decimal("0")
+                    current_invested_usd = Decimal("0")
+                    current_avg_price = Decimal("0") 
 
-            position_group.filled_dca_legs = len(filled_orders)
-            
-            logger.debug(f"PositionGroup {group_id}: Status {position_group.status}, Filled Legs: {len(filled_orders)}, Total Legs: {position_group.total_dca_legs}")
-
-            if position_group.status == PositionGroupStatus.LIVE:
-                    if len(filled_orders) >= position_group.total_dca_legs:
-                        position_group.status = PositionGroupStatus.ACTIVE
-                        logger.info(f"PositionGroup {group_id} transitioning from LIVE to ACTIVE")
-                    else:
-                        position_group.status = PositionGroupStatus.PARTIALLY_FILLED
-                        logger.info(f"PositionGroup {group_id} transitioning from LIVE to PARTIALLY_FILLED")
-            elif position_group.status == PositionGroupStatus.PARTIALLY_FILLED:
-                    if len(filled_orders) >= position_group.total_dca_legs:
-                        position_group.status = PositionGroupStatus.ACTIVE
-                        logger.info(f"PositionGroup {group_id} transitioning from PARTIALLY_FILLED to ACTIVE")
-            
-            # Auto-close if everything is sold
-            if net_qty == 0 and total_qty_in > 0:
-                 position_group.status = PositionGroupStatus.CLOSED
-                 position_group.closed_at = datetime.utcnow()
-                 logger.info(f"PositionGroup {group_id} auto-closed. Realized PnL: {realized_pnl}, Total Qty In: {total_qty_in}, Total Qty Out: {total_qty_out}")
-
-            await position_group_repo.update(position_group)
-            
-        else:
-            logger.debug(f"No filled orders for PositionGroup {group_id} yet.")
+        # --- 3. Update Position Group Stats ---
+        position_group.weighted_avg_entry = current_avg_price
+        position_group.total_invested_usd = current_invested_usd
+        position_group.total_filled_quantity = current_qty
+        position_group.realized_pnl_usd = total_realized_pnl
         
+        # Calculate Unrealized PnL
+        current_price = await exchange_connector.get_current_price(position_group.symbol)
+        
+        if current_qty > 0 and current_avg_price > 0:
+            if position_group.side.lower() == "long":
+                position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty
+            else:
+                position_group.unrealized_pnl_usd = (current_avg_price - current_price) * current_qty
+            
+            # ROI % based on current invested capital
+            if position_group.total_invested_usd > 0:
+                position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100")
+            else:
+                 position_group.unrealized_pnl_percent = Decimal("0")
+        else:
+            position_group.unrealized_pnl_usd = Decimal("0")
+            position_group.unrealized_pnl_percent = Decimal("0")
+
+        # Update Legs Count
+        # Count only ENTRY legs that are filled to track grid progress
+        filled_entry_legs = sum(1 for o in filled_orders if o.side.lower() == position_group.side.lower())
+        position_group.filled_dca_legs = filled_entry_legs
+
+        # Status Transition Logic
+        if position_group.status in [PositionGroupStatus.LIVE, PositionGroupStatus.PARTIALLY_FILLED]:
+             if filled_entry_legs >= position_group.total_dca_legs:
+                 position_group.status = PositionGroupStatus.ACTIVE
+                 logger.info(f"PositionGroup {group_id} transitioned to ACTIVE")
+             elif filled_entry_legs > 0:
+                 position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+        
+        # Auto-close check
+        if current_qty <= 0 and len(filled_orders) > 0 and position_group.status not in [PositionGroupStatus.CLOSED, PositionGroupStatus.CLOSING]:
+             position_group.status = PositionGroupStatus.CLOSED
+             position_group.closed_at = datetime.utcnow()
+             logger.info(f"PositionGroup {group_id} auto-closed. Realized PnL: {total_realized_pnl}")
+        
+        await position_group_repo.update(position_group)
+
+        # --- 4. Aggregate/Hybrid TP Execution Logic ---
+        # Only if we are holding a position and not already closing
+        if current_qty > 0 and position_group.status not in [PositionGroupStatus.CLOSING, PositionGroupStatus.CLOSED]:
+            should_execute_tp = False
+            
+            if position_group.tp_mode in ["aggregate", "hybrid"] and position_group.tp_aggregate_percent > 0:
+                aggregate_tp_price = Decimal("0")
+                if position_group.side.lower() == "long":
+                    aggregate_tp_price = current_avg_price * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
+                    if current_price >= aggregate_tp_price:
+                        should_execute_tp = True
+                else: # Short
+                    aggregate_tp_price = current_avg_price * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
+                    if current_price <= aggregate_tp_price:
+                        should_execute_tp = True
+                
+                if should_execute_tp:
+                    logger.info(f"Aggregate TP Triggered for Group {group_id} at {current_price} (Target: {aggregate_tp_price})")
+                    
+                    # Instantiate OrderService
+                    order_service = self.order_service_class(
+                        session=session,
+                        user=self.user,
+                        exchange_connector=exchange_connector
+                    )
+                    
+                    # 1. Cancel all open orders (remove Limit TPs)
+                    await order_service.cancel_open_orders_for_group(group_id)
+                    
+                    # 2. Execute Market Close for remaining quantity
+                    close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                    await order_service.place_market_order(
+                        user_id=self.user.id,
+                        exchange=position_group.exchange,
+                        symbol=position_group.symbol,
+                        side=close_side,
+                        quantity=current_qty,
+                        position_group_id=group_id,
+                        record_in_db=True
+                    )
+                    
+                    # Mark group as CLOSING
+                    position_group.status = PositionGroupStatus.CLOSING
+                    await position_group_repo.update(position_group)
+                    
+                    logger.info(f"Executed Aggregate TP Market Close for Group {group_id}")
+
         pass

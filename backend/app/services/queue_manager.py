@@ -329,7 +329,7 @@ class QueueManagerService:
                             dca_config = DCAGridConfig.model_validate(user.dca_grid_config)
                             
                             # Fetch capital using correct connector
-                            total_capital = Decimal("1000") # Default
+                            total_capital = Decimal("1000") # Default fallback
                             try:
                                 # Re-init connector for best_signal.exchange to get balance
                                 exchange = None
@@ -348,21 +348,33 @@ class QueueManagerService:
                                 if exchange:
                                     balance = await exchange.fetch_balance()
                                     # Standardized flat structure (e.g., {'USDT': 1000.0})
-                                    # Handle legacy/standard CCXT nested structure if present (robustness)
                                     if "total" in balance and isinstance(balance["total"], dict):
                                         balance = balance["total"]
                                     
                                     if isinstance(balance, dict):
                                         total_capital = Decimal(str(balance.get('USDT', 1000)))
-                            except Exception:
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch balance for user {user.id}: {e}")
                                 pass
 
-                            # Apply max total exposure from risk config if set
-                            if risk_config.max_total_exposure_usd:
-                                max_exposure = Decimal(str(risk_config.max_total_exposure_usd))
-                                if total_capital > max_exposure:
-                                    logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
-                                    total_capital = max_exposure
+                            # --- POSITION SIZING LOGIC ---
+                            # 1. Calculate based on percentage
+                            alloc_percent = risk_config.risk_per_position_percent if risk_config.risk_per_position_percent else Decimal("10.0")
+                            allocated_capital = total_capital * (alloc_percent / Decimal("100"))
+                            
+                            # 2. Cap by absolute amount if configured
+                            if risk_config.risk_per_position_cap_usd and risk_config.risk_per_position_cap_usd > 0:
+                                if allocated_capital > risk_config.risk_per_position_cap_usd:
+                                    allocated_capital = risk_config.risk_per_position_cap_usd
+
+                            # 3. Cap total exposure (Global Safety)
+                            # (Optional: Check existing exposure here, but risk engine pre-check usually handles the "new open" permission.
+                            # However, we should ensure we don't allocate more than the global cap even if balance is huge)
+                            if risk_config.max_total_exposure_usd and risk_config.max_total_exposure_usd > 0:
+                                if allocated_capital > risk_config.max_total_exposure_usd:
+                                    allocated_capital = risk_config.max_total_exposure_usd
+
+                            logger.info(f"Capital Allocation: Total {total_capital} USD, Allocating {allocated_capital} USD ({alloc_percent}%)")
 
                             if is_pyramid:
                                 existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
@@ -374,7 +386,7 @@ class QueueManagerService:
                                         existing_position_group=existing_group,
                                         risk_config=risk_config,
                                         dca_grid_config=dca_config,
-                                        total_capital_usd=total_capital
+                                        total_capital_usd=allocated_capital
                                     )
                             else:
                                 await self.position_manager_service.create_position_group_from_signal(
@@ -383,7 +395,7 @@ class QueueManagerService:
                                     signal=best_signal,
                                     risk_config=risk_config,
                                     dca_grid_config=dca_config,
-                                    total_capital_usd=total_capital
+                                    total_capital_usd=allocated_capital
                                 )
                             
                             await session.commit()

@@ -15,6 +15,8 @@ const exchangeSettingsSchema = z.object({
   key_target_exchange: z.string().min(1, 'Target exchange is required'), 
   api_key: z.string().optional(),
   secret_key: z.string().optional(),
+  testnet: z.boolean().optional(), // Added testnet
+  account_type: z.string().optional(), // Added account_type
 });
 
 const riskEngineConfigSchema = z.object({
@@ -158,14 +160,15 @@ const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     if (settings) {
-      // Preserve current form values if user is editing, but update defaults
-      // For now, simpler to just reset safely
+      const currentExchangeDetails = settings.configured_exchange_details?.[settings.exchange] || {};
       reset({
         exchangeSettings: {
           exchange: settings.exchange,
           key_target_exchange: settings.exchange, // Default to active exchange
           api_key: '', 
           secret_key: '',
+          testnet: currentExchangeDetails.testnet || false, // Initialize testnet
+          account_type: currentExchangeDetails.account_type || '', // Initialize account_type
         },
         riskEngineConfig: settings.risk_config,
         dcaGridConfig: settings.dca_grid_config,
@@ -239,6 +242,11 @@ const SettingsPage: React.FC = () => {
 
   const handleEditKey = (exchange: string) => {
     setValue("exchangeSettings.key_target_exchange", exchange);
+    const exchangeDetails = settings?.configured_exchange_details?.[exchange];
+    if (exchangeDetails) {
+      setValue("exchangeSettings.testnet", exchangeDetails.testnet || false);
+      setValue("exchangeSettings.account_type", exchangeDetails.account_type || '');
+    }
     // Focus the api key input? (Optional)
   };
 
@@ -379,6 +387,35 @@ const SettingsPage: React.FC = () => {
                     />
                   )}
                 />
+                <Controller
+                  name="exchangeSettings.testnet"
+                  control={control}
+                  render={({ field }) => (
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={!!field.value}
+                          onChange={(e) => field.onChange(e.target.checked)}
+                        />
+                      }
+                      label="Use Testnet"
+                    />
+                  )}
+                />
+                 <Controller
+                  name="exchangeSettings.account_type"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Account Type (e.g., UNIFIED for Bybit)"
+                      fullWidth
+                      margin="normal"
+                      error={!!errors.exchangeSettings?.account_type}
+                      helperText={errors.exchangeSettings?.account_type?.message}
+                    />
+                  )}
+                />
                 <Button 
                     variant="contained" 
                     color="primary"
@@ -394,12 +431,22 @@ const SettingsPage: React.FC = () => {
                             const payload: any = {
                                 key_target_exchange: currentValues.key_target_exchange,
                                 api_key: currentValues.api_key,
-                                secret_key: currentValues.secret_key
+                                secret_key: currentValues.secret_key,
                             };
+                            // Add testnet and account_type if they have values
+                            if (currentValues.testnet !== undefined) {
+                                payload.testnet = currentValues.testnet;
+                            }
+                            if (currentValues.account_type) {
+                                payload.account_type = currentValues.account_type;
+                            }
                             await updateSettings(payload);
                             // Clear fields after successful update
                             setValue("exchangeSettings.api_key", "");
                             setValue("exchangeSettings.secret_key", "");
+                            // Optionally clear testnet and account_type or reset to defaults
+                            setValue("exchangeSettings.testnet", false); 
+                            setValue("exchangeSettings.account_type", "");
                         } else {
                             useNotificationStore.getState().showNotification("Please enter both API Key and Secret Key.", 'warning');
                         }

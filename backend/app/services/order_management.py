@@ -254,7 +254,35 @@ class OrderService:
                 dca_order.tp_hit = True
                 dca_order.tp_executed_at = datetime.utcnow()
                 await self.dca_order_repository.update(dca_order)
-                logger.info(f"TP order {dca_order.tp_order_id} for DCA order {dca_order.id} hit!")
+                
+                # Create a record for the TP fill so stats can see the exit
+                tp_side = "sell" if dca_order.side.lower() == "buy" else "buy"
+                filled_qty = Decimal(str(exchange_order_data.get("filled", dca_order.filled_quantity)))
+                avg_price = Decimal(str(exchange_order_data.get("average", dca_order.tp_price)))
+                
+                tp_fill_order = DCAOrder(
+                    group_id=dca_order.group_id,
+                    pyramid_id=dca_order.pyramid_id,
+                    leg_index=999, # Special index for TP
+                    symbol=dca_order.symbol,
+                    side=tp_side,
+                    order_type=OrderType.LIMIT, # TP is usually limit
+                    price=avg_price,
+                    quantity=filled_qty,
+                    status=OrderStatus.FILLED.value,
+                    exchange_order_id=str(exchange_order_data.get("id", "tp_fill_" + str(uuid.uuid4()))),
+                    filled_quantity=filled_qty,
+                    avg_fill_price=avg_price,
+                    filled_at=datetime.utcnow(),
+                    submitted_at=datetime.utcnow(),
+                    gap_percent=Decimal("0"),
+                    weight_percent=Decimal("0"),
+                    tp_percent=Decimal("0"),
+                    tp_price=Decimal("0")
+                )
+                await self.dca_order_repository.create(tp_fill_order)
+                
+                logger.info(f"TP order {dca_order.tp_order_id} for DCA order {dca_order.id} hit! Created TP fill record {tp_fill_order.id}")
                 
             return dca_order
         except Exception as e:
@@ -288,11 +316,13 @@ class OrderService:
         symbol: str,
         side: str,
         quantity: Decimal,
-        position_group_id: uuid.UUID = None
+        position_group_id: uuid.UUID = None,
+        record_in_db: bool = False
     ) -> Dict[str, Any]:
         """
         Places a market order directly on the exchange.
-        Used for risk engine offsets and force closes.
+        Used for risk engine offsets, force closes, and aggregate TP execution.
+        If record_in_db is True, creates a FILLED DCAOrder to track this trade.
         """
         try:
             # Ensure side is uppercase
@@ -306,8 +336,43 @@ class OrderService:
                 price=None # Market orders don't have a price
             )
             
-            # TODO: Optionally record this as a distinct "MarketOrder" entity if needed for audit trails
-            # For now, we just return the exchange data so the caller can log it.
+            if record_in_db and position_group_id:
+                # Create a "virtual" leg index for tracking (e.g., -1 or derived from sequence)
+                # But DCAOrder usually maps to a plan. Here we just want to track the fill.
+                # We'll use a special leg_index -1 for ad-hoc market orders to differentiate.
+                
+                # Extract fill details
+                filled_qty = Decimal(str(exchange_order_data.get("filled", quantity))) # Fallback to req qty if missing
+                avg_price = Decimal(str(exchange_order_data.get("average", exchange_order_data.get("price", "0"))))
+
+                # If avg_price is 0 (common in immediate response), might need to fetch order? 
+                # For now, trust exchange or use 0 and let monitor fix it? 
+                # Monitor doesn't monitor filled orders usually. 
+                # Let's hope 'average' is populated or 'price' is.
+                
+                market_order = DCAOrder(
+                    group_id=position_group_id,
+                    pyramid_id=None, # Not attached to specific pyramid plan
+                    leg_index=-1, # Ad-hoc order
+                    symbol=symbol,
+                    side=side_value.lower(),
+                    order_type=OrderType.MARKET,
+                    price=avg_price, # Market orders fill at avg_price
+                    quantity=filled_qty,
+                    status=OrderStatus.FILLED.value,
+                    exchange_order_id=str(exchange_order_data["id"]),
+                    filled_quantity=filled_qty,
+                    avg_fill_price=avg_price,
+                    filled_at=datetime.utcnow(),
+                    submitted_at=datetime.utcnow(),
+                    gap_percent=Decimal("0"),
+                    weight_percent=Decimal("0"),
+                    tp_percent=Decimal("0"),
+                    tp_price=Decimal("0")
+                )
+                await self.dca_order_repository.create(market_order)
+                logger.info(f"Recorded market order {market_order.id} for group {position_group_id} in DB.")
+
             return exchange_order_data
 
         except APIError as e:

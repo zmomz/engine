@@ -289,7 +289,8 @@ async def test_evaluate_user_positions_execution(mock_config):
             symbol=loser.symbol,
             side="sell",
             quantity=loser.total_filled_quantity,
-            position_group_id=loser.id
+            position_group_id=loser.id,
+            record_in_db=True
         )
         
         mock_order_service_instance.place_market_order.assert_any_call(
@@ -298,7 +299,8 @@ async def test_evaluate_user_positions_execution(mock_config):
             symbol=winner.symbol,
             side="sell",
             quantity=Decimal("0.5"),
-            position_group_id=winner.id
+            position_group_id=winner.id,
+            record_in_db=True
         )
         
         mock_risk_repo.create.assert_called_once()

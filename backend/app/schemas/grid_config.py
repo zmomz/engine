@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Literal
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, RootModel, model_validator
 
 class DCALevelConfig(BaseModel):
@@ -19,6 +19,7 @@ class DCAGridConfig(BaseModel):
     levels: List[DCALevelConfig] = Field(..., description="List of DCA levels with their respective configurations.")
     tp_mode: Literal["per_leg", "aggregate", "hybrid"] = Field("per_leg", description="Take-profit mode for the position group.")
     tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage for the position group, used in aggregate and hybrid TP modes.")
+    max_pyramids: int = Field(5, description="Maximum number of pyramids allowed for this position group.")
     
     @model_validator(mode='after')
     def validate_total_weight(self):
@@ -35,6 +36,10 @@ class RiskEngineConfig(BaseModel):
     max_total_exposure_usd: Decimal = Decimal("10000")
     max_daily_loss_usd: Decimal = Decimal("500") # Circuit breaker
 
+    # Position Sizing
+    risk_per_position_percent: Decimal = Field(Decimal("10.0"), description="Percentage of available capital to allocate to a single position group.")
+    risk_per_position_cap_usd: Optional[Decimal] = Field(None, description="Maximum absolute USD amount to allocate to a single position group (optional cap).")
+
     # Post-trade Risk Management
     loss_threshold_percent: Decimal = Decimal("-1.5")
     timer_start_condition: str = "after_all_dca_filled"
@@ -50,7 +55,7 @@ class RiskEngineConfig(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def convert_floats_to_decimals(cls, values):
-        for key in ['loss_threshold_percent', 'max_total_exposure_usd', 'max_daily_loss_usd', 'min_close_notional']:
+        for key in ['loss_threshold_percent', 'max_total_exposure_usd', 'max_daily_loss_usd', 'min_close_notional', 'risk_per_position_percent', 'risk_per_position_cap_usd']:
             if key in values and isinstance(values[key], float):
                 values[key] = Decimal(str(values[key]))
         return values
