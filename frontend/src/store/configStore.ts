@@ -11,7 +11,7 @@ export interface DCALevelConfig {
 
 export interface DCAGridConfig {
   levels: DCALevelConfig[];
-  tp_mode: string;
+  tp_mode: "per_leg" | "aggregate" | "hybrid";
   tp_aggregate_percent: number;
 }
 

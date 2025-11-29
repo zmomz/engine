@@ -29,7 +29,7 @@
     "tailwindcss": "^4.1.17",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4",
-    "zod": "^4.1.12",
+    "zod": "^3.24.1",
     "zustand": "^5.0.8"
   },
   "scripts": {
