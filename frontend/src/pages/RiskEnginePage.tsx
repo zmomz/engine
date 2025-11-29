@@ -46,6 +46,13 @@ const RiskEnginePage: React.FC = () => {
                         <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fff5f5' }}>
                             <Typography><strong>Symbol:</strong> {status.identified_loser.symbol}</Typography>
                             <Typography><strong>Unrealized PnL:</strong> ${status.identified_loser.unrealized_pnl_usd.toFixed(2)} ({status.identified_loser.unrealized_pnl_percent.toFixed(2)}%)</Typography>
+                            {status.identified_loser.risk_timer_expires && (
+                                <Typography sx={{ mt: 1 }}>
+                                    <strong>Risk Timer:</strong> {new Date(status.identified_loser.risk_timer_expires) <= new Date() 
+                                        ? <span style={{ color: 'red' }}>Active (Expired)</span> 
+                                        : `Expires at ${new Date(status.identified_loser.risk_timer_expires).toLocaleTimeString()}`}
+                                </Typography>
+                            )}
                             <Box sx={{ mt: 1 }}>
                                 <Chip 
                                     label={status.identified_loser.risk_blocked ? "Blocked" : "Active"} 

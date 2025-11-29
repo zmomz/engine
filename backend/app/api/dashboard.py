@@ -196,7 +196,38 @@ async def get_pnl(
 
     total_pnl = float(realized_pnl) + unrealized_pnl
     logger.debug(f"Total Realized PnL: {realized_pnl}, Total Unrealized PnL: {unrealized_pnl}, Total PnL: {total_pnl}")
-    return {"pnl": total_pnl}
+    return {
+        "pnl": total_pnl,
+        "realized_pnl": float(realized_pnl),
+        "unrealized_pnl": unrealized_pnl
+    }
+
+@router.get("/stats")
+async def get_stats(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    repo = PositionGroupRepository(db)
+    closed_groups = await repo.get_closed_by_user(current_user.id)
+    
+    total_trades = len(closed_groups)
+    wins = 0
+    losses = 0
+    
+    for group in closed_groups:
+        if group.realized_pnl_usd > 0:
+            wins += 1
+        else:
+            losses += 1
+            
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
+    
+    return {
+        "total_trades": total_trades,
+        "total_winning_trades": wins,
+        "total_losing_trades": losses,
+        "win_rate": win_rate
+    }
 
 @router.get("/active-groups-count")
 async def get_active_groups_count(

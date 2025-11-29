@@ -131,12 +131,12 @@ async def force_close_position(
     """
     Initiates the force-closing process for an active position group.
     """
+    repo = PositionGroupRepository(db)
+    position_group = await repo.get_by_user_and_id(current_user.id, group_id)
+    if not position_group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
+
     try:
-        # 1. Fetch the position group to identify the exchange
-        repo = PositionGroupRepository(db)
-        position_group = await repo.get_by_user_and_id(current_user.id, group_id)
-        if not position_group:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
 
         # 2. Get credentials for the specific exchange
         target_exchange = position_group.exchange

@@ -1,0 +1,40 @@
+[
+  {
+    "id": "1cd82924-a2c2-423a-89b1-125a1ac6af23",
+    "user_id": "f281cda9-86f3-4328-a0f7-6eb919ee2bbe",
+    "exchange": "BINANCE",
+    "symbol": "ETHUSDT",
+    "timeframe": 1,
+    "side": "long",
+    "status": "closed",
+    "base_entry_price": 3350.0,
+    "weighted_avg_entry": 3002.13,
+    "total_filled_quantity": 0.0,
+    "total_invested_usd": 0.0,
+    "unrealized_pnl_usd": 0.0,
+    "realized_pnl_usd": 20.0118,
+    "pyramid_count": 0,
+    "created_at": "2025-11-27T15:42:26.628135",
+    "updated_at": "2025-11-27T17:37:37.392719",
+    "closed_at": "2025-11-27T17:37:37.373208"
+  },
+  {
+    "id": "73b079b3-02af-49da-9a6b-cf8cf363af46",
+    "user_id": "f281cda9-86f3-4328-a0f7-6eb919ee2bbe",
+    "exchange": "BINANCE",
+    "symbol": "DOGEUSDT",
+    "timeframe": 1,
+    "side": "long",
+    "status": "live",
+    "base_entry_price": 0.153,
+    "weighted_avg_entry": 0.153,
+    "total_filled_quantity": 0.0,
+    "total_invested_usd": 0.0,
+    "unrealized_pnl_usd": 0.0,
+    "realized_pnl_usd": 0.0,
+    "pyramid_count": 0,
+    "created_at": "2025-11-28T11:15:57.269578",
+    "updated_at": "2025-11-28T11:15:57.269584",
+    "closed_at": null
+  }
+]

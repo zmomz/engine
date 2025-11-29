@@ -213,10 +213,10 @@ async def test_create_position_group_from_signal_new_position(
     assert created_pg.user_id == sample_queued_signal.user_id
     assert created_pg.symbol == sample_queued_signal.symbol
     assert created_pg.status == PositionGroupStatus.LIVE
-    assert created_pg.risk_timer_start is not None
-    assert created_pg.risk_timer_expires is not None
-    expected_expiry = created_pg.risk_timer_start + timedelta(minutes=sample_risk_config.post_full_wait_minutes)
-    assert abs((created_pg.risk_timer_expires - expected_expiry).total_seconds()) < 1 # Allow for minor time differences
+    
+    # Timer should NOT start immediately on creation (unless conditions are met instantly, which is impossible for new group with 0 pyramids)
+    assert created_pg.risk_timer_start is None
+    assert created_pg.risk_timer_expires is None
 
 @pytest.mark.asyncio
 async def test_create_position_group_submits_orders(
@@ -457,7 +457,8 @@ async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_
         weighted_avg_entry=Decimal(100),
         tp_mode="per_leg"
     )
-    position_manager_service.position_group_repository_class.return_value.get_by_id.return_value = position_group
+    mock_repo_instance = mock_position_group_repository_class.return_value
+    mock_repo_instance.get.return_value = position_group
 
     # Act
     await position_manager_service.update_risk_timer(position_group.id, config)
@@ -500,9 +501,10 @@ async def test_risk_timer_start_after_all_dca_submitted(position_manager_service
         filled_dca_legs=2, # Not all filled
         base_entry_price=Decimal(2000),
         weighted_avg_entry=Decimal(2000),
-        tp_mode="aggregate"
+        tp_mode="aggregate" # Added missing tp_mode
     )
-    position_manager_service.position_group_repository_class.return_value.get_by_id.return_value = position_group
+    mock_repo_instance = mock_position_group_repository_class.return_value
+    mock_repo_instance.get.return_value = position_group
 
     # Act
     await position_manager_service.update_risk_timer(position_group.id, config)
@@ -547,7 +549,8 @@ async def test_risk_timer_start_after_all_dca_filled(position_manager_service, m
         weighted_avg_entry=Decimal(50),
         tp_mode="hybrid"
     )
-    position_manager_service.position_group_repository_class.return_value.get_by_id.return_value = position_group
+    mock_repo_instance = mock_position_group_repository_class.return_value
+    mock_repo_instance.get.return_value = position_group
 
     # Act
     await position_manager_service.update_risk_timer(position_group.id, config)

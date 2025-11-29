@@ -9,6 +9,7 @@ interface RiskStatus {
     unrealized_pnl_usd: number;
     risk_blocked: boolean;
     risk_skip_once: boolean;
+    risk_timer_expires: string | null;
   } | null;
   identified_winners: Array<{
     id: string;

@@ -81,6 +81,20 @@ const LogsPage: React.FC = () => {
          <Button variant="outlined" onClick={() => fetchLogs(lineCount, logLevel)}>
             Refresh
          </Button>
+         <Button 
+            variant="contained" 
+            onClick={() => {
+                const blob = new Blob([filteredLogs.join('\n')], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `gemini-logs-${new Date().toISOString()}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }}
+         >
+            Export Logs
+         </Button>
       </Box>
 
       <Box 

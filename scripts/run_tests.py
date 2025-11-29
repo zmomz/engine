@@ -73,13 +73,14 @@ def main():
         # 2. Start services
         logger.info("Starting test services...")
         test_env["TESTING"] = "true"
-        run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "up", "-d", "--build"], check=True, env=test_env)
+        run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "build", "--no-cache", SERVICE_APP], check=True, env=test_env)
+        run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "up", "-d"], check=True, env=test_env)
 
         # 3. Wait for DB
         logger.info("Waiting for database (with a 10s delay to allow app container to start)...")
         time.sleep(10) # Give the app container time to fully start
         run_command(
-            ["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "exec", "-u", "root", SERVICE_APP, "python", "/app/scripts/wait-for-db.py"],
+            ["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "exec", "-u", "root", SERVICE_APP, "python3", "/app/scripts/wait-for-db.py"],
             check=True, env=test_env
         )
 

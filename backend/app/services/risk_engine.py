@@ -472,6 +472,7 @@ class RiskEngineService:
                     "unrealized_pnl_usd": float(loser.unrealized_pnl_usd),
                     "risk_blocked": loser.risk_blocked,
                     "risk_skip_once": loser.risk_skip_once,
+                    "risk_timer_expires": loser.risk_timer_expires.isoformat() if loser.risk_timer_expires else None,
                 }
             
             winners_info = []

@@ -27,7 +27,9 @@ COPY pyproject.toml poetry.lock* /app/
 
 # Install dependencies (Production only)
 RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --only main
+    poetry install --no-interaction --no-ansi --no-root
+
+
 
 # Copy the rest of the application code
 COPY . /app/
@@ -39,4 +41,4 @@ RUN chown -R appuser:appuser /app
 USER appuser
 
 # Command to run the application
-CMD bash -c "python /app/scripts/wait-for-db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+CMD bash -c "python /app/scripts/wait-for-db.py && poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000"

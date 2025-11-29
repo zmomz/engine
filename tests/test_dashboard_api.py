@@ -108,7 +108,7 @@ async def test_get_pnl(authorized_client, test_user, db_session):
         
         assert response.status_code == 200
         # 100 + 10 + 50.50 = 160.50
-        assert response.json() == {"pnl": 160.50}
+        assert response.json() == {"pnl": 160.50, "realized_pnl": 110.00, "unrealized_pnl": 50.50}
 
 # Test Active Groups Count
 @pytest.mark.asyncio

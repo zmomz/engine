@@ -112,9 +112,6 @@ class PositionManagerService:
         print("DEBUG: Calculated quantities")
 
         # 4. Create PositionGroup
-        risk_timer_start = datetime.utcnow()
-        risk_timer_expires = risk_timer_start + timedelta(minutes=risk_config.post_full_wait_minutes)
-        
         new_position_group = PositionGroup(
             user_id=user_id,
             exchange=signal.exchange,
@@ -128,8 +125,8 @@ class PositionManagerService:
             tp_mode="per_leg", # TODO: Get from user config
             pyramid_count=0,
             max_pyramids=5, # TODO: Get from user config
-            risk_timer_start=risk_timer_start,
-            risk_timer_expires=risk_timer_expires
+            risk_timer_start=None,
+            risk_timer_expires=None
         )
         session.add(new_position_group)
         await session.flush()
@@ -196,6 +193,8 @@ class PositionManagerService:
 
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
         
+        await self.update_risk_timer(new_position_group.id, risk_config, session=session)
+
         return new_position_group
 
     async def handle_pyramid_continuation(
@@ -256,8 +255,8 @@ class PositionManagerService:
         existing_position_group.replacement_count += 1
         existing_position_group.total_dca_legs += len(dca_levels)
         
-        # Reset risk timer if configured
-        if risk_config.reset_timer_on_replacement:
+        # Reset risk timer only if it was already running (condition previously met)
+        if risk_config.reset_timer_on_replacement and existing_position_group.risk_timer_expires is not None:
             existing_position_group.risk_timer_start = datetime.utcnow()
             existing_position_group.risk_timer_expires = existing_position_group.risk_timer_start + timedelta(minutes=risk_config.post_full_wait_minutes)
 
@@ -306,6 +305,9 @@ class PositionManagerService:
             await order_service.submit_order(order)
 
         logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
+        
+        await self.update_risk_timer(existing_position_group.id, risk_config, session=session)
+        
         return existing_position_group
 
     async def handle_exit_signal(self, position_group_id: uuid.UUID):
@@ -367,28 +369,42 @@ class PositionManagerService:
             logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
 
-    async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig):
-        async with self.session_factory() as session:
-            position_group_repo = self.position_group_repository_class(session)
-            position_group = await position_group_repo.get_by_id(position_group_id)
+    async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None):
+        if session:
+            await self._execute_update_risk_timer(session, position_group_id, risk_config)
+        else:
+            async with self.session_factory() as new_session:
+                await self._execute_update_risk_timer(new_session, position_group_id, risk_config)
+                await new_session.commit()
 
-            if not position_group:
-                return
+    async def _execute_update_risk_timer(self, session: AsyncSession, position_group_id: uuid.UUID, risk_config: RiskEngineConfig):
+        position_group_repo = self.position_group_repository_class(session)
+        position_group = await position_group_repo.get(position_group_id)
 
-            timer_started = False
-            if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
-                timer_started = True
-            elif risk_config.timer_start_condition == "after_all_dca_submitted" and position_group.pyramid_count >= 5:
-                timer_started = True
-            elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
-                timer_started = True
+        if not position_group:
+            return
 
-            if timer_started:
-                expires_at = datetime.utcnow() + timedelta(minutes=risk_config.post_full_wait_minutes)
-                position_group.risk_timer_expires = expires_at
-                await position_group_repo.update(position_group)
-                await session.commit()
-                logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
+        # Check if timer is already set/active to avoid resetting it unless intended (though this logic mainly STARTS it)
+        if position_group.risk_timer_expires is not None:
+             # Timer already running.
+             # Logic for resetting on replacement is handled in handle_pyramid_continuation
+             return
+
+        timer_started = False
+        if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
+            timer_started = True
+        elif risk_config.timer_start_condition == "after_all_dca_submitted" and position_group.pyramid_count >= 5:
+            # Assuming 5 pyramids means all DCA submitted for the grid logic usually
+            timer_started = True
+        elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
+            timer_started = True
+
+        if timer_started:
+            expires_at = datetime.utcnow() + timedelta(minutes=risk_config.post_full_wait_minutes)
+            position_group.risk_timer_expires = expires_at
+            await position_group_repo.update(position_group)
+            # await session.commit() -> handled by caller or wrapper
+            logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
     async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None):

@@ -6,6 +6,7 @@ export interface DCAOrder {
   id: string;
   price: number;
   quantity: number;
+  filled_quantity: number | null;
   status: string;
   order_type: string;
 }
@@ -19,12 +20,28 @@ export interface Pyramid {
 
 export interface PositionGroup {
   id: string;
+  exchange: string;
   symbol: string;
+  timeframe: number;
   side: string;
   status: string;
+  pyramid_count: number;
+  max_pyramids: number;
+  replacement_count: number;
+  total_dca_legs: number;
+  filled_dca_legs: number;
+  base_entry_price: number;
+  weighted_avg_entry: number;
+  total_invested_usd: number;
+  total_filled_quantity: number;
   unrealized_pnl_usd: number;
   unrealized_pnl_percent: number;
-  total_invested_usd: number;
+  realized_pnl_usd: number;
+  tp_mode: string;
+  risk_timer_expires: string | null;
+  risk_eligible: boolean;
+  risk_blocked: boolean;
+  created_at: string;
   pyramids: Pyramid[];
 }
 

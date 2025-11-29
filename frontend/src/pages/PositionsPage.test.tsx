@@ -22,6 +22,8 @@ describe('PositionsPage', () => {
       unrealized_pnl_usd: 500,
       unrealized_pnl_percent: 5.0,
       total_invested_usd: 10000,
+      pyramid_count: 0,
+      max_pyramids: 5,
       pyramids: [],
     },
   ];

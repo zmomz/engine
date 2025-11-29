@@ -42,3 +42,4 @@ docker-compose.*.yml
 .idea
 .vscode
 *.swp
+.venv

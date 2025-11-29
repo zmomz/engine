@@ -52,10 +52,46 @@ const PositionsPage: React.FC = () => {
         </IconButton>
       ),
     },
-    { field: 'exchange', headerName: 'Exchange', width: 120 },
-    { field: 'symbol', headerName: 'Symbol', width: 150 },
-    { field: 'side', headerName: 'Side', width: 100 },
-    { field: 'status', headerName: 'Status', width: 150 },
+    { field: 'exchange', headerName: 'Exchange', width: 100 },
+    { field: 'symbol', headerName: 'Symbol', width: 120 },
+    { field: 'side', headerName: 'Side', width: 80 },
+    { field: 'status', headerName: 'Status', width: 120 },
+    {
+      field: 'weighted_avg_entry',
+      headerName: 'Avg Entry',
+      width: 120,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        params.value ? `$${Number(params.value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'
+      ),
+    },
+    {
+      field: 'pyramid_count',
+      headerName: 'Pyramids',
+      width: 100,
+      valueGetter: (params: any) => `${params.row.pyramid_count || 0} / ${params.row.max_pyramids || 5}`,
+    },
+    {
+      field: 'filled_dca_legs',
+      headerName: 'DCA Progress',
+      width: 120,
+      valueGetter: (params: any) => `${params.row.filled_dca_legs || 0} / ${params.row.total_dca_legs || 0}`,
+    },
+    {
+      field: 'risk_timer_expires',
+      headerName: 'Risk Timer',
+      width: 180,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
+        if (!params.value) return 'Inactive';
+        const expires = new Date(params.value);
+        const now = new Date();
+        const expired = now > expires;
+        return (
+          <Typography color={expired ? 'error' : 'warning.main'} variant="body2">
+            {expired ? 'Active (Expired)' : `Activates: ${expires.toLocaleTimeString()}`}
+          </Typography>
+        );
+      },
+    },
     {
       field: 'unrealized_pnl_usd',
       headerName: 'PnL ($)',

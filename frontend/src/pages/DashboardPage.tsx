@@ -6,9 +6,22 @@ import PnlCard from '../components/PnlCard';
 import ActiveGroupsWidget from '../components/ActiveGroupsWidget';
 import FreeUsdtCard from '../components/FreeUsdtCard';
 import EquityCurveChart from '../components/EquityCurveChart';
+import WinLossWidget from '../components/WinLossWidget';
 
 const DashboardPage: React.FC = () => {
-  const { tvl, pnl, activeGroupsCount, free_usdt, fetchEngineData } = useEngineStore();
+  const { 
+    tvl, 
+    pnl, 
+    realized_pnl, 
+    unrealized_pnl, 
+    activeGroupsCount, 
+    free_usdt, 
+    fetchEngineData,
+    total_trades,
+    total_winning_trades,
+    total_losing_trades,
+    win_rate
+  } = useEngineStore();
 
   useEffect(() => {
     // Fetch data immediately on mount
@@ -35,10 +48,18 @@ const DashboardPage: React.FC = () => {
           <FreeUsdtCard freeUsdt={free_usdt} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-          <PnlCard pnl={pnl} />
+          <PnlCard pnl={pnl} realizedPnl={realized_pnl} unrealizedPnl={unrealized_pnl} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
           <ActiveGroupsWidget count={activeGroupsCount} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+           <WinLossWidget 
+              totalTrades={total_trades} 
+              wins={total_winning_trades} 
+              losses={total_losing_trades} 
+              winRate={win_rate} 
+           />
         </Grid>
         <Grid size={{ xs: 12 }}>
           <EquityCurveChart />

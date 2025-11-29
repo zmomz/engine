@@ -1,21 +1,38 @@
+import logging
+from typing import List, Dict, Any, Optional
+from threading import Thread
+import json
+from decimal import Decimal
+
+from redis import Redis
+from sqlalchemy.orm import Session
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.webhook_payloads import WebhookPayload
+from app.db.database import AsyncSessionLocal
+
+from app.core.config import settings
+from app.core.security import EncryptionService
+from app.models.position_group import PositionGroup
 from app.models.user import User
+from app.models.queued_signal import QueuedSignal
+from app.schemas.webhook_payloads import WebhookPayload
+
 from app.services.position_manager import PositionManagerService
 from app.services.execution_pool_manager import ExecutionPoolManager
+from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.services.precision_validator import PrecisionValidator
+
+
+from app.services.order_management import OrderService
 from app.services.queue_manager import QueueManagerService
 from app.services.grid_calculator import GridCalculatorService
-from app.services.order_management import OrderService
+
+
 from app.repositories.position_group import PositionGroupRepository
-from app.repositories.queued_signal import QueuedSignalRepository
-from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.models.position_group import PositionGroupStatus
+from app.models.dca_order import OrderType
+
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
-from decimal import Decimal
-from app.core.logging_config import setup_logging
-from app.core.security import EncryptionService
-from app.db.database import AsyncSessionLocal # Import session factory
-from app.models.queued_signal import QueuedSignal
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +70,16 @@ class SignalRouterService:
             logger.error(f"Signal Router: Failed to decrypt keys for {target_exchange}: {e}")
             return f"Configuration Error: Failed to decrypt keys for {signal.tv.exchange}"
         
+        # Precision Validation (Block if metadata missing)
+        try:
+            precision_rules = await exchange.get_precision_rules()
+            validator = PrecisionValidator(precision_rules)
+            if not validator.validate_symbol(signal.tv.symbol):
+                return f"Validation Error: Metadata missing or incomplete for symbol {signal.tv.symbol}"
+        except Exception as e:
+            logger.error(f"Signal Router: Precision validation failed: {e}")
+            return f"Validation Error: Failed to fetch precision rules: {e}"
+
         grid_calc = GridCalculatorService()
         
         pos_manager = PositionManagerService(

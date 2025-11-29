@@ -20,7 +20,14 @@ describe('DashboardPage', () => {
     (useEngineStore as unknown as jest.Mock).mockReturnValue({
       tvl: null,
       pnl: null,
+      realized_pnl: null,
+      unrealized_pnl: null,
       activeGroupsCount: null,
+      free_usdt: null,
+      total_trades: 0,
+      total_winning_trades: 0,
+      total_losing_trades: 0,
+      win_rate: 0,
       fetchEngineData: mockFetchEngineData,
     });
   });
@@ -52,7 +59,14 @@ describe('DashboardPage', () => {
     (useEngineStore as unknown as jest.Mock).mockReturnValue({
       tvl: 50000,
       pnl: 1250.50,
+      realized_pnl: 1000,
+      unrealized_pnl: 250.50,
       activeGroupsCount: 3,
+      free_usdt: 10000,
+      total_trades: 100,
+      total_winning_trades: 50,
+      total_losing_trades: 50,
+      win_rate: 50,
       fetchEngineData: mockFetchEngineData,
     });
 
@@ -72,7 +86,14 @@ describe('DashboardPage', () => {
     (useEngineStore as unknown as jest.Mock).mockReturnValue({
       tvl: 50000,
       pnl: -500.25,
+      realized_pnl: -600,
+      unrealized_pnl: 99.75,
       activeGroupsCount: 1,
+      free_usdt: 10000,
+      total_trades: 10,
+      total_winning_trades: 0,
+      total_losing_trades: 10,
+      win_rate: 0,
       fetchEngineData: mockFetchEngineData,
     });
 

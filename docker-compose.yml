@@ -7,6 +7,7 @@ services:
       - .env
     user: "${UID}:${GID}"
     environment:
+
       - PYTHONPATH=/app/backend
       - HOME=/tmp
     depends_on:

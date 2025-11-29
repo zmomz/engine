@@ -271,6 +271,7 @@ const SettingsPage: React.FC = () => {
             <Tab label="Risk Engine" {...a11yProps(1)} />
             <Tab label="DCA Grid" {...a11yProps(2)} />
             <Tab label="Account" {...a11yProps(3)} />
+            <Tab label="System" {...a11yProps(4)} />
           </Tabs>
         </Box>
 
@@ -629,6 +630,72 @@ const SettingsPage: React.FC = () => {
                 />
               )}
             />
+          </CustomTabPanel>
+
+          <CustomTabPanel value={currentTab} index={4}>
+            <Typography variant="h6" gutterBottom>System Maintenance</Typography>
+            <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1">Backup Configuration</Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                    Download a copy of your current configuration settings (excluding API keys).
+                </Typography>
+                <Button variant="outlined" onClick={() => {
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(settings, null, 2));
+                    const downloadAnchorNode = document.createElement('a');
+                    downloadAnchorNode.setAttribute("href",     dataStr);
+                    downloadAnchorNode.setAttribute("download", "gemini_config_backup.json");
+                    document.body.appendChild(downloadAnchorNode);
+                    downloadAnchorNode.click();
+                    downloadAnchorNode.remove();
+                }}>
+                    Download Backup
+                </Button>
+            </Box>
+            
+            <Divider sx={{ my: 3 }} />
+            
+            <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1">Restore Configuration</Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                    Restore settings from a backup file. This will overwrite current Risk and DCA configurations.
+                </Typography>
+                <Button
+                    variant="contained"
+                    component="label"
+                >
+                    Upload Backup File
+                    <input
+                        type="file"
+                        hidden
+                        accept=".json"
+                        onChange={(event) => {
+                            const fileReader = new FileReader();
+                            if (event.target.files && event.target.files.length > 0) {
+                                fileReader.readAsText(event.target.files[0], "UTF-8");
+                                fileReader.onload = async (e) => {
+                                    if (e.target?.result) {
+                                        try {
+                                            const parsed = JSON.parse(e.target.result as string);
+                                            const payload: any = {
+                                                username: parsed.username,
+                                                email: parsed.email,
+                                                exchange: parsed.exchange,
+                                                risk_config: parsed.risk_config,
+                                                dca_grid_config: parsed.dca_grid_config,
+                                            };
+                                            await updateSettings(payload);
+                                            useNotificationStore.getState().showNotification("Configuration restored successfully.", "success");
+                                        } catch (err) {
+                                            console.error("Restore failed", err);
+                                            useNotificationStore.getState().showNotification("Failed to parse configuration file.", "error");
+                                        }
+                                    }
+                                };
+                            }
+                        }}
+                    />
+                </Button>
+            </Box>
           </CustomTabPanel>
           
           <Button type="submit" variant="contained" color="success" sx={{ mt: 3 }} size="large">
