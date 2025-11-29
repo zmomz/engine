@@ -9,13 +9,17 @@ from typing import List, Dict
 
 @pytest.fixture
 def sample_dca_config() -> DCAGridConfig:
-    return DCAGridConfig.model_validate([
-        {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
-        {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
-    ])
+    return DCAGridConfig.model_validate({
+        "levels": [
+            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
+            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
+        ],
+        "tp_mode": "per_leg",
+        "tp_aggregate_percent": Decimal("0")
+    })
 
 @pytest.fixture
 def sample_precision_rules() -> Dict:

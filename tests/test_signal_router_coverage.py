@@ -84,10 +84,14 @@ def sample_user():
             "max_daily_loss_usd": 500,
             "loss_threshold_percent": -2.0
         },
-        dca_grid_config=[
-            {"gap_percent": 1.0, "weight_percent": 50.0, "tp_percent": 1.0},
-            {"gap_percent": 2.0, "weight_percent": 50.0, "tp_percent": 1.0}
-        ]
+        dca_grid_config={
+            "levels": [
+                {"gap_percent": 1.0, "weight_percent": 50.0, "tp_percent": 1.0},
+                {"gap_percent": 2.0, "weight_percent": 50.0, "tp_percent": 1.0}
+            ],
+            "tp_mode": "per_leg",
+            "tp_aggregate_percent": Decimal("0")
+        }
     )
     return user
 

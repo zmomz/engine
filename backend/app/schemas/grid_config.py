@@ -15,11 +15,15 @@ class DCALevelConfig(BaseModel):
                 values[key] = Decimal(str(values[key]))
         return values
 
-class DCAGridConfig(RootModel[List[DCALevelConfig]]):
+class DCAGridConfig(BaseModel):
+    levels: List[DCALevelConfig] = Field(..., description="List of DCA levels with their respective configurations.")
+    tp_mode: Literal["per_leg", "aggregate", "hybrid"] = Field("per_leg", description="Take-profit mode for the position group.")
+    tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage for the position group, used in aggregate and hybrid TP modes.")
+    
     @model_validator(mode='after')
     def validate_total_weight(self):
-        if self.root: # Only validate if there are levels
-            total_weight = sum(level.weight_percent for level in self.root)
+        if self.levels: # Only validate if there are levels
+            total_weight = sum(level.weight_percent for level in self.levels)
             if total_weight != Decimal("100"):
                 raise ValueError(f"Total weight_percent must sum to 100, but got {total_weight}")
         return self

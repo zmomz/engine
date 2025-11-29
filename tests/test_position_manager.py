@@ -20,16 +20,39 @@ from app.models.dca_order import DCAOrder, OrderStatus
 
 @pytest.fixture
 async def user_id_fixture(db_session: AsyncMock): # Use AsyncMock for db_session
-    user = User(
-        id=uuid.uuid4(),
-        username="testuser_pm",
-        email="test_pm@example.com",
-        hashed_password="hashedpassword",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-    return user.id
+        # Helper to convert Decimal to str for JSON serialization (copied from conftest.py)
+        def convert_decimals_to_str(obj):
+            if isinstance(obj, Decimal):
+                return str(obj)
+            if isinstance(obj, dict):
+                return {k: convert_decimals_to_str(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [convert_decimals_to_str(elem) for elem in obj]
+            return obj
+
+        # Use the actual config schemas and then convert to JSON serializable dict
+        risk_config_data = RiskEngineConfig().model_dump()
+        dca_grid_config_data = DCAGridConfig(
+            levels=[
+                {"gap_percent": Decimal("0.0"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1.0")},
+                {"gap_percent": Decimal("-0.5"), "weight_percent": Decimal("50"), "tp_percent": Decimal("0.5")}
+            ],
+            tp_mode="per_leg",
+            tp_aggregate_percent=Decimal("0")
+        ).model_dump()
+
+        user = User(
+            id=uuid.uuid4(),
+            username="testuser_pm",
+            email="test_pm@example.com",
+            hashed_password="hashedpassword",
+            risk_config=convert_decimals_to_str(risk_config_data),
+            dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+        return user.id
 
 
 
@@ -74,6 +97,12 @@ def mock_db_session():
     session.add = MagicMock() # Ensure add is a synchronous mock
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
+    
+    # Mock result for session.execute
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [] # Default empty list
+    session.execute.return_value = mock_result
+    
     return session
 
 @pytest.fixture
@@ -93,14 +122,36 @@ async def position_manager_service(
     user_id_fixture,
     mock_db_session 
 ):
-    # Configure mock_db_session to return a dummy user
+    # Helper to convert Decimal to str for JSON serialization (copied from conftest.py)
+    def convert_decimals_to_str(obj):
+        if isinstance(obj, Decimal):
+            return str(obj)
+        if isinstance(obj, dict):
+            return {k: convert_decimals_to_str(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [convert_decimals_to_str(elem) for elem in obj]
+        return obj
+
+    # Use the actual config schemas and then convert to JSON serializable dict
+    risk_config_data = RiskEngineConfig().model_dump()
+    dca_grid_config_data = DCAGridConfig(
+        levels=[
+            {"gap_percent": Decimal("0.0"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1.0")},
+            {"gap_percent": Decimal("-0.5"), "weight_percent": Decimal("50"), "tp_percent": Decimal("0.5")}
+        ],
+        tp_mode="per_leg",
+        tp_aggregate_percent=Decimal("0")
+    ).model_dump()
+
     user = User(
         id=user_id_fixture,
         username="testuser_pm_service",
         email="test_pm_service@example.com",
         hashed_password="hashedpassword",
         exchange="mock",
-        webhook_secret="mock_secret"
+        webhook_secret="mock_secret",
+        risk_config=convert_decimals_to_str(risk_config_data),
+        dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
     )
     mock_db_session.get.return_value = user
     
@@ -141,9 +192,13 @@ def sample_risk_config():
 
 @pytest.fixture
 def sample_dca_grid_config():
-    return DCAGridConfig.model_validate([
-        {"gap_percent": 0.0, "weight_percent": 100, "tp_percent": 1.0}
-    ])
+    return DCAGridConfig.model_validate({
+        "levels": [
+            {"gap_percent": 0.0, "weight_percent": 100, "tp_percent": 1.0}
+        ],
+        "tp_mode": "per_leg",
+        "tp_aggregate_percent": Decimal("0")
+    })
 
 @pytest.fixture
 def sample_total_capital_usd():

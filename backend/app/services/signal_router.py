@@ -96,8 +96,25 @@ class SignalRouterService:
         existing_group = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.timeframe == signal.tv.timeframe and g.side == signal.tv.action), None)
 
         # Load Configs
-        risk_config = RiskEngineConfig(**self.user.risk_config)
-        dca_config = DCAGridConfig.model_validate(self.user.dca_grid_config) # Use model_validate for V2
+        user_risk_config = self.user.risk_config
+        if isinstance(user_risk_config, list):
+            # Handle legacy list format if necessary, convert to expected dict format
+            # For now, assume a simple structure or set a default if list is not convertible.
+            # This might require more sophisticated mapping if the old list had complex structure.
+            logger.warning("User risk_config found as list. Using default RiskEngineConfig.")
+            risk_config = RiskEngineConfig()
+        else:
+            risk_config = RiskEngineConfig(**user_risk_config)
+
+        user_dca_grid_config = self.user.dca_grid_config
+        if isinstance(user_dca_grid_config, list):
+            # Convert old list format to new dictionary format expected by DCAGridConfig.model_validate
+            logger.warning("User dca_grid_config found as list. Converting to new format.")
+            dca_config_dict = {"levels": user_dca_grid_config, "tp_mode": "per_leg", "tp_aggregate_percent": Decimal("0")}
+            dca_config = DCAGridConfig.model_validate(dca_config_dict)
+        else:
+            dca_config = DCAGridConfig.model_validate(user_dca_grid_config) # Use model_validate for V2
+        logger.debug(f"DEBUG: dca_config after validation type: {type(dca_config)}, content: {dca_config}")
         
         # Fetch Capital (Try to get from exchange, fallback to default)
         total_capital = Decimal("1000")

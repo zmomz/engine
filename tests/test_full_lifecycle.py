@@ -117,7 +117,7 @@ async def test_full_lifecycle_tp_fill(db_session):
         assert updated_order.tp_hit == True
         
         # Simulate Loop Step: Update Stats
-        await pos_manager.update_position_stats(group_id, session=db_session)
+        await pos_manager.update_position_stats(group_id, exchange_connector=mock_exchange, session=db_session)
         
         await db_session.refresh(group)
         

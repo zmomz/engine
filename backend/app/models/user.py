@@ -27,7 +27,7 @@ class User(Base):
     
     # User-specific risk and grid configurations
     risk_config = Column(JSON, nullable=False, default=RiskEngineConfig().model_dump(mode='json')) # Store as JSON
-    dca_grid_config = Column(JSON, nullable=False, default=DCAGridConfig([]).model_dump(mode='json')) # Store as JSON
+    dca_grid_config = Column(JSON, nullable=False, default=DCAGridConfig(levels=[]).model_dump(mode='json')) # Store as JSON
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

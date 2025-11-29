@@ -122,7 +122,8 @@ class PositionManagerService:
             total_dca_legs=len(dca_levels),
             base_entry_price=signal.entry_price,
             weighted_avg_entry=signal.entry_price,
-            tp_mode="per_leg", # TODO: Get from user config
+            tp_mode=dca_grid_config.tp_mode, # Get from user config
+            tp_aggregate_percent=dca_grid_config.tp_aggregate_percent,
             pyramid_count=0,
             max_pyramids=5, # TODO: Get from user config
             risk_timer_start=None,
@@ -194,6 +195,7 @@ class PositionManagerService:
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
         
         await self.update_risk_timer(new_position_group.id, risk_config, session=session)
+        await self.update_position_stats(new_position_group.id, exchange_connector=exchange_connector, session=session)
 
         return new_position_group
 
@@ -307,6 +309,7 @@ class PositionManagerService:
         logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
         
         await self.update_risk_timer(existing_position_group.id, risk_config, session=session)
+        await self.update_position_stats(existing_position_group.id, exchange_connector=exchange_connector, session=session)
         
         return existing_position_group
 
@@ -407,18 +410,18 @@ class PositionManagerService:
             logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
-    async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None):
+    async def update_position_stats(self, group_id: uuid.UUID, exchange_connector: ExchangeInterface, session: AsyncSession = None):
         """
         Recalculates total filled quantity and weighted average entry price for a position group.
         """
         if session:
-            await self._execute_update_position_stats(session, group_id)
+            await self._execute_update_position_stats(session, group_id, exchange_connector)
         else:
             async with self.session_factory() as new_session:
-                await self._execute_update_position_stats(new_session, group_id)
+                await self._execute_update_position_stats(new_session, group_id, exchange_connector)
                 await new_session.commit() # Commit here when a new session is created
 
-    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID):
+    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID, exchange_connector: ExchangeInterface):
         position_group_repo = self.position_group_repository_class(session)
         position_group = await position_group_repo.get(group_id)
         if not position_group:
@@ -470,34 +473,82 @@ class PositionManagerService:
         realized_pnl = Decimal("0")
         total_qty_out = Decimal("0")
         
+        current_price = await exchange_connector.get_current_price(position_group.symbol)
+        
+        # Calculate aggregate TP price if applicable
+        aggregate_tp_price = Decimal("0")
+        if position_group.tp_mode in ["aggregate", "hybrid"] and position_group.tp_aggregate_percent > Decimal("0"):
+            if position_group.side == "long":
+                aggregate_tp_price = position_group.weighted_avg_entry * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
+            else: # short
+                aggregate_tp_price = position_group.weighted_avg_entry * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
+            logger.debug(f"Aggregate TP Price for {position_group.symbol}: {aggregate_tp_price}")
+
         for o in filled_orders:
             qty = o.filled_quantity
             price = o.avg_fill_price or o.price
-            total_qty_in += qty
-            total_cost_in += qty * price
             
-            logger.debug(f"Order {o.id}, Status: {o.status}, TP Hit: {o.tp_hit}, Qty: {qty}, Price: {price}")
-            
+            tp_triggered_for_order = False
+
+            # Per-Leg TP Check (always primary if set)
             if o.tp_hit:
+                tp_triggered_for_order = True
+            
+            # Aggregate / Hybrid TP Check
+            if not tp_triggered_for_order and position_group.tp_mode in ["aggregate", "hybrid"]:
+                if (position_group.side == "long" and current_price >= aggregate_tp_price) or \
+                   (position_group.side == "short" and current_price <= aggregate_tp_price):
+                    
+                    if position_group.tp_mode == "aggregate" or (position_group.tp_mode == "hybrid" and not o.tp_hit):
+                        o.tp_hit = True
+                        o.tp_price = current_price # Record current price as TP price
+                        tp_triggered_for_order = True
+                        logger.info(f"Order {o.id} TP triggered by {position_group.tp_mode} mode at {current_price}")
+            
+            total_qty_in += qty
+            total_cost_in += qty * price # This is for weighted average calculation
+
+            if tp_triggered_for_order and o.tp_price:
                 total_qty_out += qty
                 exit_val = qty * o.tp_price
                 entry_val = qty * price
                 
                 if position_group.side == "long":
                     realized_pnl += (exit_val - entry_val)
-                else:
+                else: # short
                     realized_pnl += (entry_val - exit_val)
-                logger.debug(f"PnL Accumulated: {realized_pnl}")
+                logger.debug(f"PnL Accumulated for order {o.id}: {realized_pnl}")
         
         net_qty = total_qty_in - total_qty_out
         
         if total_qty_in > 0:
-            avg_entry = total_cost_in / total_qty_in
-            position_group.weighted_avg_entry = avg_entry
+            if net_qty > 0: # Only update avg_entry if there's still open quantity
+                # Recalculate weighted average entry for remaining open quantity
+                # This is a simplified approach. A more accurate one would track entries/exits separately.
+                # For now, we assume if total_qty_out is > 0, some portion of initial capital is freed.
+                # If all quantities are out, avg_entry shouldn't be relevant.
+                position_group.weighted_avg_entry = total_cost_in / total_qty_in
+                position_group.total_invested_usd = net_qty * position_group.weighted_avg_entry
+            else: # All quantity is closed
+                position_group.weighted_avg_entry = Decimal("0")
+                position_group.total_invested_usd = Decimal("0")
+
             position_group.total_filled_quantity = net_qty
-            position_group.total_invested_usd = net_qty * avg_entry
             position_group.realized_pnl_usd = realized_pnl
             
+            # Calculate unrealized PnL for remaining open quantity
+            if net_qty > 0 and position_group.weighted_avg_entry > 0:
+                if position_group.side == "long":
+                    position_group.unrealized_pnl_usd = (current_price - position_group.weighted_avg_entry) * net_qty
+                else: # short
+                    position_group.unrealized_pnl_usd = (position_group.weighted_avg_entry - current_price) * net_qty
+                
+                position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100") if position_group.total_invested_usd > 0 else Decimal("0")
+            else:
+                position_group.unrealized_pnl_usd = Decimal("0")
+                position_group.unrealized_pnl_percent = Decimal("0")
+
+
             position_group.filled_dca_legs = len(filled_orders)
             
             logger.debug(f"PositionGroup {group_id}: Status {position_group.status}, Filled Legs: {len(filled_orders)}, Total Legs: {position_group.total_dca_legs}")

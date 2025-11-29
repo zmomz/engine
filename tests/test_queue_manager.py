@@ -25,15 +25,37 @@ from app.schemas.webhook_payloads import WebhookPayload # Added
 from pydantic import BaseModel, Field # Added
 from typing import Optional, Literal # Added
 
+# Helper to convert Decimal to str for JSON serialization
+def convert_decimals_to_str(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: convert_decimals_to_str(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_decimals_to_str(elem) for elem in obj]
+    return obj
+
 # --- Fixtures for QueueManagerService ---
 
 @pytest.fixture
 async def user_id_fixture(db_session: AsyncMock):
+    # Use the actual config schemas and then convert to JSON serializable dict
+    risk_config_data = RiskEngineConfig().model_dump()
+    dca_grid_config_data = DCAGridConfig(
+        levels=[
+            {"gap_percent": Decimal("0.0"), "weight_percent": Decimal("100"), "tp_percent": Decimal("1.0")}
+        ],
+        tp_mode="per_leg",
+        tp_aggregate_percent=Decimal("0")
+    ).model_dump()
+
     user = User(
         id=uuid.uuid4(),
         username="testuser_qm",
         email="test_qm@example.com",
         hashed_password="hashedpassword",
+        risk_config=convert_decimals_to_str(risk_config_data),
+        dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
     )
     db_session.add(user)
     await db_session.commit()
@@ -125,13 +147,24 @@ async def queue_manager_service(
     user = await db_session.get(User, user_id_fixture)
     if user is None:
         # Create a dummy user if not found (should be created by user_id_fixture)
+        risk_config_data = RiskEngineConfig().model_dump()
+        dca_grid_config_data = DCAGridConfig(
+            levels=[
+                {"gap_percent": Decimal("0.0"), "weight_percent": Decimal("100"), "tp_percent": Decimal("1.0")}
+            ],
+            tp_mode="per_leg",
+            tp_aggregate_percent=Decimal("0")
+        ).model_dump()
+
         user = User(
             id=user_id_fixture,
             username="testuser_qm_service",
             email="test_qm_service@example.com",
             hashed_password="hashedpassword",
             exchange="mock",
-            webhook_secret="mock_secret"
+            webhook_secret="mock_secret",
+            risk_config=convert_decimals_to_str(risk_config_data),
+            dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
         )
         db_session.add(user)
         await db_session.commit()
@@ -406,6 +439,8 @@ async def test_promote_highest_priority_signal_logic(queue_manager_service, mock
     user_mock.username = "testuser_qm"
     user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
     user_mock.exchange = "binance"
+    user_mock.risk_config = RiskEngineConfig().model_dump() # Mock as a dictionary
+    user_mock.dca_grid_config = DCAGridConfig(levels=[]).model_dump() # Mock as a dictionary with default levels
     
     mock_session.get.return_value = user_mock
 
@@ -495,6 +530,8 @@ async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mo
     user_mock.id = user_id_fixture
     user_mock.exchange = "mock"
     user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
+    user_mock.risk_config = RiskEngineConfig().model_dump() # Mock as a dictionary
+    user_mock.dca_grid_config = DCAGridConfig(levels=[]).model_dump() # Mock as a dictionary
 
     # Mock session.get
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
@@ -545,6 +582,8 @@ async def test_promote_highest_priority_signal_pyramid_continuation(queue_manage
     user_mock.id = user_id_fixture
     user_mock.exchange = "mock"
     user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
+    user_mock.risk_config = RiskEngineConfig().model_dump() # Mock as a dictionary
+    user_mock.dca_grid_config = DCAGridConfig(levels=[]).model_dump() # Mock as a dictionary
 
     # Mock session.get
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value

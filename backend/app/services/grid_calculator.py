@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_DOWN
 from typing import List, Dict, Literal
+from app.schemas.grid_config import DCAGridConfig
 
 class ValidationError(Exception):
     """Custom exception for validation errors."""
@@ -25,27 +26,22 @@ class GridCalculatorService:
     @staticmethod
     def calculate_dca_levels(
         base_price: Decimal,
-        dca_config: List[Dict],
+        dca_config: DCAGridConfig, # Expect DCAGridConfig object
         side: Literal["long", "short"],
         precision_rules: Dict
     ) -> List[Dict]:
         """
         Calculate DCA price levels with per-layer configuration.
-        Can handle both a raw List[Dict] or a DCAGridConfig Pydantic model.
         """
         tick_size = Decimal(str(precision_rules["tick_size"]))
         
         dca_levels = []
         
-        # Determine the iterable list of DCA levels
-        config_list = dca_config.root if hasattr(dca_config, 'root') else dca_config
-
-        for idx, layer in enumerate(config_list):
-            is_dict = isinstance(layer, dict)
-            
-            gap_percent = Decimal(str(layer["gap_percent"])) if is_dict else layer.gap_percent
-            weight_percent = Decimal(str(layer["weight_percent"])) if is_dict else layer.weight_percent
-            tp_percent = Decimal(str(layer["tp_percent"])) if is_dict else layer.tp_percent
+        for idx, layer in enumerate(dca_config.levels): # Iterate over dca_config.levels
+            # Directly access attributes from DCALevelConfig objects
+            gap_percent = layer.gap_percent
+            weight_percent = layer.weight_percent
+            tp_percent = layer.tp_percent
             
             # Calculate DCA entry price
             if side == "long":

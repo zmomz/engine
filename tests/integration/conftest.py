@@ -56,13 +56,17 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
         post_full_wait_minutes=15,
         max_winners_to_combine=3
     )
-    dca_grid_config = DCAGridConfig.model_validate([
-        {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
-        {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
-        {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
-    ])
+    dca_grid_config = DCAGridConfig.model_validate({
+        "levels": [
+            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
+            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
+        ],
+        "tp_mode": "per_leg",
+        "tp_aggregate_percent": Decimal("0")
+    })
     total_capital_usd = Decimal("10000")
 
     grid_calculator_service = GridCalculatorService()

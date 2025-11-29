@@ -40,12 +40,12 @@ def test_dca_grid_config_valid_data():
         {"gap_percent": -0.5, "weight_percent": 30.0, "tp_percent": 0.5},
         {"gap_percent": -1.0, "weight_percent": 50.0, "tp_percent": 0.5}
     ]
-    grid_config = DCAGridConfig(root=grid_data)
+    grid_config = DCAGridConfig(levels=grid_data, tp_mode="per_leg", tp_aggregate_percent=Decimal("0"))
 
-    assert len(grid_config.root) == 3
-    assert grid_config.root[0].weight_percent == Decimal("20.0")
-    assert grid_config.root[1].weight_percent == Decimal("30.0")
-    assert grid_config.root[2].weight_percent == Decimal("50.0")
+    assert len(grid_config.levels) == 3
+    assert grid_config.levels[0].weight_percent == Decimal("20.0")
+    assert grid_config.levels[1].weight_percent == Decimal("30.0")
+    assert grid_config.levels[2].weight_percent == Decimal("50.0")
 
 def test_dca_grid_config_invalid_total_weight():
     """
@@ -57,12 +57,12 @@ def test_dca_grid_config_invalid_total_weight():
         {"gap_percent": -1.0, "weight_percent": 40.0, "tp_percent": 0.5} # Sums to 90
     ]
     with pytest.raises(ValueError, match="Total weight_percent must sum to 100"):
-        DCAGridConfig(root=grid_data)
+        DCAGridConfig(levels=grid_data, tp_mode="per_leg", tp_aggregate_percent=Decimal("0"))
 
 def test_dca_grid_config_empty_list():
     """
     Test DCAGridConfig with an empty list.
     """
     grid_data = []
-    grid_config = DCAGridConfig(root=grid_data)
-    assert len(grid_config.root) == 0
+    grid_config = DCAGridConfig(levels=grid_data, tp_mode="per_leg", tp_aggregate_percent=Decimal("0"))
+    assert len(grid_config.levels) == 0

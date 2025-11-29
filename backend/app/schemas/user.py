@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional, Dict, Any, List
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Import config schemas
 
 class UserBase(BaseModel):
@@ -12,7 +12,7 @@ class UserBase(BaseModel):
     webhook_secret: Optional[str] = None
     exchange: Optional[str] = None # Added exchange to UserBase for update
     risk_config: Optional[RiskEngineConfig] = None
-    dca_grid_config: Optional[DCAGridConfig] = None
+    dca_grid_config: Optional[Dict[str, Any]] = None # Stored as JSON dict
 
 class UserCreate(UserBase):
     password: str
@@ -29,7 +29,7 @@ class UserUpdate(BaseModel):
     exchange: Optional[str] = None
     key_target_exchange: Optional[str] = None # Explicit target for key updates
     risk_config: Optional[RiskEngineConfig] = None
-    dca_grid_config: Optional[DCAGridConfig] = None
+    dca_grid_config: Optional[Dict[str, Any]] = None # Expects JSON dict
 
 class UserInDB(UserBase):
     id: uuid.UUID
@@ -39,12 +39,32 @@ class UserInDB(UserBase):
     class Config:
         from_attributes = True
 
+    # Add a validator to convert dca_grid_config from dict to DCAGridConfig on read
+    @model_validator(mode='before')
+    @classmethod
+    def validate_configs(cls, data: Any):
+        if isinstance(data, dict):
+            if "dca_grid_config" in data and isinstance(data["dca_grid_config"], dict):
+                data["dca_grid_config"] = DCAGridConfig.model_validate(data["dca_grid_config"])
+        return data
+
 class UserRead(UserBase):
     id: uuid.UUID
     exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
-    dca_grid_config: Optional[DCAGridConfig] = None
+    dca_grid_config: Optional[DCAGridConfig] = None # Now a pydantic model after validation
     configured_exchanges: List[str] = []
 
     class Config:
         from_attributes = True
+
+    # Add a validator to convert dca_grid_config from dict to DCAGridConfig on read
+    @model_validator(mode='before')
+    @classmethod
+    def validate_configs(cls, data: Any):
+        if isinstance(data, dict):
+            if "dca_grid_config" in data and isinstance(data["dca_grid_config"], dict):
+                data["dca_grid_config"] = DCAGridConfig.model_validate(data["dca_grid_config"])
+            if "risk_config" in data and isinstance(data["risk_config"], dict):
+                data["risk_config"] = RiskEngineConfig.model_validate(data["risk_config"])
+        return data

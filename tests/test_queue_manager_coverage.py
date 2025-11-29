@@ -46,7 +46,7 @@ def sample_user():
         "loss_threshold_percent": -2.0,
         "min_close_notional": 10
     }
-    user.dca_grid_config = []
+    user.dca_grid_config = {"levels": [], "tp_mode": "per_leg", "tp_aggregate_percent": Decimal("0")}
     return user
 
 @pytest.mark.asyncio
