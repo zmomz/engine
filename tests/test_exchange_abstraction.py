@@ -44,9 +44,9 @@ async def test_get_exchange_connector_mock():
     Test that the factory returns a mock exchange for 'mock' type.
     """
     mock_encrypted_data = "dummy_encrypted_data"
-    exchange_config = {"encrypted_data": mock_encrypted_data, "testnet": False}
+    exchange_config = {'encrypted_data': mock_encrypted_data, 'testnet': False}
 
-    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("mock_key", "mock_secret')):
+    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("mock_key", "mock_secret")):
         connector = get_exchange_connector("mock", exchange_config)
     assert isinstance(connector, ExchangeInterface)
 
@@ -62,35 +62,35 @@ async def test_get_exchange_connector_mock():
             "default_type": "spot" # Changed to spot
         }
 
-        with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("test_key", "test_secret')) as mock_decrypt_keys:
+        with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("test_key", "test_secret")) as mock_decrypt_keys:
             with patch('os.getenv', return_value="future"):
                 with patch('ccxt.async_support.binance') as mock_binance_ccxt:
-            mock_exchange_instance = MagicMock()
-            mock_exchange_instance.load_markets = AsyncMock(return_value={})
-            mock_exchange_instance.create_order = AsyncMock()
-            mock_exchange_instance.fetch_order = AsyncMock(return_value={'status': 'open'})
-            mock_exchange_instance.cancel_order = AsyncMock()
-            mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
-            mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
-            mock_binance_ccxt.return_value = mock_exchange_instance
+                    mock_exchange_instance = MagicMock()
+                    mock_exchange_instance.load_markets = AsyncMock(return_value={})
+                    mock_exchange_instance.create_order = AsyncMock()
+                    mock_exchange_instance.fetch_order = AsyncMock(return_value={'status': 'open'})
+                    mock_exchange_instance.cancel_order = AsyncMock()
+                    mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
+                    mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
+                    mock_binance_ccxt.return_value = mock_exchange_instance
                                                                                                                                           
-            connector = get_exchange_connector("binance", exchange_config)
-            assert isinstance(connector, BinanceConnector)
-            mock_decrypt_keys.assert_called_once_with(mock_encrypted_data)
-            mock_binance_ccxt.assert_called_once_with({
-                'apiKey': "test_key",
-                'secret': "test_secret",
-                'options': {
-                    'defaultType': 'spot', # Changed to spot
-                },
-            })
-        # Test that the methods are callable (even if they do nothing yet)
-        await connector.get_precision_rules()
-        await connector.place_order("BTC/USDT", "limit", "buy", 0.01)
-        await connector.get_order_status("123", "BTC/USDT")
-        await connector.cancel_order("123", "BTC/USDT")
-        await connector.get_current_price("BTC/USDT")
-        await connector.fetch_balance()
+                    connector = get_exchange_connector("binance", exchange_config)
+                    assert isinstance(connector, BinanceConnector)
+                    mock_decrypt_keys.assert_called_once_with(mock_encrypted_data)
+                    mock_binance_ccxt.assert_called_once_with({
+                        'apiKey': "test_key",
+                        'secret': "test_secret",
+                        'options': {
+                            'defaultType': 'spot', # Changed to spot
+                        },
+                    })
+                # Test that the methods are callable (even if they do nothing yet)
+                await connector.get_precision_rules()
+                await connector.place_order("BTC/USDT", "limit", "buy", 0.01)
+                await connector.get_order_status("123", "BTC/USDT")
+                await connector.cancel_order("123", "BTC/USDT")
+                await connector.get_current_price("BTC/USDT")
+                await connector.fetch_balance()
 
 @pytest.mark.asyncio
 async def test_get_exchange_connector_bybit():
@@ -105,39 +105,39 @@ async def test_get_exchange_connector_bybit():
         "account_type": "UNIFIED"
     }
 
-    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("test_key", "test_secret')) as mock_decrypt_keys:
+    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("test_key", "test_secret")) as mock_decrypt_keys:
         with patch('ccxt.async_support.bybit') as mock_bybit_ccxt:
-        mock_exchange_instance = MagicMock()
-        mock_exchange_instance.load_markets = AsyncMock(return_value={})
-        mock_exchange_instance.create_order = AsyncMock()
-        mock_exchange_instance.fetch_order = AsyncMock(return_value={'status': 'open'})
-        mock_exchange_instance.cancel_order = AsyncMock()
-        mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
-        mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
-        mock_exchange_instance.set_sandbox_mode = MagicMock() # Mock set_sandbox_mode
-        mock_bybit_ccxt.return_value = mock_exchange_instance
+            mock_exchange_instance = MagicMock()
+            mock_exchange_instance.load_markets = AsyncMock(return_value={})
+            mock_exchange_instance.create_order = AsyncMock()
+            mock_exchange_instance.fetch_order = AsyncMock(return_value={'status': 'open'})
+            mock_exchange_instance.cancel_order = AsyncMock()
+            mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
+            mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
+            mock_exchange_instance.set_sandbox_mode = MagicMock() # Mock set_sandbox_mode
+            mock_bybit_ccxt.return_value = mock_exchange_instance
 
-        connector = get_exchange_connector("bybit", exchange_config)
-        assert isinstance(connector, BybitConnector)
-        mock_decrypt_keys.assert_called_once_with(mock_encrypted_data)
-        mock_bybit_ccxt.assert_called_once_with({
-            'apiKey': "test_key",
-            'secret': "test_secret",
-            'options': {
-                'defaultType': 'spot', # Changed to spot
-                'accountType': 'UNIFIED',
-            },
-            'verbose': True,
-        })
-        mock_exchange_instance.set_sandbox_mode.assert_called_once_with(True)
+            connector = get_exchange_connector("bybit", exchange_config)
+            assert isinstance(connector, BybitConnector)
+            mock_decrypt_keys.assert_called_once_with(mock_encrypted_data)
+            mock_bybit_ccxt.assert_called_once_with({
+                'apiKey': "test_key",
+                'secret': "test_secret",
+                'options': {
+                    'defaultType': 'spot', # Changed to spot
+                    'accountType': 'UNIFIED',
+                },
+                'verbose': True,
+            })
+            mock_exchange_instance.set_sandbox_mode.assert_called_once_with(True)
 
-        # Test that the methods are callable (even if they do nothing yet)
-        await connector.get_precision_rules()
-        await connector.place_order("BTC/USDT", "limit", "buy", 0.01)
-        await connector.get_order_status("123", "BTC/USDT")
-        await connector.cancel_order("123", "BTC/USDT")
-        await connector.get_current_price("BTC/USDT")
-        await connector.fetch_balance()
+            # Test that the methods are callable (even if they do nothing yet)
+            await connector.get_precision_rules()
+            await connector.place_order("BTC/USDT", "limit", "buy", 0.01)
+            await connector.get_order_status("123", "BTC/USDT")
+            await connector.cancel_order("123", "BTC/USDT")
+            await connector.get_current_price("BTC/USDT")
+            await connector.fetch_balance()
 
 @pytest.mark.asyncio
 async def test_get_exchange_connector_unsupported():
@@ -147,7 +147,7 @@ async def test_get_exchange_connector_unsupported():
     mock_encrypted_data = "dummy_encrypted_data"
     exchange_config = {"encrypted_data": mock_encrypted_data}
 
-    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("mock_key", "mock_secret')):
+    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("mock_key", "mock_secret")):
         with pytest.raises(UnsupportedExchangeError, match="Exchange type 'unsupported' is not supported."):
             get_exchange_connector("unsupported", exchange_config)
 
