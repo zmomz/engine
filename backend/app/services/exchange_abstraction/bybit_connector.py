@@ -6,16 +6,20 @@ class BybitConnector(ExchangeInterface):
     """
     Bybit exchange connector implementing ExchangeInterface.
     """
-    def __init__(self, api_key: str, secret_key: str, testnet: bool = False):
+    def __init__(self, api_key: str, secret_key: str, testnet: bool = False, account_type: str = "UNIFIED"):
         self.exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': secret_key,
             'options': {
-                'defaultType': 'future',
+                'accountType': account_type,
             },
+            'testnet': testnet, # Pass testnet directly
         })
-        if testnet:
-            self.exchange.set_sandbox_mode(True)
+        
+        # Log the final state of testnet/sandbox mode after ccxt initialization
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"BybitConnector initialized: testnet={testnet}, account_type={account_type}, ccxt_testnet_mode={self.exchange.options.get('testnet')}")
 
     @map_exchange_errors
     async def get_precision_rules(self):
@@ -105,7 +109,17 @@ class BybitConnector(ExchangeInterface):
         """
         Fetches the total balance for all assets.
         """
-        balance = await self.exchange.fetch_balance()
+        try:
+            balance = await self.exchange.fetch_balance(params={'accountType': 'UNIFIED'})
+        except ccxt.ExchangeError as e:
+            # Handle Bybit Classic Account (non-Unified) attempting to access Unified endpoints
+            if "accountType only support UNIFIED" in str(e):
+                # Retry with CONTRACT account type (for Classic Futures)
+                # Note: 'CONTRACT' is used for Derivatives Account in V5
+                balance = await self.exchange.fetch_balance(params={'accountType': 'CONTRACT'})
+            else:
+                raise e
+        
         return balance['total']
 
     async def close(self):

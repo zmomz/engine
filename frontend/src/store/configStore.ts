@@ -41,6 +41,7 @@ export interface UserSettings {
   configured_exchanges: string[];
   risk_config: RiskEngineConfig;
   dca_grid_config: DCAGridConfig;
+  configured_exchange_details?: Record<string, { testnet?: boolean; account_type?: string; encrypted_data?: string; }>;
 }
 
 interface ConfigState {

@@ -46,12 +46,17 @@ async def test_update_settings_with_new_api_keys_target_exchange(
     update_data = {
         "api_key": "new_api_key",
         "secret_key": "new_secret_key",
-        "key_target_exchange": "bybit"
+        "key_target_exchange": "bybit",
+        "testnet": True,
+        "account_type": "UNIFIED"
     }
     response = await authorized_client.put("/api/v1/settings", json=update_data)
     assert response.status_code == 200
     updated_user = UserRead(**response.json())
-    assert "bybit" in updated_user.configured_exchanges
+    assert updated_user.configured_exchange_details is not None
+    assert "bybit" in updated_user.configured_exchange_details
+    assert updated_user.configured_exchange_details["bybit"]["testnet"] is True
+    assert updated_user.configured_exchange_details["bybit"]["account_type"] == "UNIFIED"
     mock_encryption_service.encrypt_keys.assert_called_once_with("new_api_key", "new_secret_key")
 
 @pytest.mark.asyncio
@@ -63,12 +68,17 @@ async def test_update_settings_with_new_api_keys_user_update_exchange(
     update_data = {
         "api_key": "new_api_key_2",
         "secret_key": "new_secret_key_2",
-        "exchange": "mock"
+        "exchange": "mock",
+        "testnet": False, # Mock exchange usually not testnet
+        "account_type": "SPOT" # Example for mock
     }
     response = await authorized_client.put("/api/v1/settings", json=update_data)
     assert response.status_code == 200
     updated_user = UserRead(**response.json())
-    assert "mock" in updated_user.configured_exchanges
+    assert updated_user.configured_exchange_details is not None
+    assert "mock" in updated_user.configured_exchange_details
+    assert updated_user.configured_exchange_details["mock"]["testnet"] is False
+    assert updated_user.configured_exchange_details["mock"]["account_type"] == "SPOT"
     mock_encryption_service.encrypt_keys.assert_called_once_with("new_api_key_2", "new_secret_key_2")
 
 @pytest.mark.asyncio
@@ -80,11 +90,16 @@ async def test_update_settings_with_new_api_keys_current_user_exchange(
     update_data = {
         "api_key": "new_api_key_3",
         "secret_key": "new_secret_key_3",
+        "testnet": True, # Example
+        "account_type": "UNIFIED" # Example
     }
     response = await authorized_client.put("/api/v1/settings", json=update_data)
     assert response.status_code == 200
     updated_user = UserRead(**response.json())
-    assert "binance" in updated_user.configured_exchanges # Assuming default test_user exchange is 'binance'
+    assert updated_user.configured_exchange_details is not None
+    assert "binance" in updated_user.configured_exchange_details # Assuming default test_user exchange is 'binance'
+    assert updated_user.configured_exchange_details["binance"]["testnet"] is True
+    assert updated_user.configured_exchange_details["binance"]["account_type"] == "UNIFIED"
     mock_encryption_service.encrypt_keys.assert_called_once_with("new_api_key_3", "new_secret_key_3")
 
 @pytest.mark.asyncio

@@ -33,21 +33,15 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
     if not user.encrypted_api_keys:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exchange API keys are missing.")
     
-    # Extract keys for the current exchange
+    # Extract config for the current exchange
     exchange_name = user.exchange
     if not isinstance(user.encrypted_api_keys, dict) or exchange_name not in user.encrypted_api_keys:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"API keys for {exchange_name} are not configured correctly.")
     
-    encrypted_data_for_exchange = user.encrypted_api_keys[exchange_name]
+    exchange_config_data = user.encrypted_api_keys[exchange_name]
     
     try:
-        api_key, secret_key = encryption_service.decrypt_keys(encrypted_data_for_exchange)
-    except Exception as e:
-        logger.error(f"Failed to decrypt API keys: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to decrypt API keys: {str(e)}")
-
-    try:
-        exchange_connector: ExchangeInterface = get_exchange_connector(user.exchange, api_key, secret_key)
+        exchange_connector: ExchangeInterface = get_exchange_connector(user.exchange, exchange_config_data)
     except Exception as e:
         logger.error(f"Failed to connect to exchange: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to connect to exchange: {str(e)}")

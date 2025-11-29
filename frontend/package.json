@@ -46,7 +46,7 @@
   },
   "jest": {
     "transformIgnorePatterns": [
-      "node_modules/(?!react-router-dom|axios|@remix-run|react-router|@mui/x-data-grid)"
+      "node_modules/(?!react-router-dom|axios|@remix-run|react-router|@mui/x-data-grid|zod|@hookform)"
     ],
     "moduleNameMapper": {
       "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",

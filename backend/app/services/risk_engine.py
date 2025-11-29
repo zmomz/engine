@@ -338,7 +338,8 @@ class RiskEngineService:
                     symbol=loser.symbol,
                     side="sell" if loser.side == "long" else "buy",
                     quantity=loser.total_filled_quantity,
-                    position_group_id=loser.id
+                    position_group_id=loser.id,
+                    record_in_db=True
                 )
                 logger.info(f"Risk Engine: Closed loser {loser.symbol} (ID: {loser.id}).")
 
@@ -350,7 +351,8 @@ class RiskEngineService:
                         symbol=winner_pg.symbol,
                         side="sell" if winner_pg.side == "long" else "buy",
                         quantity=quantity_to_close,
-                        position_group_id=winner_pg.id
+                        position_group_id=winner_pg.id,
+                        record_in_db=True
                     )
                     logger.info(f"Risk Engine: Partially closed winner {winner_pg.symbol} (ID: {winner_pg.id}) for {quantity_to_close} units.")
                     winner_details.append({
