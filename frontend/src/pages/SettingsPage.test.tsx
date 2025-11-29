@@ -49,9 +49,13 @@ describe('SettingsPage', () => {
           partial_close_enabled: false,
           min_close_notional: 0
         },
-        dca_grid_config: [
-          { gap_percent: 1, weight_percent: 100, tp_percent: 1 }
-        ],
+        dca_grid_config: {
+          levels: [
+            { gap_percent: 1, weight_percent: 100, tp_percent: 1 }
+          ],
+          tp_mode: 'per_leg',
+          tp_aggregate_percent: 0
+        },
         username: 'testuser',
         email: 'test@example.com',
         webhook_secret: 'secret',

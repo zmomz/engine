@@ -16,14 +16,19 @@ describe('PositionsPage', () => {
   const mockPositions = [
     {
       id: '1',
+      exchange: 'binance',
       symbol: 'BTC/USD',
       side: 'long',
       status: 'active',
+      weighted_avg_entry: 50000,
       unrealized_pnl_usd: 500,
       unrealized_pnl_percent: 5.0,
       total_invested_usd: 10000,
       pyramid_count: 0,
       max_pyramids: 5,
+      filled_dca_legs: 1,
+      total_dca_legs: 5,
+      risk_timer_expires: null,
       pyramids: [],
     },
   ];

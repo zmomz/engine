@@ -43,17 +43,21 @@ const dcaLevelConfigSchema = z.object({
   tp_percent: z.coerce.number().gt(0, "Take Profit must be greater than 0"),
 });
 
-const dcaGridConfigSchema = z.array(dcaLevelConfigSchema).superRefine((data, ctx) => {
-  if (data.length === 0) return;
-  const totalWeight = data.reduce((sum, item) => sum + item.weight_percent, 0);
-  // Allow for small floating point discrepancies
-  if (Math.abs(totalWeight - 100) > 0.01) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `Total weight percent must sum to 100 (current: ${totalWeight.toFixed(2)})`,
-      path: [] // Attach error to the array root
-    });
-  }
+const dcaGridConfigSchema = z.object({
+  levels: z.array(dcaLevelConfigSchema).superRefine((data, ctx) => {
+    if (data.length === 0) return;
+    const totalWeight = data.reduce((sum, item) => sum + item.weight_percent, 0);
+    // Allow for small floating point discrepancies
+    if (Math.abs(totalWeight - 100) > 0.01) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Total weight percent must sum to 100 (current: ${totalWeight.toFixed(2)})`,
+        path: [] // Attach error to the array root
+      });
+    }
+  }),
+  tp_mode: z.enum(["per_leg", "aggregate", "hybrid"]),
+  tp_aggregate_percent: z.coerce.number().min(0),
 });
 
 const appSettingsSchema = z.object({
@@ -143,7 +147,7 @@ const SettingsPage: React.FC = () => {
         partial_close_enabled: true,
         min_close_notional: 10,
       },
-      dcaGridConfig: settings?.dca_grid_config || [],
+      dcaGridConfig: settings?.dca_grid_config || { levels: [], tp_mode: "per_leg", tp_aggregate_percent: 0 },
       appSettings: {
         username: settings?.username || '',
         email: settings?.email || '',
@@ -183,7 +187,7 @@ const SettingsPage: React.FC = () => {
 
   const { fields: dcaFields, append: appendDca, remove: removeDca } = useFieldArray({
     control,
-    name: "dcaGridConfig"
+    name: "dcaGridConfig.levels"
   });
 
   const onSubmit = async (data: FormValues) => {
@@ -278,49 +282,6 @@ const SettingsPage: React.FC = () => {
         <form onSubmit={handleSubmit(onSubmit, onError)}>
           <CustomTabPanel value={currentTab} index={0}>
             {/* Exchange Settings */}
-            <Typography variant="h6" gutterBottom>Active Trading Exchange</Typography>
-            <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-                 <Controller
-                  name="exchangeSettings.exchange"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      select
-                      label="Select Active Exchange"
-                      fullWidth
-                      margin="normal"
-                      error={!!errors.exchangeSettings?.exchange}
-                      helperText={errors.exchangeSettings?.exchange?.message || "The exchange used for live trading operations."}
-                      SelectProps={{ native: true }}
-                      InputLabelProps={{ shrink: true }}
-                    >
-                      {supportedExchanges.map((exchange) => (
-                        <option key={exchange} value={exchange}>
-                          {exchange}
-                        </option>
-                      ))}
-                    </TextField>
-                  )}
-                />
-                <Button 
-                    variant="contained" 
-                    onClick={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const exchange = watch("exchangeSettings.exchange");
-                        if (exchange) {
-                            await updateSettings({ exchange });
-                        }
-                    }}
-                    sx={{ mt: 2 }}
-                >
-                    Update Active
-                </Button>
-            </Box>
-
-            <Divider sx={{ my: 4 }} />
-
             <Typography variant="h6" gutterBottom>Configured API Keys</Typography>
             <Paper variant="outlined" sx={{ mb: 3 }}>
                 <List>
@@ -331,7 +292,6 @@ const SettingsPage: React.FC = () => {
                                     primary={
                                         <Box display="flex" alignItems="center" gap={1}>
                                             {ex}
-                                            {ex === settings.exchange && <Chip label="Active" color="success" size="small" />}
                                         </Box>
                                     } 
                                     secondary="API Keys Configured" 
@@ -507,12 +467,58 @@ const SettingsPage: React.FC = () => {
           <CustomTabPanel value={currentTab} index={2}>
             {/* DCA Grid Settings */}
             <Typography variant="h6" gutterBottom>DCA Grid Configuration</Typography>
+            
+            <Box sx={{ mb: 4 }}>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Controller
+                    name="dcaGridConfig.tp_mode"
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        select
+                        label="Take Profit Mode"
+                        fullWidth
+                        margin="normal"
+                        error={!!errors.dcaGridConfig?.tp_mode}
+                        helperText={errors.dcaGridConfig?.tp_mode?.message}
+                        SelectProps={{ native: true }}
+                      >
+                        <option value="per_leg">Per Leg</option>
+                        <option value="aggregate">Aggregate</option>
+                        <option value="hybrid">Hybrid</option>
+                      </TextField>
+                    )}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Controller
+                    name="dcaGridConfig.tp_aggregate_percent"
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        label="Aggregate TP %"
+                        fullWidth
+                        margin="normal"
+                        type="number"
+                        inputProps={{ step: '0.01' }}
+                        error={!!errors.dcaGridConfig?.tp_aggregate_percent}
+                        helperText={errors.dcaGridConfig?.tp_aggregate_percent?.message}
+                      />
+                    )}
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+
             {dcaFields.map((field, index) => (
               <Paper elevation={1} sx={{ p: 2, mb: 2 }} key={field.id}>
                 <Grid container spacing={2} alignItems="center">
                   <Grid size={{ xs: 12, sm: 3 }}>
                     <Controller
-                      name={`dcaGridConfig.${index}.gap_percent`}
+                      name={`dcaGridConfig.levels.${index}.gap_percent`}
                       control={control}
                       render={({ field }) => (
                         <TextField
@@ -523,15 +529,15 @@ const SettingsPage: React.FC = () => {
                           type="number"
                           inputProps={{ step: 'any' }}
                           onChange={(e) => field.onChange(e.target.value)}
-                          error={!!errors.dcaGridConfig?.[index]?.gap_percent}
-                          helperText={errors.dcaGridConfig?.[index]?.gap_percent?.message}
+                          error={!!errors.dcaGridConfig?.levels?.[index]?.gap_percent}
+                          helperText={errors.dcaGridConfig?.levels?.[index]?.gap_percent?.message}
                         />
                       )}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 3 }}>
                     <Controller
-                      name={`dcaGridConfig.${index}.weight_percent`}
+                      name={`dcaGridConfig.levels.${index}.weight_percent`}
                       control={control}
                       render={({ field }) => (
                         <TextField
@@ -542,15 +548,15 @@ const SettingsPage: React.FC = () => {
                           type="number"
                           inputProps={{ step: 'any' }}
                           onChange={(e) => field.onChange(e.target.value)}
-                          error={!!errors.dcaGridConfig?.[index]?.weight_percent}
-                          helperText={errors.dcaGridConfig?.[index]?.weight_percent?.message}
+                          error={!!errors.dcaGridConfig?.levels?.[index]?.weight_percent}
+                          helperText={errors.dcaGridConfig?.levels?.[index]?.weight_percent?.message}
                         />
                       )}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 3 }}>
                     <Controller
-                      name={`dcaGridConfig.${index}.tp_percent`}
+                      name={`dcaGridConfig.levels.${index}.tp_percent`}
                       control={control}
                       render={({ field }) => (
                         <TextField
@@ -561,8 +567,8 @@ const SettingsPage: React.FC = () => {
                           type="number"
                           inputProps={{ step: 'any' }}
                           onChange={(e) => field.onChange(e.target.value)}
-                          error={!!errors.dcaGridConfig?.[index]?.tp_percent}
-                          helperText={errors.dcaGridConfig?.[index]?.tp_percent?.message}
+                          error={!!errors.dcaGridConfig?.levels?.[index]?.tp_percent}
+                          helperText={errors.dcaGridConfig?.levels?.[index]?.tp_percent?.message}
                         />
                       )}
                     />
@@ -576,9 +582,9 @@ const SettingsPage: React.FC = () => {
             <Button variant="outlined" onClick={() => appendDca({ gap_percent: 0, weight_percent: 0, tp_percent: 0 })} sx={{ mt: 2 }}>
               Add DCA Level
             </Button>
-            {errors.dcaGridConfig && (
+            {errors.dcaGridConfig?.levels && (
                 <Alert severity="error" sx={{ mt: 2 }}>
-                    {errors.dcaGridConfig.message || (errors.dcaGridConfig as any).root?.message}
+                    {(errors.dcaGridConfig.levels as any).root?.message}
                 </Alert>
             )}
           </CustomTabPanel>

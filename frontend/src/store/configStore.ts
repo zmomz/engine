@@ -9,7 +9,11 @@ export interface DCALevelConfig {
   tp_percent: number;
 }
 
-export interface DCAGridConfig extends Array<DCALevelConfig> {}
+export interface DCAGridConfig {
+  levels: DCALevelConfig[];
+  tp_mode: string;
+  tp_aggregate_percent: number;
+}
 
 export interface RiskEngineConfig {
   max_open_positions_global: number;

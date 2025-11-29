@@ -68,13 +68,13 @@ const PositionsPage: React.FC = () => {
       field: 'pyramid_count',
       headerName: 'Pyramids',
       width: 100,
-      valueGetter: (params: any) => `${params.row.pyramid_count || 0} / ${params.row.max_pyramids || 5}`,
+      valueGetter: (value: any, row: PositionGroup) => `${row.pyramid_count || 0} / ${row.max_pyramids || 5}`,
     },
     {
       field: 'filled_dca_legs',
       headerName: 'DCA Progress',
       width: 120,
-      valueGetter: (params: any) => `${params.row.filled_dca_legs || 0} / ${params.row.total_dca_legs || 0}`,
+      valueGetter: (value: any, row: PositionGroup) => `${row.filled_dca_legs || 0} / ${row.total_dca_legs || 0}`,
     },
     {
       field: 'risk_timer_expires',
