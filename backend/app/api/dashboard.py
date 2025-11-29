@@ -37,19 +37,30 @@ async def get_account_summary(
         encryption_service = EncryptionService()
         
         # Iterate over all configured exchanges
-        for exchange_name, encrypted_data in api_keys_to_process.items():
-            logger.info(f"Processing exchange: {exchange_name}, Encrypted data keys: {encrypted_data.keys() if isinstance(encrypted_data, dict) else 'Not a dict'}")
-            if not isinstance(encrypted_data, dict) or "encrypted_data" not in encrypted_data:
+        for exchange_name, encrypted_data_raw in api_keys_to_process.items():
+            exchange_config = {}
+            if isinstance(encrypted_data_raw, str):
+                # Legacy format: encrypted string directly
+                exchange_config = {"encrypted_data": encrypted_data_raw}
+            elif isinstance(encrypted_data_raw, dict):
+                # New format: dictionary with 'encrypted_data' key and potentially 'testnet', 'account_type'
+                exchange_config = encrypted_data_raw
+            else:
+                logger.warning(f"Skipping account summary for {exchange_name}: Unexpected API key data type: {type(encrypted_data_raw)}")
                 continue
 
+            logger.info(f"Processing exchange: {exchange_name}, Exchange config keys: {exchange_config.keys() if isinstance(exchange_config, dict) else 'Not a dict'}")
+            if "encrypted_data" not in exchange_config:
+                logger.warning(f"Skipping account summary for {exchange_name}: 'encrypted_data' key not found in exchange configuration.")
+                continue
+            
             connector = None
             try:
                 # The factory will now handle decryption and parameter extraction
                 try:
-                    # Pass all relevant config details, not just encrypted_data
                     connector = get_exchange_connector(
                         exchange_type=exchange_name,
-                        exchange_config=encrypted_data # This now contains testnet, account_type, etc.
+                        exchange_config=exchange_config # This now contains testnet, account_type, etc.
                     )
                 except Exception as e:
                     logger.warning(f"Skipping account summary for {exchange_name}: {e}")
@@ -141,14 +152,28 @@ async def get_pnl(
                 logger.warning(f"get_pnl: No API keys found for exchange '{exchange_name}' to price {len(groups)} positions.")
                 continue
                 
-            encrypted_data = api_keys_map[exchange_name]
+            encrypted_data_raw = api_keys_map[exchange_name]
+            exchange_config = {}
+            if isinstance(encrypted_data_raw, str):
+                # Legacy format: encrypted string directly
+                exchange_config = {"encrypted_data": encrypted_data_raw}
+            elif isinstance(encrypted_data_raw, dict):
+                exchange_config = encrypted_data_raw
+            else:
+                logger.warning(f"get_pnl: Skipping exchange {exchange_name}: Unexpected API key data type: {type(encrypted_data_raw)}")
+                continue
+
+            if "encrypted_data" not in exchange_config:
+                logger.warning(f"get_pnl: Skipping exchange {exchange_name}: 'encrypted_data' key not found in configuration.")
+                continue
+
             connector = None
             try:
                 # The factory will now handle decryption and parameter extraction
                 try:
                     connector = get_exchange_connector(
                         exchange_type=exchange_name,
-                        exchange_config=encrypted_data
+                        exchange_config=exchange_config
                     )
                 except Exception as e:
                     logger.warning(f"get_pnl: Could not create connector for {exchange_name}: {e}")

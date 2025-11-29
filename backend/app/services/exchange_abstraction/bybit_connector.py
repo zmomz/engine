@@ -11,15 +11,21 @@ class BybitConnector(ExchangeInterface):
             'apiKey': api_key,
             'secret': secret_key,
             'options': {
-                'defaultType': 'future',
+                'defaultType': default_type,
+                'accountType': account_type,
             },
-            'testnet': testnet, # Pass testnet directly
+            'verbose': True, # Enable verbose output for debugging
         })
+
+        if testnet:
+            self.exchange.set_sandbox_mode(True)
         
         # Log the final state of testnet/sandbox mode after ccxt initialization
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"BybitConnector initialized: testnet={testnet}, account_type={account_type}, ccxt_testnet_mode={self.exchange.options.get('testnet')}")
+        logger.info(f"BybitConnector initialized: testnet={testnet}, account_type={account_type}, ccxt_testnet_mode={self.exchange.options.get('testnet')}, ccxt_default_type={self.exchange.options.get('defaultType')}")
+        logger.info(f"CCXT Exchange Options: {self.exchange.options}")
+        logger.info(f"CCXT Exchange URLs: {self.exchange.urls}")
 
     @map_exchange_errors
     async def get_precision_rules(self):

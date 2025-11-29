@@ -50,8 +50,8 @@ async def update_settings(
         encryption_service = EncryptionService()
         new_encrypted_keys_data = encryption_service.encrypt_keys(user_update.api_key, user_update.secret_key)
 
-        # Create a dictionary for the new exchange's configuration
-        exchange_config = {"encrypted_data": new_encrypted_keys_data}
+        # The `new_encrypted_keys_data` is already a dictionary like {"encrypted_data": "..."}
+        exchange_config = new_encrypted_keys_data # Start with the encrypted data
         if user_update.testnet is not None:
             exchange_config["testnet"] = user_update.testnet
         if user_update.account_type:

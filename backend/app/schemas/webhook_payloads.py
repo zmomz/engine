@@ -51,7 +51,7 @@ class WebhookPayload(BaseModel):
     risk: RiskInfo
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
             Decimal: lambda v: str(v),
@@ -59,7 +59,7 @@ class WebhookPayload(BaseModel):
         }
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         json_encoders = {
             datetime: lambda v: v.isoformat(),
             Decimal: lambda v: str(v),

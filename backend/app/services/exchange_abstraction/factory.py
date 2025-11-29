@@ -17,7 +17,7 @@ def get_exchange_connector(exchange_type: str, exchange_config: dict) -> Exchang
     Factory function to get an exchange connector instance from a configuration dictionary.
     """
     encryption_service = EncryptionService()
-    api_key, secret_key = encryption_service.decrypt_keys(exchange_config["encrypted_data"]["encrypted_data"])
+    api_key, secret_key = encryption_service.decrypt_keys(exchange_config["encrypted_data"])
 
     testnet = exchange_config.get("testnet", False)
     account_type = exchange_config.get("account_type", "UNIFIED") # Default to UNIFIED for Bybit if not specified
@@ -30,7 +30,7 @@ def get_exchange_connector(exchange_type: str, exchange_config: dict) -> Exchang
     elif exchange_type == "binance":
         return BinanceConnector(api_key=api_key, secret_key=secret_key, testnet=testnet, default_type=default_type)
     elif exchange_type == "bybit":
-        return BybitConnector(api_key=api_key, secret_key=secret_key, testnet=testnet, account_type=account_type)
+        return BybitConnector(api_key=api_key, secret_key=secret_key, testnet=testnet, default_type=default_type, account_type=account_type)
     else:
         raise UnsupportedExchangeError(f"Exchange type '{exchange_type}' is not supported.")
 

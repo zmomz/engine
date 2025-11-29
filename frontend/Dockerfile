@@ -25,11 +25,15 @@ FROM nginx:stable-alpine
 # Copy the custom Nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Copy the custom healthcheck script and make it executable
+COPY healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/healthcheck.sh
+
 # Copy the built files from the builder stage
 COPY --from=builder /app/build /usr/share/nginx/html
 
 # Expose port 80
 EXPOSE 80
 
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start Nginx with healthcheck
+CMD ["/usr/local/bin/healthcheck.sh", "nginx", "-g", "daemon off;"]

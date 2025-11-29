@@ -52,11 +52,16 @@ class EncryptionService:
         encrypted_data = self.fernet.encrypt(data)
         return {"encrypted_data": encrypted_data.decode()}
 
-    def decrypt_keys(self, encrypted_data: dict) -> tuple[str, str]:
-        # Expecting input dict to contain "encrypted_data" key with the token string
-        token = encrypted_data.get("encrypted_data")
-        if not token:
-            raise ValueError("Invalid encrypted data format")
+    def decrypt_keys(self, encrypted_data: str | dict) -> tuple[str, str]:
+        # Handle both direct string and dictionary formats for encrypted_data
+        if isinstance(encrypted_data, dict):
+            token = encrypted_data.get("encrypted_data")
+            if not token:
+                raise ValueError("Invalid encrypted data format: 'encrypted_data' key missing in dictionary")
+        elif isinstance(encrypted_data, str):
+            token = encrypted_data
+        else:
+            raise ValueError(f"Unsupported encrypted data type: {type(encrypted_data)}")
             
         decrypted_bytes = self.fernet.decrypt(token.encode())
         data = json.loads(decrypted_bytes.decode())

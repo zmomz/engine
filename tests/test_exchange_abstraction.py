@@ -43,7 +43,11 @@ async def test_get_exchange_connector_mock():
     """
     Test that the factory returns a mock exchange for 'mock' type.
     """
-    connector = get_exchange_connector("mock")
+    mock_encrypted_data = "dummy_encrypted_data"
+    exchange_config = {"encrypted_data": mock_encrypted_data, "testnet": False}
+
+    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("mock_key", "mock_secret')):
+        connector = get_exchange_connector("mock", exchange_config)
     assert isinstance(connector, ExchangeInterface)
 
     @pytest.mark.asyncio
@@ -51,9 +55,16 @@ async def test_get_exchange_connector_mock():
         """
         Test that the factory returns a BinanceConnector for 'binance' type.
         """
-        # Force default type to 'future' regardless of env vars
-        with patch('os.getenv', return_value="future"), \
-             patch('ccxt.async_support.binance') as mock_binance_ccxt:
+        mock_encrypted_data = "dummy_encrypted_data"
+        exchange_config = {
+            "encrypted_data": mock_encrypted_data,
+            "testnet": False,
+            "default_type": "spot" # Changed to spot
+        }
+
+        with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("test_key", "test_secret')) as mock_decrypt_keys:
+            with patch('os.getenv', return_value="future"):
+                with patch('ccxt.async_support.binance') as mock_binance_ccxt:
             mock_exchange_instance = MagicMock()
             mock_exchange_instance.load_markets = AsyncMock(return_value={})
             mock_exchange_instance.create_order = AsyncMock()
@@ -63,13 +74,14 @@ async def test_get_exchange_connector_mock():
             mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
             mock_binance_ccxt.return_value = mock_exchange_instance
                                                                                                                                           
-            connector = get_exchange_connector("binance", api_key="test_key", secret_key="test_secret", default_type="future")
+            connector = get_exchange_connector("binance", exchange_config)
             assert isinstance(connector, BinanceConnector)
+            mock_decrypt_keys.assert_called_once_with(mock_encrypted_data)
             mock_binance_ccxt.assert_called_once_with({
                 'apiKey': "test_key",
                 'secret': "test_secret",
                 'options': {
-                    'defaultType': 'future',
+                    'defaultType': 'spot', # Changed to spot
                 },
             })
         # Test that the methods are callable (even if they do nothing yet)
@@ -85,7 +97,16 @@ async def test_get_exchange_connector_bybit():
     """
     Test that the factory returns a BybitConnector for 'bybit' type.
     """
-    with patch('ccxt.async_support.bybit') as mock_bybit_ccxt:
+    mock_encrypted_data = "dummy_encrypted_data"
+    exchange_config = {
+        "encrypted_data": mock_encrypted_data,
+        "testnet": True, # Set to True for Bybit test
+        "default_type": "spot", # Changed to spot
+        "account_type": "UNIFIED"
+    }
+
+    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("test_key", "test_secret')) as mock_decrypt_keys:
+        with patch('ccxt.async_support.bybit') as mock_bybit_ccxt:
         mock_exchange_instance = MagicMock()
         mock_exchange_instance.load_markets = AsyncMock(return_value={})
         mock_exchange_instance.create_order = AsyncMock()
@@ -93,17 +114,22 @@ async def test_get_exchange_connector_bybit():
         mock_exchange_instance.cancel_order = AsyncMock()
         mock_exchange_instance.fetch_ticker = AsyncMock(return_value={'last': 100.0})
         mock_exchange_instance.fetch_balance = AsyncMock(return_value={'total': {}})
+        mock_exchange_instance.set_sandbox_mode = MagicMock() # Mock set_sandbox_mode
         mock_bybit_ccxt.return_value = mock_exchange_instance
 
-        connector = get_exchange_connector("bybit", api_key="test_key", secret_key="test_secret")
+        connector = get_exchange_connector("bybit", exchange_config)
         assert isinstance(connector, BybitConnector)
+        mock_decrypt_keys.assert_called_once_with(mock_encrypted_data)
         mock_bybit_ccxt.assert_called_once_with({
             'apiKey': "test_key",
             'secret': "test_secret",
             'options': {
-                'defaultType': 'future',
+                'defaultType': 'spot', # Changed to spot
+                'accountType': 'UNIFIED',
             },
+            'verbose': True,
         })
+        mock_exchange_instance.set_sandbox_mode.assert_called_once_with(True)
 
         # Test that the methods are callable (even if they do nothing yet)
         await connector.get_precision_rules()
@@ -118,8 +144,12 @@ async def test_get_exchange_connector_unsupported():
     """
     Test that the factory raises an error for unsupported exchange types.
     """
-    with pytest.raises(UnsupportedExchangeError, match="Exchange type 'unsupported' is not supported."):
-        get_exchange_connector("unsupported")
+    mock_encrypted_data = "dummy_encrypted_data"
+    exchange_config = {"encrypted_data": mock_encrypted_data}
+
+    with patch('app.core.security.EncryptionService.decrypt_keys', return_value=("mock_key", "mock_secret')):
+        with pytest.raises(UnsupportedExchangeError, match="Exchange type 'unsupported' is not supported."):
+            get_exchange_connector("unsupported", exchange_config)
 
 @pytest.fixture
 def mock_exchange_connector():
