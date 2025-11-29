@@ -6,12 +6,12 @@ class BybitConnector(ExchangeInterface):
     """
     Bybit exchange connector implementing ExchangeInterface.
     """
-    def __init__(self, api_key: str, secret_key: str, testnet: bool = False):
+    def __init__(self, api_key: str, secret_key: str, testnet: bool = False, default_type: str = "spot"):
         self.exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': secret_key,
             'options': {
-                'defaultType': 'future',
+                'defaultType': default_type,
             },
         })
         if testnet:
