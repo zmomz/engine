@@ -3,7 +3,7 @@ import os
 import sys
 
 # Ensure app is in path
-sys.path.append(os.getcwd())
+sys.path.append('/app')
 
 from app.db.database import AsyncSessionLocal
 from app.repositories.position_group import PositionGroupRepository
