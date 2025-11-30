@@ -79,14 +79,18 @@ class PositionManagerService:
                  elif "encrypted_data" not in encrypted_data:
                      raise ValueError(f"No API keys found for exchange {signal.exchange}")
 
-            api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-            logger.debug(f"Decrypted keys. API Key len: {len(api_key)}")
+            # Extract settings from stored config
+            testnet = encrypted_data.get("testnet", False) if isinstance(encrypted_data, dict) else False
+            account_type = encrypted_data.get("account_type", "UNIFIED") if isinstance(encrypted_data, dict) else "UNIFIED"
+            default_type = encrypted_data.get("default_type", "spot") if isinstance(encrypted_data, dict) else "spot"
             
-            exchange_connector = get_exchange_connector(
-                exchange_type=signal.exchange,
-                api_key=api_key,
-                secret_key=secret_key
-            )
+            exchange_config = {
+                "encrypted_data": encrypted_data if not isinstance(encrypted_data, dict) else encrypted_data.get("encrypted_data", encrypted_data),
+                "testnet": testnet,
+                "account_type": account_type,
+                "default_type": default_type
+            }
+            exchange_connector = get_exchange_connector(signal.exchange, exchange_config)
         
         logger.debug(f"Got exchange connector: {exchange_connector}")
 
@@ -228,12 +232,18 @@ class PositionManagerService:
                  elif "encrypted_data" not in encrypted_data:
                      raise ValueError(f"No API keys found for exchange {signal.exchange}")
 
-            api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-            exchange_connector = get_exchange_connector(
-                exchange_type=signal.exchange,
-                api_key=api_key,
-                secret_key=secret_key
-            )
+            # Extract settings from stored config
+            testnet = encrypted_data.get("testnet", False) if isinstance(encrypted_data, dict) else False
+            account_type = encrypted_data.get("account_type", "UNIFIED") if isinstance(encrypted_data, dict) else "UNIFIED"
+            default_type = encrypted_data.get("default_type", "spot") if isinstance(encrypted_data, dict) else "spot"
+            
+            exchange_config = {
+                "encrypted_data": encrypted_data if not isinstance(encrypted_data, dict) else encrypted_data.get("encrypted_data", encrypted_data),
+                "testnet": testnet,
+                "account_type": account_type,
+                "default_type": default_type
+            }
+            exchange_connector = get_exchange_connector(signal.exchange, exchange_config)
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()

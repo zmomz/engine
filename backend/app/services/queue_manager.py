@@ -266,8 +266,18 @@ class QueueManagerService:
                                  pass
                          
                          if target_data:
-                             api_key, api_secret = self._encryption_service.decrypt_keys(target_data)
-                             exchange = get_exchange_connector(ex_name, api_key=api_key, secret_key=api_secret)
+                             # Extract settings from stored config
+                             testnet = target_data.get("testnet", False) if isinstance(target_data, dict) else False
+                             account_type = target_data.get("account_type", "UNIFIED") if isinstance(target_data, dict) else "UNIFIED"
+                             default_type = target_data.get("default_type", "spot") if isinstance(target_data, dict) else "spot"
+                             
+                             exchange_config = {
+                                 "encrypted_data": target_data if not isinstance(target_data, dict) else target_data.get("encrypted_data", target_data),
+                                 "testnet": testnet,
+                                 "account_type": account_type,
+                                 "default_type": default_type
+                             }
+                             exchange = get_exchange_connector(ex_name, exchange_config)
 
                     if exchange:
                         for signal in signals:
@@ -341,8 +351,18 @@ class QueueManagerService:
                                      target_data = encrypted_data[best_signal.exchange]
                                  
                                  if target_data:
-                                     api_key, api_secret = self._encryption_service.decrypt_keys(target_data)
-                                     exchange = get_exchange_connector(best_signal.exchange, api_key=api_key, secret_key=api_secret)
+                                     # Extract settings from stored config
+                                     testnet = target_data.get("testnet", False) if isinstance(target_data, dict) else False
+                                     account_type = target_data.get("account_type", "UNIFIED") if isinstance(target_data, dict) else "UNIFIED"
+                                     default_type = target_data.get("default_type", "spot") if isinstance(target_data, dict) else "spot"
+                                     
+                                     exchange_config = {
+                                         "encrypted_data": target_data if not isinstance(target_data, dict) else target_data.get("encrypted_data", target_data),
+                                         "testnet": testnet,
+                                         "account_type": account_type,
+                                         "default_type": default_type
+                                     }
+                                     exchange = get_exchange_connector(best_signal.exchange, exchange_config)
 
                             if exchange:
                                 balance = await exchange.fetch_balance()

@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from threading import Thread
 import json
@@ -66,11 +67,22 @@ class SignalRouterService:
                  return f"Configuration Error: No API keys for {signal.tv.exchange}"
 
         try:
-            api_key, api_secret = self.encryption_service.decrypt_keys(encrypted_data)
-            exchange = get_exchange_connector(target_exchange, api_key=api_key, secret_key=api_secret)
+            # Build exchange_config dict for the factory function
+            # Extract settings from the stored config if available
+            testnet = encrypted_data.get("testnet", False) if isinstance(encrypted_data, dict) else False
+            account_type = encrypted_data.get("account_type", "UNIFIED") if isinstance(encrypted_data, dict) else "UNIFIED"
+            default_type = encrypted_data.get("default_type", "spot") if isinstance(encrypted_data, dict) else "spot"
+            
+            exchange_config = {
+                "encrypted_data": encrypted_data if not isinstance(encrypted_data, dict) else encrypted_data.get("encrypted_data", encrypted_data),
+                "testnet": testnet,
+                "account_type": account_type,
+                "default_type": default_type
+            }
+            exchange = get_exchange_connector(target_exchange, exchange_config)
         except Exception as e:
-            logger.error(f"Signal Router: Failed to decrypt keys for {target_exchange}: {e}")
-            return f"Configuration Error: Failed to decrypt keys for {signal.tv.exchange}"
+            logger.error(f"Signal Router: Failed to initialize exchange connector for {target_exchange}: {e}")
+            return f"Configuration Error: Failed to initialize exchange connector for {signal.tv.exchange}"
         
         # Precision Validation (Block if metadata missing)
         try:

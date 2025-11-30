@@ -4,6 +4,7 @@ services:
     volumes:
       - .:/app
       - ./logs:/app/logs
+      - /app/.venv
     env_file:
       - .env
     user: "${UID}:${GID}"

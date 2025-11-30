@@ -27,6 +27,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy the custom healthcheck script and make it executable
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN sed -i 's/\r$//' /usr/local/bin/healthcheck.sh
 RUN chmod +x /usr/local/bin/healthcheck.sh
 
 # Copy the built files from the builder stage
