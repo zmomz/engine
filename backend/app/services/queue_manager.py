@@ -403,7 +403,7 @@ class QueueManagerService:
                         logger.error(f"Execution failed for promoted signal {best_signal.id}: {e}")
                         pass
             else:
-                logger.info(f"No slot granted for signal {best_signal.symbol}.")
+                logger.debug(f"No slot granted for signal {best_signal.symbol}.")
 
     async def start_promotion_task(self):
         self._running = True

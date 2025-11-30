@@ -148,12 +148,12 @@ class OrderService:
             raise APIError("Cannot check status for order without an exchange_order_id.")
 
         try:
-            logger.info(f"Checking order {dca_order.id} on exchange. Exchange Order ID: {dca_order.exchange_order_id}, Symbol: {dca_order.symbol}")
+            logger.debug(f"Checking order {dca_order.id} on exchange. Exchange Order ID: {dca_order.exchange_order_id}, Symbol: {dca_order.symbol}")
             exchange_order_data = await self.exchange_connector.get_order_status(
                 order_id=dca_order.exchange_order_id,
                 symbol=dca_order.symbol
             )
-            logger.info(f"Exchange response for order {dca_order.id}: {exchange_order_data}")
+            logger.debug(f"Exchange response for order {dca_order.id}: {exchange_order_data}")
 
             exchange_status = exchange_order_data["status"]
             

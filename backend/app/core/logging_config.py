@@ -3,6 +3,7 @@ import logging.handlers
 import os
 import re
 from pathlib import Path
+from app.core.config import settings
 
 class SensitiveDataFilter(logging.Filter):
     """
@@ -11,11 +12,11 @@ class SensitiveDataFilter(logging.Filter):
     def __init__(self, name=""):
         super().__init__(name)
         self.patterns = [
-            (r'(api_key=)[\'"]?([^\'"\s]+)[\'"]?', r'\1***MASKED***'),
-            (r'(secret_key=)[\'"]?([^\'"\s]+)[\'"]?', r'\1***MASKED***'),
-            (r'(password=)[\'"]?([^\'"\s]+)[\'"]?', r'\1***MASKED***'),
-            (r'(token=)[\'"]?([^\'"\s]+)[\'"]?', r'\1***MASKED***'),
-            (r'(encrypted_api_keys=).*?([,}])', r'\1***MASKED***\2') # Mask encrypted blobs too
+            (r"(api_key=)[\"']?([^\s\"']+)[\"']?", r"\1***MASKED***"),
+            (r"(secret_key=)[\"']?([^\s\"']+)[\"']?", r"\1***MASKED***"),
+            (r"(password=)[\"']?([^\s\"']+)[\"']?", r"\1***MASKED***"),
+            (r"(token=)[\"']?([^\s\"']+)[\"']?", r"\1***MASKED***"),
+            (r"(encrypted_api_keys=).*?([,}])", r"\1***MASKED***\2") # Mask encrypted blobs too
         ]
 
     def filter(self, record):
@@ -32,11 +33,11 @@ class SensitiveDataFilter(logging.Filter):
 def setup_logging():
     """
     Configures the logging for the application.
-    Writes logs to stdout and to a rotating file in the logs/ directory.
+    Writes logs to stdout and to a rotating file in the configured log directory.
     """
-    log_dir = Path("/tmp/logs")
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "app.log"
+    log_path = Path(settings.LOG_FILE_PATH)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = log_path
 
     # Create formatters
     formatter = logging.Formatter(
@@ -61,7 +62,7 @@ def setup_logging():
 
     # Root Logger Configuration
     root_logger = logging.getLogger()
-    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    log_level = settings.LOG_LEVEL.upper()
     root_logger.setLevel(log_level)
     
     # Remove existing handlers to avoid duplicates if called multiple times
@@ -71,10 +72,13 @@ def setup_logging():
     root_logger.addHandler(file_handler)
 
     # Set specific levels for noisy libraries if needed
+    # If main log level is DEBUG, these might still be too noisy, so we keep them somewhat restricted
+    # unless explicitly debugging them.
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
     logging.getLogger("ccxt").setLevel(logging.ERROR)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING) 
     
     return log_file

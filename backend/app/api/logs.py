@@ -4,11 +4,12 @@ import logging
 
 from app.api.dependencies.users import get_current_active_user
 from app.models.user import User
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-LOG_FILE_PATH = Path("logs/app.log")
+LOG_FILE_PATH = Path(settings.LOG_FILE_PATH)
 
 @router.get("")
 async def get_logs(

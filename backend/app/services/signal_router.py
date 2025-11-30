@@ -47,6 +47,8 @@ class SignalRouterService:
         """
         Routes the signal.
         """
+        logger.info(f"Received signal for {signal.tv.symbol} ({signal.tv.action}) on {signal.tv.exchange} for user {self.user.id}")
+
         # Initialize Dependencies
         pg_repo = PositionGroupRepository(db_session)
         exec_pool = ExecutionPoolManager(AsyncSessionLocal, PositionGroupRepository)
@@ -169,6 +171,7 @@ class SignalRouterService:
                     # `db` dependency in FastAPI with `yield` typically commits on exit if no exception.
                     # But explicit commit here is safer if we want immediate result.
                     await db_session.commit()
+                    logger.info(f"Pyramid executed for {signal.tv.symbol}")
                     return f"Pyramid executed for {signal.tv.symbol}"
                 except Exception as e:
                     logger.error(f"Pyramid execution failed: {e}")
@@ -200,6 +203,7 @@ class SignalRouterService:
                         total_capital_usd=total_capital
                     )
                     await db_session.commit()
+                    logger.info(f"New position created for {signal.tv.symbol}")
                     return f"New position created for {signal.tv.symbol}"
                 except Exception as e:
                     logger.error(f"New position execution failed: {e}")
@@ -213,4 +217,5 @@ class SignalRouterService:
                 # Let's modify the payload object side to be safe.
                 signal.tv.action = signal_side 
                 await queue_service.add_signal_to_queue(signal)
+                logger.info(f"Pool full. Signal queued for {signal.tv.symbol}")
                 return f"Pool full. Signal queued for {signal.tv.symbol}"

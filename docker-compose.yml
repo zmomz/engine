@@ -3,11 +3,12 @@ services:
     build: .
     volumes:
       - .:/app
+      - ./logs:/app/logs
     env_file:
       - .env
     user: "${UID}:${GID}"
     environment:
-
+      - LOG_FILE_PATH=logs/app.log
       - PYTHONPATH=/app/backend
       - HOME=/tmp
     depends_on:

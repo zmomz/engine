@@ -8,6 +8,8 @@ class Settings(BaseModel):
     ENCRYPTION_KEY: str
     CORS_ORIGINS: List[str]
     ENVIRONMENT: str = "development"
+    LOG_LEVEL: str = "INFO"
+    LOG_FILE_PATH: str = "logs/app.log"
 
     @classmethod
     def load_from_env(cls):
@@ -15,6 +17,8 @@ class Settings(BaseModel):
         secret_key = os.getenv("SECRET_KEY")
         encryption_key = os.getenv("ENCRYPTION_KEY")
         environment = os.getenv("ENVIRONMENT", "development")
+        log_level = os.getenv("LOG_LEVEL", "INFO")
+        log_file_path = os.getenv("LOG_FILE_PATH", "logs/app.log")
         
         cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
         cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
@@ -36,7 +40,9 @@ class Settings(BaseModel):
             SECRET_KEY=secret_key,
             ENCRYPTION_KEY=encryption_key,
             CORS_ORIGINS=cors_origins,
-            ENVIRONMENT=environment
+            ENVIRONMENT=environment,
+            LOG_LEVEL=log_level,
+            LOG_FILE_PATH=log_file_path
         )
 
 # Load settings immediately. This ensures fail-fast behavior at startup/import time.

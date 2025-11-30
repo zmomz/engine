@@ -25,6 +25,9 @@ celerybeat-schedule.*
 dmypy.json
 .ruff_cache/
 .python-version
+logs/
+*.log
+*.log.*
 
 # Node.js
 node_modules/

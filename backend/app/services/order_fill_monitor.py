@@ -57,18 +57,18 @@ class OrderFillMonitorService:
             try:
                 user_repo = UserRepository(session)
                 active_users = await user_repo.get_all_active_users()
-                logger.info(f"OrderFillMonitor: Found {len(active_users)} active users.")
+                logger.debug(f"OrderFillMonitor: Found {len(active_users)} active users.")
 
                 for user in active_users:
                     try:
                         if not user.encrypted_api_keys:
-                            logger.info(f"OrderFillMonitor: User {user.id} has no API keys, skipping.")
+                            logger.debug(f"OrderFillMonitor: User {user.id} has no API keys, skipping.")
                             continue
 
                         dca_order_repo = self.dca_order_repository_class(session)
                         # Fetch all open orders for user, eagerly loading the position group
                         all_orders = await dca_order_repo.get_open_and_partially_filled_orders(user_id=user.id)
-                        logger.info(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
+                        logger.debug(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
 
                         if not all_orders:
                             continue
@@ -76,7 +76,7 @@ class OrderFillMonitorService:
                         # Group orders by exchange
                         orders_by_exchange = {}
                         for order in all_orders:
-                            logger.info(f"OrderFillMonitor: Processing order {order.id} with initial status {order.status}.")
+                            logger.debug(f"OrderFillMonitor: Processing order {order.id} with initial status {order.status}.")
                             if not order.group:
                                 logger.error(f"Order {order.id} has no position group attached. This should not happen. Skipping.")
                                 continue

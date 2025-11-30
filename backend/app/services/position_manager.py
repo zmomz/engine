@@ -57,12 +57,12 @@ class PositionManagerService:
         dca_grid_config: DCAGridConfig,
         total_capital_usd: Decimal
     ) -> PositionGroup:
-        print(f"DEBUG: Entering create_position_group_from_signal for user {user_id}")
+        logger.debug(f"Entering create_position_group_from_signal for user {user_id}")
         
         # 1. Get user 
         user = await session.get(User, user_id)
         if not user:
-            print("DEBUG: User not found")
+            logger.debug("User not found")
             raise UserNotFoundException(f"User {user_id} not found")
 
         if self.exchange_connector:
@@ -80,7 +80,7 @@ class PositionManagerService:
                      raise ValueError(f"No API keys found for exchange {signal.exchange}")
 
             api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
-            print(f"DEBUG: Decrypted keys. API Key len: {len(api_key)}")
+            logger.debug(f"Decrypted keys. API Key len: {len(api_key)}")
             
             exchange_connector = get_exchange_connector(
                 exchange_type=signal.exchange,
@@ -88,11 +88,11 @@ class PositionManagerService:
                 secret_key=secret_key
             )
         
-        print(f"DEBUG: Got exchange connector: {exchange_connector}")
+        logger.debug(f"Got exchange connector: {exchange_connector}")
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()
-        print(f"DEBUG: Got precision rules: {precision_rules}")
+        logger.debug(f"Got precision rules: {precision_rules}")
         symbol_precision = precision_rules.get(signal.symbol, {})
 
         # 3. Calculate DCA levels and quantities
@@ -102,14 +102,14 @@ class PositionManagerService:
             side=signal.side,
             precision_rules=symbol_precision
         )
-        print(f"DEBUG: Calculated {len(dca_levels)} levels")
+        logger.debug(f"Calculated {len(dca_levels)} levels")
         
         dca_levels = self.grid_calculator_service.calculate_order_quantities(
             dca_levels=dca_levels,
             total_capital_usd=total_capital_usd,
             precision_rules=symbol_precision
         )
-        print("DEBUG: Calculated quantities")
+        logger.debug("Calculated quantities")
 
         # 4. Create PositionGroup
         new_position_group = PositionGroup(
@@ -131,7 +131,7 @@ class PositionManagerService:
         )
         session.add(new_position_group)
         await session.flush()
-        print(f"DEBUG: Created PG {new_position_group.id}")
+        logger.debug(f"Created PG {new_position_group.id}")
         
         # 5. Create Initial Pyramid
         new_pyramid = Pyramid(
@@ -174,11 +174,11 @@ class PositionManagerService:
             session.add(dca_order)
             orders_to_submit.append(dca_order)
         
-        print(f"DEBUG: About to submit {len(orders_to_submit)} orders")
+        logger.debug(f"About to submit {len(orders_to_submit)} orders")
         # 9. Asynchronously submit all orders
         try:
             for order in orders_to_submit:
-                print(f"DEBUG: Submitting order {order.leg_index}")
+                logger.debug(f"Submitting order {order.leg_index}")
                 await order_service.submit_order(order)
         except Exception as e:
             logger.error(f"Failed to submit orders for PositionGroup {new_position_group.id}: {e}")
