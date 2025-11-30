@@ -14,7 +14,7 @@ class BybitConnector(ExchangeInterface):
                 'defaultType': default_type,
                 'accountType': account_type,
             },
-            'verbose': True, # Enable verbose output for debugging
+            'verbose': False, # Disable verbose output to reduce log noise
         })
 
         if testnet:

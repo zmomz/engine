@@ -72,7 +72,7 @@ def setup_logging():
 
     # Set specific levels for noisy libraries if needed
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
-    logging.getLogger("ccxt").setLevel(logging.WARNING)
+    logging.getLogger("ccxt").setLevel(logging.ERROR)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
