@@ -33,6 +33,13 @@ class ExchangeInterface(ABC):
         pass
 
     @abstractmethod
+    async def fetch_free_balance(self):
+        """
+        Fetches the free (available) balance for all assets.
+        """
+        pass
+
+    @abstractmethod
     async def close(self):
         """
         Closes the exchange connection and releases resources.

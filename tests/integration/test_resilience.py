@@ -129,8 +129,7 @@ async def test_exchange_api_timeout_on_order_submission(
             user=test_user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=grid_calculator_service,
-            order_service_class=OrderService,
-            exchange_connector=mock_exchange_connector 
+            order_service_class=OrderService
         )
         
         queue_manager = QueueManagerService(
@@ -144,7 +143,7 @@ async def test_exchange_api_timeout_on_order_submission(
             polling_interval_seconds=0.01
         )
 
-        await queue_manager.promote_highest_priority_signal()
+        await queue_manager.promote_highest_priority_signal(session=db_session)
 
         # 3. Verify
         # Expect place_order to have been called (and failed with TimeoutError)

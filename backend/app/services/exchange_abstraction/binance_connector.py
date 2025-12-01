@@ -91,7 +91,7 @@ class BinanceConnector(ExchangeInterface):
         Returns the full order dictionary.
         """
         order = await self.exchange.fetch_order(order_id, symbol)
-        return order['status']
+        return order
 
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):
@@ -115,6 +115,14 @@ class BinanceConnector(ExchangeInterface):
         """
         balance = await self.exchange.fetch_balance()
         return balance['total']
+
+    @map_exchange_errors
+    async def fetch_free_balance(self):
+        """
+        Fetches the free (available) balance for all assets.
+        """
+        balance = await self.exchange.fetch_balance()
+        return balance['free']
 
     async def close(self):
         """

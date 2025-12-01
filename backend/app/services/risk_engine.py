@@ -115,10 +115,9 @@ def select_loser_and_winners(
     return selected_loser, selected_winners, required_usd
 
 async def calculate_partial_close_quantities(
-    exchange_connector: ExchangeInterface,
+    user: User,
     winners: List[PositionGroup],
-    required_usd: Decimal,
-    precision_rules: Dict
+    required_usd: Decimal
 ) -> List[Tuple[PositionGroup, Decimal]]:
     """
     Calculate how much to close from each winner to realize required_usd.
@@ -127,11 +126,55 @@ async def calculate_partial_close_quantities(
     """
     close_plan = []
     remaining_needed = required_usd
+
+    encryption_service = EncryptionService() 
+    encrypted_data = user.encrypted_api_keys
     
+    # Cache connectors to avoid re-initializing for same exchange
+    connectors = {}
+    precision_rules_cache = {}
+
     for winner in winners:
         if remaining_needed <= 0:
             break
         
+        exchange_name = winner.exchange.lower()
+        
+        # Get Connector
+        if exchange_name not in connectors:
+            exchange_config = {}
+            if isinstance(encrypted_data, dict):
+                if exchange_name in encrypted_data:
+                    exchange_config = encrypted_data[exchange_name]
+                elif "encrypted_data" not in encrypted_data:
+                    logger.error(f"Risk Engine: Keys for {exchange_name} not found for user {user.id}. Skipping winner {winner.symbol}.")
+                    continue
+                else:
+                    exchange_config = {"encrypted_data": encrypted_data}
+            elif isinstance(encrypted_data, str):
+                exchange_config = {"encrypted_data": encrypted_data}
+            else:
+                logger.error(f"Risk Engine: Invalid format for encrypted_api_keys. Skipping.")
+                continue
+            
+            try:
+                connectors[exchange_name] = get_exchange_connector(exchange_type=exchange_name, exchange_config=exchange_config)
+            except Exception as e:
+                logger.error(f"Risk Engine: Failed to init connector for {exchange_name}: {e}")
+                continue
+
+        exchange_connector = connectors[exchange_name]
+
+        # Get Precision Rules
+        if exchange_name not in precision_rules_cache:
+            try:
+                precision_rules_cache[exchange_name] = await exchange_connector.get_precision_rules()
+            except Exception as e:
+                 logger.error(f"Risk Engine: Failed to fetch precision rules for {exchange_name}: {e}")
+                 continue
+        
+        precision_rules = precision_rules_cache[exchange_name]
+
         # Calculate how much profit this winner can contribute
         available_profit = winner.unrealized_pnl_usd
         
@@ -139,13 +182,19 @@ async def calculate_partial_close_quantities(
         profit_to_take = min(available_profit, remaining_needed)
         
         # Calculate quantity to close to realize this profit
-        current_price = await exchange_connector.get_current_price(winner.symbol)
+        try:
+            current_price = await exchange_connector.get_current_price(winner.symbol)
+            current_price = Decimal(str(current_price))
+        except Exception as e:
+            logger.error(f"Risk Engine: Failed to get price for {winner.symbol}: {e}")
+            continue
+
         profit_per_unit = current_price - winner.weighted_avg_entry
         if winner.side == "short":
             profit_per_unit = winner.weighted_avg_entry - current_price
         
         if profit_per_unit <= 0:
-            logger.warning(f"Cannot calculate quantity for {winner.symbol}: profit_per_unit is zero or negative.")
+            logger.warning(f"Cannot calculate quantity for {winner.symbol}: profit_per_unit is zero or negative ({profit_per_unit}).")
             continue
 
         quantity_to_close = profit_to_take / profit_per_unit
@@ -173,6 +222,10 @@ async def calculate_partial_close_quantities(
         close_plan.append((winner, quantity_to_close))
         remaining_needed -= profit_to_take
     
+    # Close connectors
+    for conn in connectors.values():
+        await conn.close()
+
     return close_plan
 
 class RiskEngineService:
@@ -182,7 +235,7 @@ class RiskEngineService:
         position_group_repository_class: type[PositionGroupRepository],
         risk_action_repository_class: type[RiskActionRepository],
         dca_order_repository_class: type[DCAOrderRepository],
-        exchange_connector: ExchangeInterface,
+
         order_service_class: type[OrderService],
         risk_engine_config: RiskEngineConfig,
         polling_interval_seconds: int = 60,
@@ -192,13 +245,32 @@ class RiskEngineService:
         self.position_group_repository_class = position_group_repository_class
         self.risk_action_repository_class = risk_action_repository_class
         self.dca_order_repository_class = dca_order_repository_class
-        self.exchange_connector = exchange_connector
+
         self.order_service_class = order_service_class
         self.polling_interval_seconds = polling_interval_seconds
         self.config = risk_engine_config
         self.user = user
         self._running = False
         self._monitor_task = None
+
+    def _get_exchange_connector_for_user(self, user: User, exchange_name: str) -> ExchangeInterface:
+        encrypted_data = user.encrypted_api_keys
+        exchange_key = exchange_name.lower()
+
+        if isinstance(encrypted_data, dict):
+            if exchange_key in encrypted_data:
+                exchange_config = encrypted_data[exchange_key]
+            elif "encrypted_data" in encrypted_data and len(encrypted_data) == 1: # Old single-key format might be directly in 'encrypted_data'
+                 exchange_config = encrypted_data # This means the dict itself contains the old single key. Likely needs adjustment.
+            else:
+                raise ValueError(f"No API keys found for exchange {exchange_name} (normalized: {exchange_key}). Available: {list(encrypted_data.keys()) if encrypted_data else 'None'}")
+        elif isinstance(encrypted_data, str):
+            # Handle legacy single-key encryption where encrypted_api_keys was a string
+            exchange_config = {"encrypted_data": encrypted_data}
+        else:
+            raise ValueError("Invalid format for encrypted_api_keys. Expected dict or str.")
+
+        return get_exchange_connector(exchange_name, exchange_config)
 
     async def validate_pre_trade_risk(
         self,
@@ -292,20 +364,28 @@ class RiskEngineService:
                 encryption_service = EncryptionService()
                 try:
                     # Fix for multi-key: Use loser.exchange
+                    exchange_config = {}
                     encrypted_data = user.encrypted_api_keys
-                    target_exchange = loser.exchange
+                    target_exchange = loser.exchange.lower()
+
                     if isinstance(encrypted_data, dict):
                          if target_exchange in encrypted_data:
-                             encrypted_data = encrypted_data[target_exchange]
+                             exchange_config = encrypted_data[target_exchange]
                          elif "encrypted_data" not in encrypted_data:
-                             logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}.")
+                             logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}. Skipping.")
                              return
+                         else:
+                             # Fallback for old single-key setup where encrypted_api_keys might directly be the encrypted_data string
+                             exchange_config = {"encrypted_data": encrypted_data}
+                    elif isinstance(encrypted_data, str):
+                        exchange_config = {"encrypted_data": encrypted_data}
+                    else:
+                        logger.error(f"Risk Engine: Invalid format for encrypted_api_keys for user {user.id}. Expected dict or str. Skipping.")
+                        return
 
-                    api_key, secret_key = encryption_service.decrypt_keys(encrypted_data)
                     exchange_connector = get_exchange_connector(
                         exchange_type=loser.exchange,
-                        api_key=api_key,
-                        secret_key=secret_key
+                        exchange_config=exchange_config
                     )
                 except Exception as e:
                         logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
@@ -325,7 +405,7 @@ class RiskEngineService:
                     logger.error(f"Risk Engine: Failed to fetch precision rules for user {user.id}: {e}")
                     return
                 
-                close_plan = await calculate_partial_close_quantities(exchange_connector, winners, required_usd, full_precision_rules)
+                close_plan = await calculate_partial_close_quantities(user, winners, required_usd)
 
                 if not close_plan and required_usd > 0:
                     logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")

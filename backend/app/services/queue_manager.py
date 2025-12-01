@@ -17,6 +17,9 @@ from app.schemas.webhook_payloads import WebhookPayload
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.core.security import EncryptionService
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
+from app.services.position_manager import PositionManagerService
+from app.services.order_management import OrderService
+from app.services.grid_calculator import GridCalculatorService
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +318,14 @@ class QueueManagerService:
             if not self.execution_pool_manager:
                 continue
 
+            # Load Configs from User
+            try:
+                risk_config = RiskEngineConfig(**user.risk_config)
+                dca_config = DCAGridConfig.model_validate(user.dca_grid_config)
+            except Exception as e:
+                logger.error(f"Failed to load user config: {e}")
+                continue
+
             is_pyramid = any(
                 g.symbol == best_signal.symbol and 
                 g.timeframe == best_signal.timeframe and 
@@ -322,7 +333,11 @@ class QueueManagerService:
                 for g in active_groups
             )
 
-            slot_granted = await self.execution_pool_manager.request_slot(is_pyramid_continuation=is_pyramid)
+            user_max_groups = risk_config.max_open_positions_global
+            slot_granted = await self.execution_pool_manager.request_slot(
+                is_pyramid_continuation=is_pyramid,
+                max_open_groups_override=user_max_groups
+            )
             
             if slot_granted:
                 logger.info(f"Promoting signal {best_signal.symbol} (Score: {best_signal.priority_score})")
@@ -331,97 +346,101 @@ class QueueManagerService:
                 await queue_repo.update(best_signal)
                 await session.commit() 
                 
-                if self.position_manager_service:
+                try:
+                    # Instantiate PositionManager locally
+                    grid_calc = GridCalculatorService()
+                    pos_manager = PositionManagerService(
+                        session_factory=self.session_factory,
+                        user=user,
+                        position_group_repository_class=self.position_group_repository_class,
+                        grid_calculator_service=grid_calc,
+                        order_service_class=OrderService
+                    )
+                    
+                    # Fetch capital using correct connector
+                    total_capital = Decimal("1000") # Default fallback
                     try:
-                        # Load Configs from User
-                        risk_config = RiskEngineConfig(**user.risk_config)
-                        dca_config = DCAGridConfig.model_validate(user.dca_grid_config)
-                        
-                        # Fetch capital using correct connector
-                        total_capital = Decimal("1000") # Default fallback
-                        try:
-                            # Re-init connector for best_signal.exchange to get balance
-                            exchange = None
-                            if self.exchange_connector:
-                                exchange = self.exchange_connector
-                            else:
-                                 encrypted_data = user.encrypted_api_keys
-                                 target_data = None
-                                 if isinstance(encrypted_data, dict) and best_signal.exchange in encrypted_data:
-                                     target_data = encrypted_data[best_signal.exchange]
-                                 
-                                 if target_data:
-                                     # Extract settings from stored config
-                                     testnet = target_data.get("testnet", False) if isinstance(target_data, dict) else False
-                                     account_type = target_data.get("account_type", "UNIFIED") if isinstance(target_data, dict) else "UNIFIED"
-                                     default_type = target_data.get("default_type", "spot") if isinstance(target_data, dict) else "spot"
-                                     
-                                     exchange_config = {
-                                         "encrypted_data": target_data if not isinstance(target_data, dict) else target_data.get("encrypted_data", target_data),
-                                         "testnet": testnet,
-                                         "account_type": account_type,
-                                         "default_type": default_type
-                                     }
-                                     exchange = get_exchange_connector(best_signal.exchange, exchange_config)
-
-                            if exchange:
-                                balance = await exchange.fetch_balance()
-                                # Standardized flat structure (e.g., {'USDT': 1000.0})
-                                if "total" in balance and isinstance(balance["total"], dict):
-                                    balance = balance["total"]
-                                
-                                if isinstance(balance, dict):
-                                    total_capital = Decimal(str(balance.get('USDT', 1000)))
-                        except Exception as e:
-                            logger.warning(f"Failed to fetch balance for user {user.id}: {e}")
-                            pass
-
-                        # --- POSITION SIZING LOGIC ---
-                        # 1. Calculate based on percentage
-                        alloc_percent = risk_config.risk_per_position_percent if risk_config.risk_per_position_percent else Decimal("10.0")
-                        allocated_capital = total_capital * (alloc_percent / Decimal("100"))
-                        
-                        # 2. Cap by absolute amount if configured
-                        if risk_config.risk_per_position_cap_usd and risk_config.risk_per_position_cap_usd > 0:
-                            if allocated_capital > risk_config.risk_per_position_cap_usd:
-                                allocated_capital = risk_config.risk_per_position_cap_usd
-
-                        # 3. Cap total exposure (Global Safety)
-                        # (Optional: Check existing exposure here, but risk engine pre-check usually handles the "new open" permission.
-                        # However, we should ensure we don't allocate more than the global cap even if balance is huge)
-                        if risk_config.max_total_exposure_usd and risk_config.max_total_exposure_usd > 0:
-                            if allocated_capital > risk_config.max_total_exposure_usd:
-                                allocated_capital = risk_config.max_total_exposure_usd
-
-                        logger.info(f"Capital Allocation: Total {total_capital} USD, Allocating {allocated_capital} USD ({alloc_percent}%)")
-
-                        if is_pyramid:
-                            existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
-                            if existing_group:
-                                await self.position_manager_service.handle_pyramid_continuation(
-                                    session=session,
-                                    user_id=user.id,
-                                    signal=best_signal,
-                                    existing_position_group=existing_group,
-                                    risk_config=risk_config,
-                                    dca_grid_config=dca_config,
-                                    total_capital_usd=allocated_capital
-                                )
+                        # Re-init connector for best_signal.exchange to get balance
+                        exchange = None
+                        if self.exchange_connector:
+                            exchange = self.exchange_connector
                         else:
-                            await self.position_manager_service.create_position_group_from_signal(
+                                encrypted_data = user.encrypted_api_keys
+                                target_data = None
+                                if isinstance(encrypted_data, dict) and best_signal.exchange.lower() in encrypted_data:
+                                    target_data = encrypted_data[best_signal.exchange.lower()]
+                                
+                                if target_data:
+                                    # Extract settings from stored config
+                                    testnet = target_data.get("testnet", False) if isinstance(target_data, dict) else False
+                                    account_type = target_data.get("account_type", "UNIFIED") if isinstance(target_data, dict) else "UNIFIED"
+                                    default_type = target_data.get("default_type", "spot") if isinstance(target_data, dict) else "spot"
+                                    
+                                    exchange_config = {
+                                        "encrypted_data": target_data if not isinstance(target_data, dict) else target_data.get("encrypted_data", target_data),
+                                        "testnet": testnet,
+                                        "account_type": account_type,
+                                        "default_type": default_type
+                                    }
+                                    exchange = get_exchange_connector(best_signal.exchange.lower(), exchange_config)
+
+                        if exchange:
+                            balance = await exchange.fetch_balance()
+                            # Standardized flat structure (e.g., {'USDT': 1000.0})
+                            if "total" in balance and isinstance(balance["total"], dict):
+                                balance = balance["total"]
+                            
+                            if isinstance(balance, dict):
+                                total_capital = Decimal(str(balance.get('USDT', 1000)))
+                            await exchange.close()
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch balance for user {user.id}: {e}")
+                        pass
+
+                    # --- POSITION SIZING LOGIC ---
+                    # 1. Calculate based on percentage
+                    alloc_percent = risk_config.risk_per_position_percent if risk_config.risk_per_position_percent else Decimal("10.0")
+                    allocated_capital = total_capital * (alloc_percent / Decimal("100"))
+                    
+                    # 2. Cap by absolute amount if configured
+                    if risk_config.risk_per_position_cap_usd and risk_config.risk_per_position_cap_usd > 0:
+                        if allocated_capital > risk_config.risk_per_position_cap_usd:
+                            allocated_capital = risk_config.risk_per_position_cap_usd
+
+                    # 3. Cap total exposure (Global Safety)
+                    if risk_config.max_total_exposure_usd and risk_config.max_total_exposure_usd > 0:
+                        if allocated_capital > risk_config.max_total_exposure_usd:
+                            allocated_capital = risk_config.max_total_exposure_usd
+
+                    logger.info(f"Capital Allocation: Total {total_capital} USD, Allocating {allocated_capital} USD ({alloc_percent}%)")
+
+                    if is_pyramid:
+                        existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
+                        if existing_group:
+                            await pos_manager.handle_pyramid_continuation(
                                 session=session,
                                 user_id=user.id,
                                 signal=best_signal,
+                                existing_position_group=existing_group,
                                 risk_config=risk_config,
                                 dca_grid_config=dca_config,
                                 total_capital_usd=allocated_capital
                             )
-                        
-                        await session.commit()
+                    else:
+                        await pos_manager.create_position_group_from_signal(
+                            session=session,
+                            user_id=user.id,
+                            signal=best_signal,
+                            risk_config=risk_config,
+                            dca_grid_config=dca_config,
+                            total_capital_usd=allocated_capital
+                        )
+                    
+                    await session.commit()
 
-                    except Exception as e:
-                        logger.error(f"Execution failed for promoted signal {best_signal.id}: {e}")
-                        pass
+                except Exception as e:
+                    logger.error(f"Execution failed for promoted signal {best_signal.id}: {e}")
+                    pass
             else:
                 logger.debug(f"No slot granted for signal {best_signal.symbol}.")
 

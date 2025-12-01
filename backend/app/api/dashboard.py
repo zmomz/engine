@@ -147,12 +147,14 @@ async def get_pnl(
         encryption_service = EncryptionService()
 
         # Iterate over exchanges that have active positions
+        logger.debug(f"get_pnl: API Keys map for PnL calculation: {api_keys_map}")
         for exchange_name, groups in groups_by_exchange.items():
-            if exchange_name not in api_keys_map:
-                logger.warning(f"get_pnl: No API keys found for exchange '{exchange_name}' to price {len(groups)} positions.")
+            lookup_key = exchange_name.lower()
+            if lookup_key not in api_keys_map:
+                logger.warning(f"get_pnl: No API keys found for exchange '{exchange_name}' (lookup: '{lookup_key}') to price {len(groups)} positions.")
                 continue
                 
-            encrypted_data_raw = api_keys_map[exchange_name]
+            encrypted_data_raw = api_keys_map[lookup_key]
             exchange_config = {}
             if isinstance(encrypted_data_raw, str):
                 # Legacy format: encrypted string directly

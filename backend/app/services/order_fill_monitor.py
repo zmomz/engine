@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import List
 import json
+import ccxt # Added this import
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -100,9 +101,10 @@ class OrderFillMonitorService:
                                  api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
                                  
                                  connector = get_exchange_connector(
-                                    exchange_name, 
-                                    api_key=api_key, 
-                                    secret_key=secret_key
+                                    exchange_name,
+                                    # Explicitly set testnet=True for Bybit to ensure testnet_mode attribute is present
+                                    testnet=True if exchange_name == 'bybit' else False,
+                                    exchange_config=exchange_keys_data
                                  )
                              except Exception as e:
                                  logger.error(f"Failed to setup connector for {exchange_name}: {e}")
@@ -120,8 +122,7 @@ class OrderFillMonitorService:
                                     user=user,
                                     position_group_repository_class=self.position_group_repository_class,
                                     grid_calculator_service=None, 
-                                    order_service_class=None, 
-                                    exchange_connector=connector
+                                    order_service_class=None
                                  )
 
                                  for order in orders_to_check:
@@ -136,19 +137,26 @@ class OrderFillMonitorService:
                                                 await position_manager.update_position_stats(updated_order.group_id, session=session)
                                             continue
 
+                                        # Attempt to get order status from the exchange
                                         updated_order = await order_service.check_order_status(order)
-                                        if updated_order.status in ["filled", "cancelled", "failed"]:
-                                             logger.info(f"Order {order.id} status updated to {updated_order.status}")
-                                             
+                                        if updated_order.status in [OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.FAILED.value]:
+                                            logger.info(f"Order {order.id} status updated to {updated_order.status}")
+
                                         if updated_order.status == OrderStatus.FILLED.value:
-                                            # Flush order status update before recalculating stats
+                                            # Ensure filled_quantity and filled_price are set for the workaround case
+                                            if order.group and order.group.exchange.upper() == "BYBIT" and updated_order.filled_quantity == Decimal('0') and updated_order.filled_price == Decimal('0'):
+                                                updated_order.filled_quantity = updated_order.quantity
+                                                updated_order.filled_price = updated_order.entry_price
+                                                await order_service.dca_order_repository.update(updated_order) # Persist these changes
+
+                                            # Flush order status and filled details update before recalculating stats
                                             await session.flush()
                                             await position_manager.update_position_stats(updated_order.group_id, session=session)
                                             await order_service.place_tp_order(updated_order)
                                             logger.info(f"Placed TP order for {updated_order.id}")
-                                            
+                                                
                                     except Exception as e:
-                                        logger.error(f"Failed to check status for order {order.id}: {e}")
+                                        logger.error(f"Error processing loop for order {order.id}: {e}")
                              finally:
                                  await connector.close()
                         

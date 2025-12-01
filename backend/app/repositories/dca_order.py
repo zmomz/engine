@@ -57,3 +57,11 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
             )
         )
         return result.scalars().all()
+
+    async def get_all_orders_by_group_id(self, group_id: str) -> List[DCAOrder]:
+        result = await self.session.execute(
+            select(self.model).where(
+                self.model.group_id == group_id
+            )
+        )
+        return result.scalars().all()

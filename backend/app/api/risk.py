@@ -33,18 +33,13 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
     if not user.encrypted_api_keys:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exchange API keys are missing.")
     
-    # Extract config for the current exchange
+    # Validate keys exist (optional but good check)
     exchange_name = user.exchange
-    if not isinstance(user.encrypted_api_keys, dict) or exchange_name not in user.encrypted_api_keys:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"API keys for {exchange_name} are not configured correctly.")
+    if not isinstance(user.encrypted_api_keys, dict):
+         # Support legacy single key format if needed or fail
+         pass 
     
-    exchange_config_data = user.encrypted_api_keys[exchange_name]
-    
-    try:
-        exchange_connector: ExchangeInterface = get_exchange_connector(user.exchange, exchange_config_data)
-    except Exception as e:
-        logger.error(f"Failed to connect to exchange: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to connect to exchange: {str(e)}")
+    # We don't need to instantiate the connector here as RiskEngineService does it dynamically per position
 
     try:
         risk_engine_config = RiskEngineConfig.model_validate(user.risk_config)
@@ -59,7 +54,6 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
         position_group_repository_class=PositionGroupRepository,
         risk_action_repository_class=RiskActionRepository,
         dca_order_repository_class=DCAOrderRepository,
-        exchange_connector=exchange_connector,
         order_service_class=OrderService,
         risk_engine_config=risk_engine_config,
         user=user

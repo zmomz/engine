@@ -22,6 +22,10 @@ class Settings(BaseModel):
         
         cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
         cors_origins = [origin.strip() for origin in cors_origins_str.split(",")]
+        
+        # Ensure localhost:3000 is always allowed for dev convenience
+        if "http://localhost:3000" not in cors_origins:
+            cors_origins.append("http://localhost:3000")
 
         # Validate required fields
         missing = []

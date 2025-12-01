@@ -108,10 +108,10 @@ def main():
             print(response.text)
             
         if response.status_code == 202:
-            print("\nSUCCESS: Signal accepted.")
+            print(f"\nstatus code: {response.status_code}.")
             return 0
         else:
-            print("\nFAILED: Signal rejected.")
+            print(f"\nFAILED: Signal rejected.\nstatus code: {response.status_code}")
             return 1
             
     except requests.exceptions.ConnectionError:

@@ -167,8 +167,7 @@ async def test_binance_live_flow(
             user=test_user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=grid_calculator_service,
-            order_service_class=OrderService,
-            exchange_connector=exchange_connector 
+            order_service_class=OrderService 
         )
         
         risk_engine_service = RiskEngineService(
@@ -176,7 +175,6 @@ async def test_binance_live_flow(
             position_group_repository_class=PositionGroupRepository,
             risk_action_repository_class=RiskActionRepository,
             dca_order_repository_class=DCAOrderRepository,
-            exchange_connector=exchange_connector,
             order_service_class=OrderService,
             risk_engine_config=risk_engine_config
         )
@@ -192,7 +190,7 @@ async def test_binance_live_flow(
         )
 
         print("[Test] Promoting signal...")
-        await queue_manager.promote_highest_priority_signal()
+        await queue_manager.promote_highest_priority_signal(session=db_session)
         
         # 4. Verify DB
         await db_session.commit()

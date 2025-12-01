@@ -444,7 +444,7 @@ async def test_promote_highest_priority_signal_logic(queue_manager_service, mock
     
     mock_session.get.return_value = user_mock
 
-    await queue_manager_service.promote_highest_priority_signal() # Call the correct method
+    await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
     
     # Assertions should check the state after promotion, not return value
     # The promoted signal will have its status updated to PROMOTED
@@ -471,7 +471,7 @@ async def test_promote_highest_priority_signal_no_signals(queue_manager_service,
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
     mock_session.get.return_value = user_mock
 
-    await queue_manager_service.promote_highest_priority_signal() # Call the correct method
+    await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
     
     mock_execution_pool_manager.request_slot.assert_not_called()
 
@@ -497,7 +497,7 @@ async def test_promote_highest_priority_signal_slot_available(queue_manager_serv
     mock_execution_pool_manager.request_slot.return_value = True
     mock_exchange_connector.get_current_price.return_value = Decimal("49000") # Simulate loss
 
-    await queue_manager_service.promote_highest_priority_signal() # Call the correct method
+    await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
 
     mock_exchange_connector.get_current_price.assert_called_once_with("BTCUSDT")
     # Update called 2 times: 1 for loss calc, 1 for promotion
@@ -537,7 +537,7 @@ async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mo
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
     mock_session.get.return_value = user_mock
 
-    await queue_manager_service.promote_highest_priority_signal() # Call the correct method
+    await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
 
     queue_manager_service.exchange_connector.get_current_price.assert_called_once_with("ETHUSDT")
     mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=False) # Removed session arg
@@ -589,7 +589,7 @@ async def test_promote_highest_priority_signal_pyramid_continuation(queue_manage
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
     mock_session.get.return_value = user_mock
 
-    await queue_manager_service.promote_highest_priority_signal() # Call the correct method
+    await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
 
     queue_manager_service.exchange_connector.get_current_price.assert_called_once_with("SOLUSDT")
     # Update called 2 times: 1 for loss calc, 1 for promotion

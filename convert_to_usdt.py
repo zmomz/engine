@@ -1,3 +1,4 @@
+import argparse
 import ccxt.async_support as ccxt
 import asyncio
 from decimal import Decimal, ROUND_DOWN
@@ -109,8 +110,9 @@ async def convert_all_to_usdt(api_key: str, secret_key: str):
             await exchange.close()
 
 if __name__ == "__main__":
-    # These should be replaced with actual keys from users.json or environment variables
-    BINANCE_TESTNET_API_KEY = "tB8ISxF1MaNEnOEZXu1GM1L8VNwYgOtDYmdmzLgclMeo4jrUwPC7NZWjQhelLoBU"
-    BINANCE_TESTNET_SECRET_KEY = "CPjmcbTrdtixNet1c9c6AztJUVTNyuLSZ2Ba9cR88WVvfrBwdEXlL2VKtuhQjw5L"
+    parser = argparse.ArgumentParser(description="Convert all non-USDT balances to USDT on Binance Testnet.")
+    parser.add_argument('--api-key', required=True, help='Binance Testnet API Key.')
+    parser.add_argument('--secret-key', required=True, help='Binance Testnet Secret Key.')
     
-    asyncio.run(convert_all_to_usdt(BINANCE_TESTNET_API_KEY, BINANCE_TESTNET_SECRET_KEY))
+    args = parser.parse_args()
+    asyncio.run(convert_all_to_usdt(args.api_key, args.secret_key))

@@ -1,28 +1,55 @@
 import ccxt.async_support as ccxt
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BybitConnector(ExchangeInterface):
     """
     Bybit exchange connector implementing ExchangeInterface.
     """
     def __init__(self, api_key: str, secret_key: str, testnet: bool = False, default_type: str = "spot", account_type: str = "UNIFIED"):
+
+        logger.info(f"BybitConnector __init__ called:")
+        logger.info(f"  - API Key: {api_key[:8]}")
+        logger.info(f"  - Secret Key: {secret_key[:8]}")
+        logger.info(f"  - Testnet: {testnet}")
+        logger.info(f"  - Default Type: {default_type}")
+        logger.info(f"  - Account Type: {account_type}")
+
+
+        options = {
+            'defaultType': default_type,
+            'accountType': account_type,
+        }
+        
+        # Add testnet option to ccxt options
+        if testnet:
+            options['testnet'] = True
+        
         self.exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': secret_key,
-            'options': {
-                'defaultType': default_type,
-                'accountType': account_type,
-            },
+            'options': options,
             'verbose': False, # Disable verbose output to reduce log noise
         })
+
+        self.exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': secret_key,
+            'options': options,
+            'verbose': False, # Disable verbose output to reduce log noise
+        })
+        self.testnet_mode = testnet
+
+        self.testnet_mode = testnet
 
         if testnet:
             self.exchange.set_sandbox_mode(True)
         
         # Log the final state of testnet/sandbox mode after ccxt initialization
-        import logging
-        logger = logging.getLogger(__name__)
+
         logger.info(f"BybitConnector initialized: testnet={testnet}, account_type={account_type}, ccxt_testnet_mode={self.exchange.options.get('testnet')}, ccxt_default_type={self.exchange.options.get('defaultType')}")
         logger.info(f"CCXT Exchange Options: {self.exchange.options}")
         logger.info(f"CCXT Exchange URLs: {self.exchange.urls}")
@@ -78,29 +105,122 @@ class BybitConnector(ExchangeInterface):
         """
         Places an order on the exchange.
         """
-        return await self.exchange.create_order(
-            symbol=symbol,
-            type=order_type,
-            side=side,
-            amount=quantity,
-            price=price
-        )
+        
+        try:
+            logger.info(f"Placing order: symbol={symbol}, type={order_type}, side={side}, quantity={quantity}, price={price}")
+            result = await self.exchange.create_order(
+                symbol=symbol,
+                type=order_type,
+                side=side,
+                amount=quantity,
+                price=price
+            )
+            logger.info(f"Order placed successfully: {result.get('id', 'unknown')}")
+            return result
+        except ccxt.ExchangeError as e:
+            # Check for error code 10005 (Invalid permissions/key) which often happens
+            # when using 'UNIFIED' account type on a 'Standard' account key.
+            is_unified = self.exchange.options.get('accountType') == 'UNIFIED'
+            error_msg = str(e)
+            
+            logger.error(f"Bybit place_order failed: {error_msg}")
+            
+            if "10005" in error_msg and is_unified:
+                logger.warning(f"Bybit place_order failed with UNIFIED account type. Retrying with CONTRACT/SPOT fallback. Error: {e}")
+                
+                # Retry with CONTRACT (Derivatives/Futures)
+                try:
+                    logger.info(f"Retrying with CONTRACT account type...")
+                    result = await self.exchange.create_order(
+                        symbol=symbol,
+                        type=order_type,
+                        side=side,
+                        amount=quantity,
+                        price=price,
+                        params={'accountType': 'CONTRACT'}
+                    )
+                    logger.info(f"Order placed successfully with CONTRACT: {result.get('id', 'unknown')}")
+                    return result
+                except Exception as e2:
+                    logger.warning(f"Bybit fallback to CONTRACT failed. Retrying with SPOT. Error: {e2}")
+                    # Retry with SPOT
+                    result = await self.exchange.create_order(
+                        symbol=symbol,
+                        type=order_type,
+                        side=side,
+                        amount=quantity,
+                        price=price,
+                        params={'accountType': 'SPOT'}
+                    )
+                    logger.info(f"Order placed successfully with SPOT: {result.get('id', 'unknown')}")
+                    return result
+            else:
+                raise e
 
     @map_exchange_errors
     async def get_order_status(self, order_id: str, symbol: str = None):
         """
         Fetches the status of a specific order by its ID.
         Returns the full order dictionary.
+        Includes retry logic for Bybit conditional orders and checks closed trades for quickly filled orders.
         """
-        order = await self.exchange.fetch_order(order_id, symbol)
-        return order
+        try:
+            order = await self.exchange.fetch_order(order_id, symbol)
+            return order
+        except ccxt.OrderNotFound as e:
+            logger.warning(f"Order {order_id} not found via fetch_order, retrying with params={{'trigger': True}} for Bybit. Original error: {e}")
+            try:
+                order = await self.exchange.fetch_order(order_id, symbol, params={'trigger': True})
+                return order
+            except Exception as retry_e:
+                logger.warning(f"Retry with trigger param for order {order_id} also failed: {retry_e}")
+                
+                # If still not found, check recent trades for the order ID
+                logger.info(f"Attempting to find order {order_id} in recent trades for {symbol}...")
+                try:
+                    trades = await self.exchange.fetch_my_trades(symbol=symbol, limit=50)
+                    for trade in trades:
+                        # CCXT often links trades to their originating order ID
+                        if trade.get('order') == order_id or trade.get('info').get('orderId') == order_id: # Bybit uses 'orderId' in info
+                            logger.info(f"Order {order_id} found in recent trades. Status: {trade.get('status', 'filled')}")
+                            # Reconstruct a basic order structure from trade info
+                            # This is a heuristic to get enough info for update_order_status to proceed
+                            return {
+                                'id': order_id,
+                                'symbol': symbol,
+                                'status': 'closed', # Assuming if found in trades, it was filled/closed
+                                'filled': trade.get('amount', 0), # Amount of the trade
+                                'average': trade.get('price', 0) # Price of the trade
+                            }
+                    logger.warning(f"Order {order_id} not found in recent trades either.")
+                    
+                    # Fallback to fetch_orders (all orders) and filter
+                    logger.info(f"Attempting to find order {order_id} via fetch_orders for {symbol}...")
+                    all_orders = await self.exchange.fetch_orders(symbol=symbol, limit=50) # Fetch recent orders
+                    for o in all_orders:
+                        if o.get('id') == order_id or o.get('clientOrderId') == order_id or o.get('info', {}).get('orderId') == order_id:
+                            logger.info(f"Order {order_id} found via fetch_orders. Status: {o.get('status', 'unknown')}")
+                            return o # Return the full order object
+                    logger.warning(f"Order {order_id} not found via fetch_orders either.")
+                    raise retry_e # If not found, re-raise the last exception
+                except Exception as trade_e:
+                    logger.error(f"Failed to fetch recent trades/orders for order {order_id}: {trade_e}")
+                    raise retry_e # Re-raise original error
 
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):
         """
         Cancels an existing order by its ID.
         """
-        return await self.exchange.cancel_order(order_id, symbol)
+        try:
+            return await self.exchange.cancel_order(order_id, symbol)
+        except ccxt.OrderNotFound as e:
+            logger.warning(f"Order {order_id} not found during cancellation, retrying with params={{'trigger': True}} for Bybit. Original error: {e}")
+            try:
+                return await self.exchange.cancel_order(order_id, symbol, params={'trigger': True})
+            except Exception as retry_e:
+                logger.error(f"Retry for conditional order cancellation {order_id} also failed: {retry_e}")
+                raise retry_e
 
     @map_exchange_errors
     async def get_current_price(self, symbol: str) -> float:
@@ -127,6 +247,24 @@ class BybitConnector(ExchangeInterface):
                 raise e
         
         return balance['total']
+
+    @map_exchange_errors
+    async def fetch_free_balance(self):
+        """
+        Fetches the free (available) balance for all assets.
+        """
+        try:
+            balance = await self.exchange.fetch_balance(params={'accountType': 'UNIFIED'})
+        except ccxt.ExchangeError as e:
+            # Handle Bybit Classic Account (non-Unified) attempting to access Unified endpoints
+            if "accountType only support UNIFIED" in str(e):
+                # Retry with CONTRACT account type (for Classic Futures)
+                # Note: 'CONTRACT' is used for Derivatives Account in V5
+                balance = await self.exchange.fetch_balance(params={'accountType': 'CONTRACT'})
+            else:
+                raise e
+        
+        return balance['free']
 
     async def close(self):
         """

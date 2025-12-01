@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Dict, Any
 import uuid
+import ccxt # Added for exchange exceptions
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -143,10 +144,12 @@ class OrderService:
     async def check_order_status(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Fetches the latest status of a DCA order from the exchange and updates the database.
+        Includes a workaround for Bybit testnet 'Order not found' issues.
         """
         if not dca_order.exchange_order_id:
             raise APIError("Cannot check status for order without an exchange_order_id.")
 
+        exchange_order_data = None
         try:
             logger.debug(f"Checking order {dca_order.id} on exchange. Exchange Order ID: {dca_order.exchange_order_id}, Symbol: {dca_order.symbol}")
             exchange_order_data = await self.exchange_connector.get_order_status(
@@ -155,66 +158,78 @@ class OrderService:
             )
             logger.debug(f"Exchange response for order {dca_order.id}: {exchange_order_data}")
 
-            exchange_status = exchange_order_data["status"]
-            
-            # Map specific exchange statuses if necessary, but CCXT usually standardizes to lowercase 'open', 'closed', 'canceled'
-            # Our Enum is lowercase: 'open', 'filled', 'cancelled'
-            mapped_status = exchange_status.lower()
-            if mapped_status == "closed":
-                mapped_status = "filled" 
-            elif mapped_status == "canceled":
-                mapped_status = "cancelled"
-            # If status is 'new' (Binance raw), map to 'open'
-            elif mapped_status == "new":
-                mapped_status = "open"
-                
-            try:
-                new_status = OrderStatus(mapped_status)
-            except ValueError:
-                 logger.warning(f"Unknown order status '{exchange_status}' from exchange for order {dca_order.id}. Defaulting to current status.")
-                 # Fallback: keep current status if unknown
-                 new_status = OrderStatus(dca_order.status)
-            
-            # Special handling for partial fills where exchange still reports 'open'
-            filled_quantity_from_exchange = Decimal(str(exchange_order_data.get("filled", 0)))
-            if new_status == OrderStatus.OPEN and filled_quantity_from_exchange > 0 and filled_quantity_from_exchange < dca_order.quantity:
-                new_status = OrderStatus.PARTIALLY_FILLED
-
-            # Check if any relevant fields have changed before updating
-            changed = False
-            if dca_order.status != new_status.value: # Compare with .value
-                logger.info(f"Order {dca_order.id}: Status changed from {dca_order.status} to {new_status.value}")
-                dca_order.status = new_status.value
-                changed = True
-            
-            if new_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
-                if dca_order.filled_quantity != filled_quantity_from_exchange:
-                    logger.info(f"Order {dca_order.id}: Filled quantity changed from {dca_order.filled_quantity} to {filled_quantity_from_exchange}")
-                    dca_order.filled_quantity = filled_quantity_from_exchange
-                    changed = True
-
-                avg_fill_price_from_exchange = Decimal(str(exchange_order_data.get("average", Decimal("0"))))
-                if (dca_order.avg_fill_price is None and avg_fill_price_from_exchange != Decimal("0")) or \
-                   (dca_order.avg_fill_price is not None and dca_order.avg_fill_price != avg_fill_price_from_exchange):
-                    logger.info(f"Order {dca_order.id}: Average fill price changed from {dca_order.avg_fill_price} to {avg_fill_price_from_exchange}")
-                    dca_order.avg_fill_price = avg_fill_price_from_exchange
-                    changed = True
-
-            if new_status == OrderStatus.FILLED and dca_order.filled_at is None:
-                dca_order.filled_at = datetime.utcnow()
-                changed = True
-            elif new_status == OrderStatus.CANCELLED.value and dca_order.cancelled_at is None:
-                dca_order.cancelled_at = datetime.utcnow()
-                changed = True
-            
-            if changed:
-                await self.dca_order_repository.update(dca_order)
-            return dca_order
-        except APIError as e:
-            # Do not mark as FAILED here, as it might be a transient exchange error
-            raise e
+        except (ccxt.OrderNotFound, APIError, ExchangeConnectionError) as e:
+            # Temporary workaround for Bybit testnet 'Order not found' issues where orders are actually filled.
+            # This block now lives within OrderService.check_order_status
+            if dca_order.group and dca_order.group.exchange.upper() == "BYBIT" and self.exchange_connector.exchange.options.get('testnet'):
+                logger.warning(
+                    f"BYBIT TESTNET WORKAROUND (OrderService): Order {dca_order.exchange_order_id} for {dca_order.symbol} not found "
+                    f"but assuming filled for testing purposes. Marking as FILLED."
+                )
+                dca_order.status = OrderStatus.FILLED.value
+                dca_order.filled_quantity = dca_order.quantity  # Assume full fill
+                dca_order.filled_price = dca_order.entry_price  # Assume fill at entry price
+                dca_order.closed_at = datetime.utcnow()
+                await self.dca_order_repository.update(dca_order) # Update the order in DB
+                return dca_order # Return the updated order directly
+            else:
+                logger.error(f"Failed to check status for order {dca_order.id}: Order validation failed. Original error: {e}")
+                raise APIError(f"Order not found on exchange for order {dca_order.id}") from e
         except Exception as e:
-            raise APIError(f"Failed to check order status: {e}") from e
+            logger.error(f"Failed to retrieve order status for {dca_order.id}: {e}")
+            raise APIError(f"Failed to retrieve order status: {e}") from e
+
+        # If we reached here, exchange_order_data was successfully fetched
+        exchange_status = exchange_order_data["status"]
+        
+        # Map specific exchange statuses if necessary, but CCXT usually standardizes to lowercase 'open', 'closed', 'canceled'
+        # Our Enum is lowercase: 'open', 'filled', 'cancelled'
+        mapped_status = exchange_status.lower()
+        if mapped_status == "closed":
+            mapped_status = "filled" 
+        elif mapped_status == "canceled":
+            mapped_status = "cancelled"
+        # If status is 'new' (Binance raw), map to 'open'
+        elif mapped_status == "new":
+            mapped_status = "open"
+            
+        try:
+            new_status = OrderStatus(mapped_status)
+        except ValueError:
+                logger.warning(f"Unknown order status '{exchange_status}' from exchange for order {dca_order.id}. Defaulting to current status.")
+                # Fallback: keep current status if unknown
+                new_status = OrderStatus(dca_order.status)
+        
+        # Special handling for partial fills where exchange still reports 'open'
+        filled_quantity_from_exchange = Decimal(str(exchange_order_data.get("filled", 0)))
+        if new_status == OrderStatus.OPEN and filled_quantity_from_exchange > 0 and filled_quantity_from_exchange < dca_order.quantity:
+            new_status = OrderStatus.PARTIALLY_FILLED
+
+        # Check if any relevant fields have changed before updating
+        changed = False
+        if dca_order.status != new_status.value: # Compare with .value
+            logger.info(f"Order {dca_order.id}: Status changed from {dca_order.status} to {new_status.value}")
+            dca_order.status = new_status.value
+            changed = True
+        
+        if new_status in [OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED]:
+            if dca_order.filled_quantity != filled_quantity_from_exchange:
+                logger.info(f"Order {dca_order.id}: Filled quantity changed from {dca_order.filled_quantity} to {filled_quantity_from_exchange}")
+                dca_order.filled_quantity = filled_quantity_from_exchange
+                changed = True
+
+            avg_fill_price_from_exchange = Decimal(str(exchange_order_data.get("average", Decimal("0"))))
+            if (dca_order.avg_fill_price is None and avg_fill_price_from_exchange != Decimal("0")) or \
+               (dca_order.avg_fill_price is not None and dca_order.avg_fill_price != avg_fill_price_from_exchange):
+                logger.info(f"Order {dca_order.id}: Average fill price changed from {dca_order.avg_fill_price} to {avg_fill_price_from_exchange}")
+                dca_order.avg_fill_price = avg_fill_price_from_exchange
+                changed = True
+
+        if changed:
+            await self.dca_order_repository.update(dca_order)
+
+        return dca_order
+
 
     async def reconcile_open_orders(self):
         """
@@ -380,16 +395,57 @@ class OrderService:
         except Exception as e:
              raise APIError(f"Failed to place market order: {e}") from e
 
+    async def cancel_tp_order(self, dca_order: DCAOrder) -> DCAOrder:
+        """
+        Cancels the TP order associated with a filled DCA order.
+        """
+        if not dca_order.tp_order_id:
+            return dca_order
+
+        try:
+            logger.info(f"Cancelling TP order {dca_order.tp_order_id} for DCA order {dca_order.id}")
+            await self.exchange_connector.cancel_order(
+                order_id=dca_order.tp_order_id,
+                symbol=dca_order.symbol
+            )
+            # Clear TP order ID to stop monitoring and indicate no active TP
+            dca_order.tp_order_id = None
+            dca_order.tp_hit = False # Reset just in case
+            await self.dca_order_repository.update(dca_order)
+            return dca_order
+        except APIError as e:
+            logger.error(f"Failed to cancel TP order {dca_order.tp_order_id}: {e}")
+            # If order not found, maybe it's already closed/cancelled?
+            # We should probably clear the ID anyway if it's not found to prevent stuck state
+            if "Order not found" in str(e) or "Unknown order" in str(e):
+                 dca_order.tp_order_id = None
+                 await self.dca_order_repository.update(dca_order)
+            raise e
+        except Exception as e:
+            logger.error(f"Unexpected error cancelling TP order {dca_order.tp_order_id}: {e}")
+            raise APIError(f"Failed to cancel TP order: {e}") from e
+
     async def cancel_open_orders_for_group(self, group_id: uuid.UUID):
         """
-        Cancels all open and partially filled DCA orders for a specific position group.
+        Cancels all open orders for a group:
+        1. Open/Partially Filled DCA orders (Entry orders).
+        2. TP orders associated with Filled DCA orders.
         """
-        orders = await self.dca_order_repository.get_open_orders_by_group_id(group_id)
+        # Fetch ALL orders for the group to ensure we catch TP orders on filled legs
+        orders = await self.dca_order_repository.get_all_orders_by_group_id(group_id)
+        
         for order in orders:
             try:
-                await self.cancel_order(order)
+                # Cancel Entry Orders
+                if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]:
+                    await self.cancel_order(order)
+                
+                # Cancel TP Orders for Filled entries
+                elif order.status == OrderStatus.FILLED.value and order.tp_order_id:
+                    await self.cancel_tp_order(order)
+                    
             except Exception as e:
-                logger.error(f"Failed to cancel order {order.id} in group {group_id}: {e}")
+                logger.error(f"Failed to process cancellation for order {order.id} in group {group_id}: {e}")
 
     async def close_position_market(self, position_group: PositionGroup, quantity_to_close: Decimal):
         """

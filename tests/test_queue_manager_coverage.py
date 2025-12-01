@@ -99,7 +99,7 @@ async def test_promote_signal_execution_new_position(sample_user, mock_async_ses
     )
     
     # Execute
-    await service.promote_highest_priority_signal()
+    await service.promote_highest_priority_signal(session=mock_async_session)
     
     # Verify
     assert signal.status == QueueStatus.PROMOTED
@@ -164,7 +164,7 @@ async def test_promote_signal_execution_pyramid(sample_user, mock_async_session,
     )
     
     # Execute
-    await service.promote_highest_priority_signal()
+    await service.promote_highest_priority_signal(session=mock_async_session)
     
     # Verify
     assert signal.status == QueueStatus.PROMOTED
@@ -214,7 +214,7 @@ async def test_promote_signal_price_fetch_failure(sample_user, mock_async_sessio
     )
     
     # Execute
-    await service.promote_highest_priority_signal()
+    await service.promote_highest_priority_signal(session=mock_async_session)
     
     # Should handle exception gracefully and attempt promotion logic (which fails due to slot)
     connector.get_current_price.assert_called_once()
@@ -263,7 +263,7 @@ async def test_promote_signal_execution_exception(sample_user, mock_async_sessio
     )
     
     # Execute
-    await service.promote_highest_priority_signal()
+    await service.promote_highest_priority_signal(session=mock_async_session)
     
     # Should catch exception and log error
     pos_manager.create_position_group_from_signal.assert_called_once()

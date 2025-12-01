@@ -1,0 +1,65 @@
+[
+  {
+    "id": "e7d6ae10-2a7d-4383-90d3-461c986e1e71",
+    "username": "zmomz",
+    "email": "zmomz@gmail.com",
+    "webhook_secret":"1b6d3edada59826e786088a2161d70b6",
+    
+    "is_active": true,
+    "is_superuser": false,
+    "exchange": "binance",
+    "configured_exchanges": [
+      "bybit",
+      "binance"
+    ],
+    "risk_config": {
+      "max_open_positions_global": 2,
+      "max_open_positions_per_symbol": 1,
+      "max_total_exposure_usd": 1000.0,
+      "max_daily_loss_usd": 500.0,
+      "loss_threshold_percent": 0.0,
+      "timer_start_condition": "after_all_dca_filled",
+      "post_full_wait_minutes": 0,
+      "max_winners_to_combine": 3,
+      "use_trade_age_filter": false,
+      "age_threshold_minutes": 120,
+      "require_full_pyramids": true,
+      "reset_timer_on_replacement": false,
+      "partial_close_enabled": true,
+      "min_close_notional": 10.0
+    },
+    "dca_grid_config": {
+      "levels": [
+
+        {
+        
+        
+          "gap_percent": 1.0,
+          "weight_percent": 25.0,
+        
+          "tp_percent": 1.0
+        },
+        {
+          "gap_percent": 2.0,
+          "weight_percent": 25.0,
+          "tp_percent": 1.0
+        },
+        {
+          "gap_percent": 3.0,
+          "weight_percent": 25.0,
+          "tp_percent": 2.0
+        },
+        {
+          "gap_percent": 4.0,
+          "weight_percent": 25.0,
+          "tp_percent": 2.0
+        }
+      ],
+      "tp_mode": "per_leg",
+      "tp_aggregate_percent": 0.0
+    },
+    "created_at": "2025-11-29T02:13:09.535760",
+    "updated_at": "2025-11-30T12:35:22.367634",
+    "webhook_secret_set": true
+  }
+]

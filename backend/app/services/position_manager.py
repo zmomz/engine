@@ -38,15 +38,34 @@ class PositionManagerService:
         position_group_repository_class: type[PositionGroupRepository],
         grid_calculator_service: GridCalculatorService,
         order_service_class: type[OrderService],
-        exchange_connector: ExchangeInterface
+
     ):
         self.session_factory = session_factory
         self.user = user
         self.position_group_repository_class = position_group_repository_class
         self.grid_calculator_service = grid_calculator_service
         self.order_service_class = order_service_class
-        self.exchange_connector = exchange_connector
+
         self.order_service = None
+
+    def _get_exchange_connector_for_user(self, user: User, exchange_name: str) -> ExchangeInterface:
+        encrypted_data = user.encrypted_api_keys
+        exchange_key = exchange_name.lower()
+
+        if isinstance(encrypted_data, dict):
+            if exchange_key in encrypted_data:
+                exchange_config = encrypted_data[exchange_key]
+            elif "encrypted_data" in encrypted_data and len(encrypted_data) == 1: # Old single-key format might be directly in 'encrypted_data'
+                 exchange_config = encrypted_data # This means the dict itself contains the old single key. Likely needs adjustment.
+            else:
+                raise ValueError(f"No API keys found for exchange {exchange_name} (normalized: {exchange_key}). Available: {list(encrypted_data.keys()) if encrypted_data else 'None'}")
+        elif isinstance(encrypted_data, str):
+            # Handle legacy single-key encryption where encrypted_api_keys was a string
+            exchange_config = {"encrypted_data": encrypted_data}
+        else:
+            raise ValueError("Invalid format for encrypted_api_keys. Expected dict or str.")
+
+        return get_exchange_connector(exchange_name, exchange_config)
 
     async def create_position_group_from_signal(
         self,
@@ -65,34 +84,25 @@ class PositionManagerService:
             logger.debug("User not found")
             raise UserNotFoundException(f"User {user_id} not found")
 
-        if self.exchange_connector:
-            exchange_connector = self.exchange_connector
-        else:
-            # Decrypt API keys to instantiate exchange connector
-            encryption_service = EncryptionService() 
-            
-            # Handle multi-exchange keys
-            encrypted_data = user.encrypted_api_keys
-            if isinstance(encrypted_data, dict):
-                 if signal.exchange in encrypted_data:
-                     encrypted_data = encrypted_data[signal.exchange]
-                 elif "encrypted_data" not in encrypted_data:
-                     raise ValueError(f"No API keys found for exchange {signal.exchange}")
+        # Dynamically get exchange connector
+        exchange_name = signal.exchange.lower()
+        encrypted_data = user.encrypted_api_keys
+        exchange_config = {}
 
-            # Extract settings from stored config
-            testnet = encrypted_data.get("testnet", False) if isinstance(encrypted_data, dict) else False
-            account_type = encrypted_data.get("account_type", "UNIFIED") if isinstance(encrypted_data, dict) else "UNIFIED"
-            default_type = encrypted_data.get("default_type", "spot") if isinstance(encrypted_data, dict) else "spot"
-            
-            exchange_config = {
-                "encrypted_data": encrypted_data if not isinstance(encrypted_data, dict) else encrypted_data.get("encrypted_data", encrypted_data),
-                "testnet": testnet,
-                "account_type": account_type,
-                "default_type": default_type
-            }
-            exchange_connector = get_exchange_connector(signal.exchange, exchange_config)
-        
-        logger.debug(f"Got exchange connector: {exchange_connector}")
+        if isinstance(encrypted_data, dict):
+            if exchange_name in encrypted_data:
+                exchange_config = encrypted_data[exchange_name]
+            elif "encrypted_data" in encrypted_data and len(encrypted_data) == 1: # Fallback for old single-key setup
+                 exchange_config = encrypted_data
+            else:
+                raise ValueError(f"No API keys found for exchange {exchange_name} (normalized: {exchange_name}). Available: {list(encrypted_data.keys()) if encrypted_data else 'None'}")
+        elif isinstance(encrypted_data, str):
+            exchange_config = {"encrypted_data": encrypted_data}
+        else:
+            raise ValueError("Invalid format for encrypted_api_keys")
+
+        exchange_connector = get_exchange_connector(signal.exchange, exchange_config)
+        logger.debug(f"Got exchange connector: {exchange_connector.__class__.__name__}. Config: {{k: v for k, v in exchange_config.items() if k != 'encrypted_data'}}")
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()
@@ -199,7 +209,7 @@ class PositionManagerService:
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
         
         await self.update_risk_timer(new_position_group.id, risk_config, session=session)
-        await self.update_position_stats(new_position_group.id, exchange_connector=exchange_connector, session=session)
+        await self.update_position_stats(new_position_group.id, session=session)
 
         return new_position_group
 
@@ -218,32 +228,8 @@ class PositionManagerService:
         if not user:
             raise UserNotFoundException(f"User {user_id} not found")
 
-        if self.exchange_connector:
-            exchange_connector = self.exchange_connector
-        else:
-            # Decrypt API keys
-            encryption_service = EncryptionService() 
-            
-            # Handle multi-exchange keys
-            encrypted_data = user.encrypted_api_keys
-            if isinstance(encrypted_data, dict):
-                 if signal.exchange in encrypted_data:
-                     encrypted_data = encrypted_data[signal.exchange]
-                 elif "encrypted_data" not in encrypted_data:
-                     raise ValueError(f"No API keys found for exchange {signal.exchange}")
-
-            # Extract settings from stored config
-            testnet = encrypted_data.get("testnet", False) if isinstance(encrypted_data, dict) else False
-            account_type = encrypted_data.get("account_type", "UNIFIED") if isinstance(encrypted_data, dict) else "UNIFIED"
-            default_type = encrypted_data.get("default_type", "spot") if isinstance(encrypted_data, dict) else "spot"
-            
-            exchange_config = {
-                "encrypted_data": encrypted_data if not isinstance(encrypted_data, dict) else encrypted_data.get("encrypted_data", encrypted_data),
-                "testnet": testnet,
-                "account_type": account_type,
-                "default_type": default_type
-            }
-            exchange_connector = get_exchange_connector(signal.exchange, exchange_config)
+        # Dynamically get exchange connector
+        exchange_connector = self._get_exchange_connector_for_user(user, signal.exchange)
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()
@@ -319,7 +305,7 @@ class PositionManagerService:
         logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
         
         await self.update_risk_timer(existing_position_group.id, risk_config, session=session)
-        await self.update_position_stats(existing_position_group.id, exchange_connector=exchange_connector, session=session)
+        await self.update_position_stats(existing_position_group.id, session=session)
         
         return existing_position_group
 
@@ -338,7 +324,8 @@ class PositionManagerService:
                 logger.error(f"PositionGroup {position_group_id} not found for exit signal.")
                 return
 
-            order_service = self.order_service_class(session=session, user=self.user, exchange_connector=self.exchange_connector)
+            exchange_connector = self._get_exchange_connector_for_user(self.user, position_group.exchange)
+            order_service = self.order_service_class(session=session, user=self.user, exchange_connector=exchange_connector)
 
             # 1. Cancel open orders
             await order_service.cancel_open_orders_for_group(position_group.id)
@@ -353,17 +340,74 @@ class PositionManagerService:
 
             if total_filled_quantity > 0:
                 # 3. Close the position
-                await order_service.close_position_market(
-                    position_group=position_group,
-                    quantity_to_close=total_filled_quantity
-                )
-                logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
+                try:
+                    await order_service.close_position_market(
+                        position_group=position_group,
+                        quantity_to_close=total_filled_quantity
+                    )
+                    logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
+                except Exception as e:
+                    logger.error(f"DEBUG: Caught exception in handle_exit_signal: {type(e)} - {e}")
+                    error_msg = str(e).lower()
+                    if "insufficient" in error_msg:
+                        logger.warning(f"Insufficient funds to close {total_filled_quantity} for Group {position_group.id}. Attempting to close max available balance.")
+                        
+                        try:
+                            # Heuristic to find base currency (remove Quote currency)
+                            symbol = position_group.symbol
+                            base_currency = symbol
+                            for quote in ["USDT", "USDC", "BUSD", "USD", "EUR", "DAI"]:
+                                if symbol.endswith(quote):
+                                    base_currency = symbol[:-len(quote)]
+                                    break
+                            
+                            # Fetch balance
+                            balance_data = await exchange_connector.fetch_free_balance()
+                            # balance_data is {'total': {...}, 'free': {...}, ...} or just flat {'BTC': ...} depending on connector
+                            # Our connectors return balance['total'] currently?
+                            # BinanceConnector: returns balance['total'].
+                            # BybitConnector: returns balance['total'].
+                            # Wait, 'total' includes locked funds. We need 'free'.
+                            # Connectors usually return the 'total' dict from CCXT which is {'currency': total_amount}.
+                            # But CCXT fetch_balance returns {'total': {...}, 'free': {...}, 'used': {...}}
+                            # Our connector implementation:
+                            # Binance: return balance['total']
+                            # This is WRONG if we want to know what we can trade. We need 'free'.
+                            
+                            # Let's inspect what fetch_balance returns in the connector.
+                            # BinanceConnector: return balance['total'] -> This is just the total balances.
+                            # If we want tradeable balance, we need 'free'.
+                            
+                            # I cannot change connector right now easily without affecting others? 
+                            # But 'total' balance might be what I have. If no orders are open (we cancelled them), then total == free.
+                            # We cancelled open orders in step 1. So locked balance should be 0.
+                            # So 'total' balance should be available.
+                            
+                            available_balance = Decimal(str(balance_data.get(base_currency, 0)))
+                            
+                            if available_balance > 0:
+                                logger.info(f"Retrying close with available balance: {available_balance} {base_currency}")
+                                await order_service.close_position_market(
+                                    position_group=position_group,
+                                    quantity_to_close=available_balance
+                                )
+                                # Update filled quantity to reflect actual closed amount? 
+                                # The position group status will be CLOSED anyway.
+                            else:
+                                logger.error(f"No balance found for {base_currency}. Cannot retry close.")
+                                raise e
+                        except Exception as retry_e:
+                            logger.info(f"DEBUG: Free Balance Data: {balance_data}")
+                            logger.error(f"Retry close failed: {retry_e}")
+                            raise e # Raise original or retry error
+                    else:
+                        raise e
             else:
                 logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
 
             position_group.status = PositionGroupStatus.CLOSED
             
-            current_price = await self.exchange_connector.get_current_price(position_group.symbol)
+            current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
             
             exit_value = total_filled_quantity * current_price
             cost_basis = position_group.total_invested_usd
@@ -420,18 +464,18 @@ class PositionManagerService:
             logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
-    async def update_position_stats(self, group_id: uuid.UUID, exchange_connector: ExchangeInterface, session: AsyncSession = None):
+    async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None):
         """
         Recalculates total filled quantity and weighted average entry price for a position group.
         """
         if session:
-            await self._execute_update_position_stats(session, group_id, exchange_connector)
+            await self._execute_update_position_stats(session, group_id)
         else:
             async with self.session_factory() as new_session:
-                await self._execute_update_position_stats(new_session, group_id, exchange_connector)
+                await self._execute_update_position_stats(new_session, group_id)
                 await new_session.commit() # Commit here when a new session is created
 
-    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID, exchange_connector: ExchangeInterface):
+    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID):
         position_group_repo = self.position_group_repository_class(session)
         position_group = await position_group_repo.get(group_id)
         if not position_group:
@@ -536,90 +580,99 @@ class PositionManagerService:
         position_group.total_filled_quantity = current_qty
         position_group.realized_pnl_usd = total_realized_pnl
         
-        # Calculate Unrealized PnL
-        current_price = await exchange_connector.get_current_price(position_group.symbol)
+        # Calculate Unrealized PnL - need to get exchange connector here
+        # Get user from session to create exchange connector
+        user = await session.get(User, position_group.user_id)
+        if not user:
+            logger.error(f"User {position_group.user_id} not found for position stats update.")
+            return
         
-        if current_qty > 0 and current_avg_price > 0:
-            if position_group.side.lower() == "long":
-                position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty
-            else:
-                position_group.unrealized_pnl_usd = (current_avg_price - current_price) * current_qty
+        exchange_connector = self._get_exchange_connector_for_user(user, position_group.exchange)
+        
+        try:
+            current_price = await exchange_connector.get_current_price(position_group.symbol)
+            current_price = Decimal(str(current_price)) # Cast to Decimal
             
-            # ROI % based on current invested capital
-            if position_group.total_invested_usd > 0:
-                position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100")
-            else:
-                 position_group.unrealized_pnl_percent = Decimal("0")
-        else:
-            position_group.unrealized_pnl_usd = Decimal("0")
-            position_group.unrealized_pnl_percent = Decimal("0")
-
-        # Update Legs Count
-        # Count only ENTRY legs that are filled to track grid progress
-        filled_entry_legs = sum(1 for o in filled_orders if o.side.lower() == position_group.side.lower())
-        position_group.filled_dca_legs = filled_entry_legs
-
-        # Status Transition Logic
-        if position_group.status in [PositionGroupStatus.LIVE, PositionGroupStatus.PARTIALLY_FILLED]:
-             if filled_entry_legs >= position_group.total_dca_legs:
-                 position_group.status = PositionGroupStatus.ACTIVE
-                 logger.info(f"PositionGroup {group_id} transitioned to ACTIVE")
-             elif filled_entry_legs > 0:
-                 position_group.status = PositionGroupStatus.PARTIALLY_FILLED
-        
-        # Auto-close check
-        if current_qty <= 0 and len(filled_orders) > 0 and position_group.status not in [PositionGroupStatus.CLOSED, PositionGroupStatus.CLOSING]:
-             position_group.status = PositionGroupStatus.CLOSED
-             position_group.closed_at = datetime.utcnow()
-             logger.info(f"PositionGroup {group_id} auto-closed. Realized PnL: {total_realized_pnl}")
-        
-        await position_group_repo.update(position_group)
-
-        # --- 4. Aggregate/Hybrid TP Execution Logic ---
-        # Only if we are holding a position and not already closing
-        if current_qty > 0 and position_group.status not in [PositionGroupStatus.CLOSING, PositionGroupStatus.CLOSED]:
-            should_execute_tp = False
-            
-            if position_group.tp_mode in ["aggregate", "hybrid"] and position_group.tp_aggregate_percent > 0:
-                aggregate_tp_price = Decimal("0")
+            if current_qty > 0 and current_avg_price > 0:
                 if position_group.side.lower() == "long":
-                    aggregate_tp_price = current_avg_price * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
-                    if current_price >= aggregate_tp_price:
-                        should_execute_tp = True
-                else: # Short
-                    aggregate_tp_price = current_avg_price * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
-                    if current_price <= aggregate_tp_price:
-                        should_execute_tp = True
+                    position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty
+                else:
+                    position_group.unrealized_pnl_usd = (current_avg_price - current_price) * current_qty
                 
-                if should_execute_tp:
-                    logger.info(f"Aggregate TP Triggered for Group {group_id} at {current_price} (Target: {aggregate_tp_price})")
-                    
-                    # Instantiate OrderService
-                    order_service = self.order_service_class(
-                        session=session,
-                        user=self.user,
-                        exchange_connector=exchange_connector
-                    )
-                    
-                    # 1. Cancel all open orders (remove Limit TPs)
-                    await order_service.cancel_open_orders_for_group(group_id)
-                    
-                    # 2. Execute Market Close for remaining quantity
-                    close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
-                    await order_service.place_market_order(
-                        user_id=self.user.id,
-                        exchange=position_group.exchange,
-                        symbol=position_group.symbol,
-                        side=close_side,
-                        quantity=current_qty,
-                        position_group_id=group_id,
-                        record_in_db=True
-                    )
-                    
-                    # Mark group as CLOSING
-                    position_group.status = PositionGroupStatus.CLOSING
-                    await position_group_repo.update(position_group)
-                    
-                    logger.info(f"Executed Aggregate TP Market Close for Group {group_id}")
+                # ROI % based on current invested capital
+                if position_group.total_invested_usd > 0:
+                    position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100")
+                else:
+                    position_group.unrealized_pnl_percent = Decimal("0")
+            else:
+                position_group.unrealized_pnl_usd = Decimal("0")
+                position_group.unrealized_pnl_percent = Decimal("0")
 
-        pass
+            # Update Legs Count
+            # Count only ENTRY legs that are filled to track grid progress
+            filled_entry_legs = sum(1 for o in filled_orders if o.side.lower() == position_group.side.lower())
+            position_group.filled_dca_legs = filled_entry_legs
+
+            # Status Transition Logic
+            if position_group.status in [PositionGroupStatus.LIVE, PositionGroupStatus.PARTIALLY_FILLED]:
+                if filled_entry_legs >= position_group.total_dca_legs:
+                    position_group.status = PositionGroupStatus.ACTIVE
+                    logger.info(f"PositionGroup {group_id} transitioned to ACTIVE")
+                elif filled_entry_legs > 0:
+                    position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+            
+            # Auto-close check
+            if current_qty <= 0 and len(filled_orders) > 0 and position_group.status not in [PositionGroupStatus.CLOSED, PositionGroupStatus.CLOSING]:
+                position_group.status = PositionGroupStatus.CLOSED
+                position_group.closed_at = datetime.utcnow()
+            await position_group_repo.update(position_group)
+
+            # --- 4. Aggregate/Hybrid TP Execution Logic ---
+            # Only if we are holding a position and not already closing
+            if current_qty > 0 and position_group.status not in [PositionGroupStatus.CLOSING, PositionGroupStatus.CLOSED]:
+                should_execute_tp = False
+                
+                if position_group.tp_mode in ["aggregate", "hybrid"] and position_group.tp_aggregate_percent > 0:
+                    aggregate_tp_price = Decimal("0")
+                    if position_group.side.lower() == "long":
+                        aggregate_tp_price = current_avg_price * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
+                        if current_price >= aggregate_tp_price:
+                            should_execute_tp = True
+                    else: # Short
+                        aggregate_tp_price = current_avg_price * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
+                        if current_price <= aggregate_tp_price:
+                            should_execute_tp = True
+                    
+                    if should_execute_tp:
+                        logger.info(f"Aggregate TP Triggered for Group {group_id} at {current_price} (Target: {aggregate_tp_price})")
+                        
+                        # Instantiate OrderService
+                        order_service = self.order_service_class(
+                            session=session,
+                            user=user,
+                            exchange_connector=exchange_connector
+                        )
+                        
+                        # 1. Cancel all open orders (remove Limit TPs)
+                        await order_service.cancel_open_orders_for_group(group_id)
+                        
+                        # 2. Execute Market Close for remaining quantity
+                        close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                        await order_service.place_market_order(
+                            user_id=user.id,
+                            exchange=position_group.exchange,
+                            symbol=position_group.symbol,
+                            side=close_side,
+                            quantity=current_qty,
+                            position_group_id=group_id,
+                            record_in_db=True
+                        )
+                        
+                        # Mark group as CLOSING
+                        position_group.status = PositionGroupStatus.CLOSING
+                        await position_group_repo.update(position_group)
+                        
+                        logger.info(f"Executed Aggregate TP Market Close for Group {group_id}")
+        finally:
+            # Always close the exchange connector
+            await exchange_connector.close()
