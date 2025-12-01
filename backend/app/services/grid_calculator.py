@@ -1,6 +1,9 @@
+import logging
 from decimal import Decimal, ROUND_DOWN
 from typing import List, Dict, Literal
 from app.schemas.grid_config import DCAGridConfig
+
+logger = logging.getLogger(__name__)
 
 class ValidationError(Exception):
     """Custom exception for validation errors."""
@@ -102,33 +105,55 @@ class GridCalculatorService:
         """
         Calculate order quantity for each DCA level based on weight allocation.
         """
-        step_size = Decimal(str(precision_rules["step_size"]))
-        min_qty = Decimal(str(precision_rules["min_qty"]))
-        min_notional = Decimal(str(precision_rules["min_notional"]))
+        logger.debug(f"Entering calculate_order_quantities. Total Capital USD: {total_capital_usd}, Precision Rules: {precision_rules}")
+        logger.debug(f"DCA Levels received: {dca_levels}")
+
+        step_size = Decimal(str(precision_rules.get("step_size", "0.000001")))  # Fallback
+        min_qty = Decimal(str(precision_rules.get("min_qty", "0.000001")))      # Fallback
+        min_notional = Decimal(str(precision_rules.get("min_notional", "1")))    # Fallback
         
-        for level in dca_levels:
+        logger.debug(f"Exchange Minimums: min_qty={min_qty}, min_notional={min_notional}, step_size={step_size}")
+
+        for i, level in enumerate(dca_levels):
+            logger.debug(f"Processing level {i}: Price={level['price']}, Weight={level['weight_percent']}%")
+            
             # Calculate capital for this leg
             leg_capital = total_capital_usd * (level["weight_percent"] / Decimal("100"))
-            
+            logger.debug(f"  Calculated leg capital: {leg_capital}")
+
             # Calculate quantity: capital / price
+            if level["price"] <= 0:
+                logger.error(f"  Validation Error: Price is zero or negative for level {i}, skipping.")
+                # This should ideally raise an error or be handled upstream to prevent invalid prices.
+                # For now, we'll continue, but this indicates a potential data issue.
+                continue  
+
             quantity = leg_capital / level["price"]
+            logger.debug(f"  Raw quantity before rounding: {quantity}")
             
             # Round to step size
             quantity = round_to_step_size(quantity, step_size)
-            
+            logger.debug(f"  Quantity after rounding (step_size={step_size}): {quantity}")
+
             # Validate minimum quantity
             if quantity < min_qty:
+                logger.error(f"  Validation Error: Calculated quantity {quantity} is below exchange min_qty {min_qty} for level {i}.")
                 raise ValidationError(
                     f"Quantity {quantity} below minimum {min_qty}"
                 )
             
             # Validate minimum notional
             notional = quantity * level["price"]
+            logger.debug(f"  Calculated notional: {notional} (min_notional={min_notional})")
+
             if notional < min_notional:
+                logger.error(f"  Validation Error: Calculated notional {notional} is below exchange min_notional {min_notional} for level {i}.")
                 raise ValidationError(
                     f"Notional {notional} below minimum {min_notional}"
                 )
             
             level["quantity"] = quantity
+            logger.debug(f"  Level {i} quantity set to {quantity}")
         
+        logger.debug("Exiting calculate_order_quantities successfully.")
         return dca_levels

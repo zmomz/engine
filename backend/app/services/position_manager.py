@@ -106,8 +106,20 @@ class PositionManagerService:
 
         # 2. Fetch precision rules
         precision_rules = await exchange_connector.get_precision_rules()
-        logger.debug(f"Got precision rules: {precision_rules}")
         symbol_precision = precision_rules.get(signal.symbol, {})
+        logger.debug(f"Fetched precision rules for {signal.symbol}: {symbol_precision}")
+        logger.debug(f"Keys in precision_rules: {list(precision_rules.keys())}")
+
+        # Check if the symbol exists in precision rules
+        if signal.symbol not in precision_rules:
+            logger.error(f"Symbol {signal.symbol} not found in precision rules!")
+            # Try alternative formatting
+            alt_symbol = signal.symbol.replace("/", "")
+            logger.debug(f"Trying alternative symbol format: {alt_symbol}")
+            if alt_symbol in precision_rules:
+                symbol_precision = precision_rules[alt_symbol]
+                logger.debug(f"Using alternative symbol format for precision rules")
+
 
         # 3. Calculate DCA levels and quantities
         dca_levels = self.grid_calculator_service.calculate_dca_levels(
@@ -123,7 +135,9 @@ class PositionManagerService:
             total_capital_usd=total_capital_usd,
             precision_rules=symbol_precision
         )
-        logger.debug("Calculated quantities")
+        
+        # --- Insert new debug logs here ---
+
 
         # 4. Create PositionGroup
         new_position_group = PositionGroup(
@@ -204,7 +218,8 @@ class PositionManagerService:
         
         # Update pyramid status after orders are submitted
         new_pyramid.status = PyramidStatus.SUBMITTED
-        await session.flush() # Ensure pyramid status is updated
+        await session.flush()
+        logger.info(f"Pyramid {new_pyramid.id} status updated to SUBMITTED after order submission.")
 
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
         
@@ -426,17 +441,18 @@ class PositionManagerService:
             logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
 
-    async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None):
+    async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None, position_group: Optional[PositionGroup] = None):
         if session:
-            await self._execute_update_risk_timer(session, position_group_id, risk_config)
+            await self._execute_update_risk_timer(session, position_group_id, risk_config, position_group)
         else:
             async with self.session_factory() as new_session:
-                await self._execute_update_risk_timer(new_session, position_group_id, risk_config)
+                await self._execute_update_risk_timer(new_session, position_group_id, risk_config, position_group)
                 await new_session.commit()
 
-    async def _execute_update_risk_timer(self, session: AsyncSession, position_group_id: uuid.UUID, risk_config: RiskEngineConfig):
+    async def _execute_update_risk_timer(self, session: AsyncSession, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, position_group: Optional[PositionGroup] = None):
         position_group_repo = self.position_group_repository_class(session)
-        position_group = await position_group_repo.get(position_group_id)
+        if not position_group:
+            position_group = await position_group_repo.get(position_group_id)
 
         if not position_group:
             return
@@ -464,32 +480,28 @@ class PositionManagerService:
             logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
 
 
-    async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None):
+    async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None) -> Optional[PositionGroup]:
         """
         Recalculates total filled quantity and weighted average entry price for a position group.
         """
         if session:
-            await self._execute_update_position_stats(session, group_id)
+            return await self._execute_update_position_stats(session, group_id)
         else:
             async with self.session_factory() as new_session:
-                await self._execute_update_position_stats(new_session, group_id)
+                position_group = await self._execute_update_position_stats(new_session, group_id)
                 await new_session.commit() # Commit here when a new session is created
+                return position_group
 
-    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID):
+    async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID) -> Optional[PositionGroup]:
         position_group_repo = self.position_group_repository_class(session)
-        position_group = await position_group_repo.get(group_id)
+        position_group = await position_group_repo.get_with_orders(group_id, refresh=True) # Use get_with_orders with refresh
         if not position_group:
             logger.error(f"PositionGroup {group_id} not found for stats update.")
-            return
+            return None
 
-        # Query DCAOrder directly
-        from sqlalchemy import select
-        from app.models.dca_order import DCAOrder
-        from app.models.pyramid import Pyramid, PyramidStatus
-
-        stmt = select(DCAOrder).where(DCAOrder.group_id == group_id)
-        result = await session.execute(stmt)
-        all_orders = result.scalars().all()
+        all_orders = list(position_group.dca_orders)
+        for pyramid in position_group.pyramids:
+            all_orders.extend(pyramid.dca_orders)
         
         # --- 1. Update Pyramid Statuses ---
         pyramid_orders = {}
@@ -609,8 +621,8 @@ class PositionManagerService:
                 position_group.unrealized_pnl_percent = Decimal("0")
 
             # Update Legs Count
-            # Count only ENTRY legs that are filled to track grid progress
-            filled_entry_legs = sum(1 for o in filled_orders if o.side.lower() == position_group.side.lower())
+            # Count only ENTRY legs that are filled to track grid progress, excluding special TP fill records
+            filled_entry_legs = sum(1 for o in filled_orders if o.leg_index != 999)
             position_group.filled_dca_legs = filled_entry_legs
 
             # Status Transition Logic
@@ -676,3 +688,5 @@ class PositionManagerService:
         finally:
             # Always close the exchange connector
             await exchange_connector.close()
+        
+        return position_group

@@ -20,12 +20,7 @@ docker compose exec -T app python3 scripts/get_default_config.py --schema risk
 docker compose exec -T app python3 scripts/get_default_config.py --schema grid > config/grid.json
 ```
 
-### `verify_exchange_keys.py`
-Verifies API keys for configured exchanges (Binance, Bybit, OKX, KuCoin) by attempting to fetch account balance.
-**Usage (inside Docker container):**
-```bash
-docker compose exec -T app python3 scripts/verify_exchange_keys.py --exchange binance --api-key <KEY> --secret-key <SECRET> [--testnet]
-```
+
 
 ### `setup_dev.py`
 Sets up the development environment by creating .env, installing dependencies, starting the database, and running migrations.
@@ -50,6 +45,41 @@ Simulates a TradingView webhook signal by sending a valid JSON payload to the AP
 docker compose exec -T app python3 scripts/simulate_webhook.py --user-id <UUID> --secret <SECRET> --symbol BTCUSDT --side buy
 ```
 
+### `clean_user_positions.py`
+Cleans all `PositionGroup` entries, `DCAOrder`s, and `Pyramid`s associated with a specific test user from the database. Useful for starting tests from a clean slate.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/clean_user_positions.py
+```
+
+### `clean_queue.py`
+Clears all queued signals (`QueuedSignal` entries) from the database.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/clean_queue.py
+```
+
+### `fill_dca_orders.py`
+Simulates the filling of all currently `OPEN` DCA orders in the database. It also triggers `update_position_stats` and `update_risk_timer` for the affected `PositionGroup`.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/fill_dca_orders.py
+```
+
+### `trigger_risk_engine.py`
+Manually triggers an immediate evaluation of the risk engine for a specified user or all users.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/trigger_risk_engine.py
+```
+
+### `trigger_update_position_stats.py`
+Manually triggers an update of position statistics for a specified `PositionGroup` or all active positions.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/trigger_update_position_stats.py
+```
+
 ## Testing & Quality Assurance
 
 ### `run_tests.py`
@@ -71,6 +101,48 @@ Waits for the database connection to be available. Primarily used in Docker entr
 **Usage (inside Docker container):**
 ```bash
 docker compose exec -T app python3 scripts/wait-for-db.py --max-retries 30 --delay 2
+```
+
+### `wait-for-app.py`
+Waits for the main application API to be healthy. Primarily used in Docker entrypoints and CI/CD to ensure dependent services start only after the app is ready.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/wait-for-app.py --url http://localhost:8000/health --max-retries 30 --delay 2
+```
+
+### `count_active_positions.py`
+Displays the count of active position groups and their `filled_dca_legs` vs `total_dca_legs` for quick verification.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/count_active_positions.py
+```
+
+### `inspect_orders.py`
+Displays detailed information about all `DCAOrder`s associated with a given `PositionGroup` ID.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/inspect_orders.py --group-id <UUID>
+```
+
+### `list_positions.py`
+Lists all position groups, showing their ID, symbol, status, and user ID.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/list_positions.py
+```
+
+### `list_queue.py`
+Lists all signals currently in the processing queue.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/list_queue.py
+```
+
+### `setup_risk_scenario_v3.py`
+Sets up a complex risk scenario in the database by creating predefined `PositionGroup`s, `Pyramid`s, and `DCAOrder`s with specific statuses and values for multiple symbols (DOTUSDT, ETHUSDT, SOLUSDT). Useful for testing the risk engine's behavior under various conditions.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/setup_risk_scenario_v3.py
 ```
 
 ## Database Management
@@ -98,16 +170,32 @@ Deletes old data (e.g., closed position groups) from the database to maintain pe
 docker compose exec -T app python3 scripts/cleanup_stale_data.py --days 90 [--dry-run]
 ```
 
-### `export_data.py`
-Exports database records to JSON or CSV format.
-Supported types: `positions`, `users`.
+### `export_user_positions.py`
+Exports detailed data for all user positions (active, closed, etc.) to the console, optionally in JSON format. Useful for inspecting the database state.
 **Usage (inside Docker container):**
 ```bash
 # Export positions to CSV (output redirected from container to host)
-docker compose exec -T app python3 scripts/export_data.py --type positions --format csv > positions.csv
+docker compose exec -T app python3 scripts/export_user_positions.py --type positions --format csv > positions.csv
 
 # Export users to JSON (output redirected from container to host, excludes sensitive data)
-docker compose exec -T app python3 scripts/export_data.py --type users --format json > users.json
+docker compose exec -T app python3 scripts/export_user_positions.py --type users --format json > users.json
+```
+
+### `get_user_keys.py`
+Retrieves and decrypts API keys for a specified user and exchange.
+**Usage (inside Docker container):**
+```bash
+docker compose exec -T app python3 scripts/get_user_keys.py --username <USERNAME>
+```
+
+### `exchange_api_tool.py`
+A versatile tool to check exchange API key validity, display balances, and optionally convert all non-USDT assets to USDT on an exchange (supports dry-run). Also provides basic position cleaning functionality.
+**Usage (inside Docker container):**
+```bash
+# Check balances and API key validity
+docker compose exec -T app python3 scripts/exchange_api_tool.py <API_KEY> <SECRET> <EXCHANGE_NAME>
+# Convert all assets to USDT (dry-run)
+docker compose exec -T app python3 scripts/exchange_api_tool.py <API_KEY> <SECRET> <EXCHANGE_NAME> <PASSWORD> <TESTNET_BOOL> convert
 ```
 
 ### `stress_test.py`
@@ -116,3 +204,9 @@ Performs a simple load test against a specific API endpoint.
 ```bash
 docker compose exec -T app python3 scripts/stress_test.py --url http://localhost:8000/api/v1/health --requests 1000 --concurrency 50
 ```
+
+---
+
+## Documentation
+- **TEST_PLAN.md**: The main document outlining the detailed test cases and steps to validate the trading engine, now located at `@/docs/TEST_PLAN.md`.
+- **sow_summary.md**: Provides a summary of the Statement of Work (SOW) related to the project, now located at `@/docs/sow_summary.md`.

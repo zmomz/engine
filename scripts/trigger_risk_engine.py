@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 async def trigger_risk():
     async with AsyncSessionLocal() as session:
         # Get user
-        result = await session.execute(select(User).where(User.username == "zmomz"))
+        result = await session.execute(select(User).where(User.username == "maaz"))
         user = result.scalars().first()
         
         if not user:

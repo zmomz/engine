@@ -1,12 +1,14 @@
 """
-Service for monitoring order fills and updating their status in the database.
-Periodically polls the exchange for updates on open orders.
+FIXED Service for monitoring order fills and updating their status in the database.
+Key fix: Properly handles the Bybit testnet workaround by continuing with position updates
+even when check_order_status triggers the workaround.
 """
 import asyncio
 import logging
 from typing import List
 import json
-import ccxt # Added this import
+import ccxt
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,7 +93,6 @@ class OrderFillMonitorService:
                              exchange_name = raw_exchange_name.lower()
                              # Decrypt keys for this exchange
                              try:
-                                 # Expecting user.encrypted_api_keys to be a dict of {'exchange_name': {'encrypted_data': '...'}}
                                  exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
 
                                  if not exchange_keys_data:
@@ -100,10 +101,9 @@ class OrderFillMonitorService:
                                  
                                  api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
                                  
+                                 logger.debug(f"Setting up connector for {exchange_name}")
                                  connector = get_exchange_connector(
                                     exchange_name,
-                                    # Explicitly set testnet=True for Bybit to ensure testnet_mode attribute is present
-                                    testnet=True if exchange_name == 'bybit' else False,
                                     exchange_config=exchange_keys_data
                                  )
                              except Exception as e:
@@ -138,35 +138,65 @@ class OrderFillMonitorService:
                                             continue
 
                                         # Attempt to get order status from the exchange
+                                        # This may trigger the Bybit workaround which marks order as FILLED
+                                        logger.info(f"Checking order {order.id} status on exchange...")
                                         updated_order = await order_service.check_order_status(order)
-                                        if updated_order.status in [OrderStatus.FILLED.value, OrderStatus.CANCELED.value, OrderStatus.FAILED.value]:
+                                        
+                                        # Refresh order from DB to get latest status (in case workaround updated it)
+                                        await session.refresh(updated_order)
+                                        
+                                        logger.info(f"Order {order.id} status after check: {updated_order.status}")
+                                        
+                                        # Check if status changed to filled, cancelled, or failed
+                                        if updated_order.status == OrderStatus.FILLED or updated_order.status == OrderStatus.CANCELLED or updated_order.status == OrderStatus.FAILED:
                                             logger.info(f"Order {order.id} status updated to {updated_order.status}")
 
+                                        # Handle filled orders
                                         if updated_order.status == OrderStatus.FILLED.value:
-                                            # Ensure filled_quantity and filled_price are set for the workaround case
-                                            if order.group and order.group.exchange.upper() == "BYBIT" and updated_order.filled_quantity == Decimal('0') and updated_order.filled_price == Decimal('0'):
-                                                updated_order.filled_quantity = updated_order.quantity
-                                                updated_order.filled_price = updated_order.entry_price
-                                                await order_service.dca_order_repository.update(updated_order) # Persist these changes
+                                            # For Bybit testnet workaround case: ensure filled_quantity and filled_price are set
+                                            if order.group and order.group.exchange.upper() == "BYBIT":
+                                                if updated_order.filled_quantity == Decimal('0'):
+                                                    logger.warning(f"Order {order.id} marked FILLED but filled_quantity is 0, setting to {updated_order.quantity}")
+                                                    updated_order.filled_quantity = updated_order.quantity
+                                                    
+                                                if updated_order.filled_price == Decimal('0'):
+                                                    logger.warning(f"Order {order.id} marked FILLED but filled_price is 0, setting to entry_price {updated_order.entry_price}")
+                                                    updated_order.filled_price = updated_order.entry_price
+                                                    
+                                                if updated_order.avg_fill_price is None or updated_order.avg_fill_price == Decimal('0'):
+                                                    logger.warning(f"Order {order.id} marked FILLED but avg_fill_price is 0, setting to entry_price {updated_order.entry_price}")
+                                                    updated_order.avg_fill_price = updated_order.entry_price
+                                                
+                                                await order_service.dca_order_repository.update(updated_order)
 
-                                            # Flush order status and filled details update before recalculating stats
+                                            # CRITICAL: Flush order status and filled details update before recalculating stats
                                             await session.flush()
+                                            
+                                            logger.info(f"Order {order.id} FILLED - updating position stats and placing TP order")
                                             await position_manager.update_position_stats(updated_order.group_id, session=session)
                                             await order_service.place_tp_order(updated_order)
-                                            logger.info(f"Placed TP order for {updated_order.id}")
+                                            logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
                                                 
                                     except Exception as e:
                                         logger.error(f"Error processing loop for order {order.id}: {e}")
+                                        import traceback
+                                        traceback.print_exc()
                              finally:
                                  await connector.close()
                         
                         await session.commit()
+                        logger.debug(f"OrderFillMonitor: Committed changes for user {user.id}")
+                        
                     except Exception as e:
                         logger.error(f"Error checking orders for user {user.username}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         await session.rollback()
 
             except Exception as e:
                 logger.error(f"Error in OrderFillMonitor check loop: {e}")
+                import traceback
+                traceback.print_exc()
                 await session.rollback()
 
     async def start_monitoring_task(self):
@@ -190,6 +220,8 @@ class OrderFillMonitorService:
                 break
             except Exception as e:
                 logger.error(f"Error in OrderFillMonitor monitoring loop: {e}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(self.polling_interval_seconds)
 
     async def stop_monitoring_task(self):
@@ -203,4 +235,5 @@ class OrderFillMonitorService:
                 await self._monitor_task
             except asyncio.CancelledError:
                 pass
-            logger.info("OrderFillMonitorService monitoring task stopped.")
+            finally:
+                logger.info("OrderFillMonitorService monitoring task stopped.")

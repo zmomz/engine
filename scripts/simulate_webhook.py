@@ -12,10 +12,27 @@ import datetime
 import requests
 import sys
 import os
+import time
 
 # Helper to generate current timestamp
 def get_timestamp():
     return datetime.datetime.utcnow().isoformat() + "Z"
+
+def wait_for_app_ready(base_url, retries=10, delay=5):
+    health_endpoint = f"{base_url}/health"
+    print(f"Waiting for app to be ready at {health_endpoint}...")
+    for i in range(retries):
+        try:
+            response = requests.get(health_endpoint, timeout=2)
+            if response.status_code == 200:
+                print("App is ready!")
+                return True
+        except requests.exceptions.RequestException:
+            pass
+        print(f"App not ready, retrying in {delay} seconds... ({i+1}/{retries})")
+        time.sleep(delay)
+    print("App did not become ready within the timeout.")
+    return False
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -51,6 +68,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Wait for the app to be ready
+    if not wait_for_app_ready(args.url):
+        sys.exit(1)
+
     # Construct Payload
     payload = {
         "user_id": args.user_id,

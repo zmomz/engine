@@ -53,5 +53,5 @@ async def clean_positions_for_user(username: str):
         print(f"All positions and associated orders for user '{username}' have been cleaned.")
 
 if __name__ == "__main__":
-    target_username = "zmomz"
+    target_username = "maaz"
     asyncio.run(clean_positions_for_user(target_username))

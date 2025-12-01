@@ -22,15 +22,22 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         )
         return result.scalars().all()
 
-    async def get_with_orders(self, group_id: uuid.UUID) -> PositionGroup | None:
+    async def get_with_orders(self, group_id: uuid.UUID, refresh: bool = False) -> PositionGroup | None:
         """
-        Retrieves a position group by ID, eagerly loading its DCA orders.
+        Retrieves a position group by ID, eagerly loading its DCA orders and pyramids.
         """
-        result = await self.session.execute(
+        query = (
             select(self.model)
             .where(self.model.id == group_id)
-            .options(selectinload(self.model.dca_orders))
+            .options(
+                selectinload(self.model.dca_orders),
+                selectinload(self.model.pyramids).selectinload(self.model.pyramids.property.mapper.class_.dca_orders)
+            )
         )
+        if refresh:
+            query = query.execution_options(populate_existing=True)
+
+        result = await self.session.execute(query)
         return result.scalars().first()
 
     async def get_active_position_groups(self, for_update: bool = False) -> list[PositionGroup]:

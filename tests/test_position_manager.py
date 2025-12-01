@@ -62,9 +62,8 @@ def mock_grid_calculator_service():
     mock.calculate_dca_levels.return_value = [
         {"leg_index": 0, "price": Decimal("100"), "quantity": Decimal("1"), "gap_percent": Decimal("0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")}
     ]
-    mock.calculate_order_quantities.return_value = [
-        {"leg_index": 0, "price": Decimal("100"), "quantity": Decimal("1"), "gap_percent": Decimal("0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")}
-    ]
+    # Use side_effect to call the real method for calculate_order_quantities
+    mock.calculate_order_quantities.side_effect = GridCalculatorService.calculate_order_quantities
     return mock
 
 

@@ -17,7 +17,7 @@ async def count_positions():
         groups = result.scalars().all()
         print("All Groups:")
         for g in groups:
-            print(f"  {g.id} {g.symbol} {g.status}")
+            print(f"  {g.id} {g.symbol} {g.status} Filled DCA Legs: {g.filled_dca_legs} Total DCA Legs: {g.total_dca_legs}")
             
         # Count
         query = select(func.count(PositionGroup.id)).where(PositionGroup.status.in_(active_statuses))
