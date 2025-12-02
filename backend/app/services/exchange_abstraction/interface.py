@@ -9,7 +9,7 @@ class ExchangeInterface(ABC):
         pass
 
     @abstractmethod
-    async def place_order(self):
+    async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None, **kwargs):
         pass
 
     @abstractmethod

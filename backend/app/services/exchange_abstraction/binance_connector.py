@@ -72,7 +72,7 @@ class BinanceConnector(ExchangeInterface):
         return precision_rules
 
     @map_exchange_errors
-    async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None):
+    async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None, **kwargs):
         """
         Places an order on the exchange.
         """
@@ -81,7 +81,8 @@ class BinanceConnector(ExchangeInterface):
             type=order_type,
             side=side,
             amount=quantity,
-            price=price
+            price=price,
+            params=kwargs
         )
 
     @map_exchange_errors

@@ -332,7 +332,8 @@ class OrderService:
         side: str,
         quantity: Decimal,
         position_group_id: uuid.UUID = None,
-        record_in_db: bool = False
+        record_in_db: bool = False,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Places a market order directly on the exchange.
@@ -348,7 +349,8 @@ class OrderService:
                 order_type="MARKET",
                 side=side_value,
                 quantity=quantity,
-                price=None # Market orders don't have a price
+                price=None, # Market orders don't have a price
+                **kwargs
             )
             
             if record_in_db and position_group_id:
@@ -460,6 +462,7 @@ class OrderService:
             symbol=position_group.symbol,
             side=close_side,
             quantity=quantity_to_close,
-            position_group_id=position_group.id
+            position_group_id=position_group.id,
+            reduce_only=True
         )
 
