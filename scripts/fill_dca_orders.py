@@ -16,7 +16,7 @@ from app.services.position_manager import PositionManagerService
 from app.repositories.position_group import PositionGroupRepository
 from app.services.grid_calculator import GridCalculatorService # Needed for PositionManagerService init
 from app.services.order_management import OrderService # Needed for PositionManagerService init
-from app.schemas.grid_config import RiskEngineConfig # Needed for PositionManagerService init
+from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Needed for PositionManagerService init
 
 async def fill_open_dca_orders():
     async with AsyncSessionLocal() as session:
@@ -66,6 +66,7 @@ async def fill_open_dca_orders():
             
             # Retrieve risk config directly from user object
             risk_config = RiskEngineConfig(**user.risk_config)
+            dca_grid_config = DCAGridConfig(**user.dca_grid_config) # Retrieve dca grid config
 
             position_manager_service = PositionManagerService(
                 session_factory=AsyncSessionLocal,
@@ -74,6 +75,20 @@ async def fill_open_dca_orders():
                 grid_calculator_service=GridCalculatorService(),
                 order_service_class=OrderService
             )
+
+            # Place TP orders for newly filled orders if tp_mode is per_leg
+            if dca_grid_config.tp_mode == "per_leg":
+                order_service = position_manager_service.order_service_class(
+                    session=session,
+                    user=user,
+                    exchange_connector=position_manager_service._get_exchange_connector_for_user(user, position_group_obj.exchange) # Get connector
+                )
+                for order in open_orders: # open_orders now contain the filled orders
+                    if order.status == OrderStatus.FILLED and not order.tp_order_id:
+                        print(f"Placing TP order for DCA order {order.id} (Leg Index: {order.leg_index})...")
+                        await order_service.place_tp_order(order)
+
+
             print(f"Triggering update_position_stats for PositionGroup {position_group_id_to_update}...")
             updated_position_group = await position_manager_service.update_position_stats(position_group_id_to_update, session=session)
             print(f"Triggering update_risk_timer for PositionGroup {position_group_id_to_update}...")
