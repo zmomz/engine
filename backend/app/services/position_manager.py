@@ -346,12 +346,8 @@ class PositionManagerService:
             await order_service.cancel_open_orders_for_group(position_group.id)
             logger.info(f"Cancelled open orders for PositionGroup {position_group.id}")
 
-            # 2. Calculate total filled quantity
-            total_filled_quantity = sum(
-                order.filled_quantity 
-                for order in position_group.dca_orders 
-                if order.status == OrderStatus.FILLED
-            )
+            # 2. Use the already calculated net total filled quantity
+            total_filled_quantity = position_group.total_filled_quantity
 
             if total_filled_quantity > 0:
                 # 3. Close the position
@@ -361,6 +357,28 @@ class PositionManagerService:
                         quantity_to_close=total_filled_quantity
                     )
                     logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
+
+                    # If successful, update position status and PnL
+                    position_group.status = PositionGroupStatus.CLOSED
+                    
+                    current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
+                    
+                    exit_value = total_filled_quantity * current_price
+                    cost_basis = position_group.total_invested_usd
+                    
+                    if position_group.side == "long":
+                        realized_pnl = exit_value - cost_basis
+                    else:
+                        realized_pnl = cost_basis - exit_value
+                        
+                    position_group.realized_pnl_usd = realized_pnl
+                    position_group.unrealized_pnl_usd = Decimal("0")
+                    position_group.closed_at = datetime.utcnow()
+
+                    await position_group_repo.update(position_group)
+                    await session.commit()
+                    logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
+
                 except Exception as e:
                     logger.error(f"DEBUG: Caught exception in handle_exit_signal: {type(e)} - {e}")
                     error_msg = str(e).lower()
@@ -378,25 +396,6 @@ class PositionManagerService:
                             
                             # Fetch balance
                             balance_data = await exchange_connector.fetch_free_balance()
-                            # balance_data is {'total': {...}, 'free': {...}, ...} or just flat {'BTC': ...} depending on connector
-                            # Our connectors return balance['total'] currently?
-                            # BinanceConnector: returns balance['total'].
-                            # BybitConnector: returns balance['total'].
-                            # Wait, 'total' includes locked funds. We need 'free'.
-                            # Connectors usually return the 'total' dict from CCXT which is {'currency': total_amount}.
-                            # But CCXT fetch_balance returns {'total': {...}, 'free': {...}, 'used': {...}}
-                            # Our connector implementation:
-                            # Binance: return balance['total']
-                            # This is WRONG if we want to know what we can trade. We need 'free'.
-                            
-                            # Let's inspect what fetch_balance returns in the connector.
-                            # BinanceConnector: return balance['total'] -> This is just the total balances.
-                            # If we want tradeable balance, we need 'free'.
-                            
-                            # I cannot change connector right now easily without affecting others? 
-                            # But 'total' balance might be what I have. If no orders are open (we cancelled them), then total == free.
-                            # We cancelled open orders in step 1. So locked balance should be 0.
-                            # So 'total' balance should be available.
                             
                             available_balance = Decimal(str(balance_data.get(base_currency, 0)))
                             
@@ -406,11 +405,26 @@ class PositionManagerService:
                                     position_group=position_group,
                                     quantity_to_close=available_balance
                                 )
-                                # Update filled quantity to reflect actual closed amount? 
-                                # The position group status will be CLOSED anyway.
+                                # If retry is successful, update status and commit
+                                position_group.status = PositionGroupStatus.CLOSED
+                                current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
+                                exit_value = available_balance * current_price
+                                cost_basis = position_group.total_invested_usd # Assuming same initial cost
+                                
+                                if position_group.side == "long":
+                                    realized_pnl = exit_value - cost_basis
+                                else:
+                                    realized_pnl = cost_basis - exit_value
+                                    
+                                position_group.realized_pnl_usd = realized_pnl
+                                position_group.unrealized_pnl_usd = Decimal("0")
+                                position_group.closed_at = datetime.utcnow()
+                                await position_group_repo.update(position_group)
+                                await session.commit()
+                                logger.info(f"PositionGroup {position_group.id} closed after retry. Realized PnL: {realized_pnl}")
                             else:
                                 logger.error(f"No balance found for {base_currency}. Cannot retry close.")
-                                raise e
+                                raise e # Re-raise original exception if retry not possible
                         except Exception as retry_e:
                             logger.info(f"DEBUG: Free Balance Data: {balance_data}")
                             logger.error(f"Retry close failed: {retry_e}")
@@ -419,26 +433,6 @@ class PositionManagerService:
                         raise e
             else:
                 logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
-
-            position_group.status = PositionGroupStatus.CLOSED
-            
-            current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
-            
-            exit_value = total_filled_quantity * current_price
-            cost_basis = position_group.total_invested_usd
-            
-            if position_group.side == "long":
-                realized_pnl = exit_value - cost_basis
-            else:
-                realized_pnl = cost_basis - exit_value
-                
-            position_group.realized_pnl_usd = realized_pnl
-            position_group.unrealized_pnl_usd = Decimal("0")
-            position_group.closed_at = datetime.utcnow()
-
-            await position_group_repo.update(position_group)
-            await session.commit()
-            logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None, position_group: Optional[PositionGroup] = None):
@@ -500,8 +494,6 @@ class PositionManagerService:
             return None
 
         all_orders = list(position_group.dca_orders)
-        for pyramid in position_group.pyramids:
-            all_orders.extend(pyramid.dca_orders)
         
         # --- 1. Update Pyramid Statuses ---
         pyramid_orders = {}
@@ -622,7 +614,7 @@ class PositionManagerService:
 
             # Update Legs Count
             # Count only ENTRY legs that are filled to track grid progress, excluding special TP fill records
-            filled_entry_legs = sum(1 for o in filled_orders if o.leg_index != 999)
+            filled_entry_legs = sum(1 for o in filled_orders if o.leg_index != 999 and not o.tp_hit)
             position_group.filled_dca_legs = filled_entry_legs
 
             # Status Transition Logic

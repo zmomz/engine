@@ -150,6 +150,22 @@ class MockConnector(ExchangeInterface):
             except Exception as e:
                 raise APIError(f"MockConnector fetch_balance failed: {e}")
 
+    async def fetch_free_balance(self) -> Dict:
+        """
+        Fetches the available free balance for all assets.
+        """
+        async with await self._get_client() as client:
+            try:
+                response = await client.get("/balance")
+                response.raise_for_status()
+                data = response.json()
+                return {
+                    k: Decimal(str(v["free"]))
+                    for k, v in data.items()
+                }
+            except Exception as e:
+                raise APIError(f"MockConnector fetch_free_balance failed: {e}")
+
     async def close(self):
         """
         No-op for MockConnector as it manages client context per request.

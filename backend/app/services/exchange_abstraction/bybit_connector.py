@@ -1,9 +1,13 @@
+import asyncio
 import ccxt.async_support as ccxt
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
 import logging
 
 logger = logging.getLogger(__name__)
+
+class OrderCancellationError(ccxt.NetworkError):
+    pass
 
 class BybitConnector(ExchangeInterface):
     """
@@ -144,16 +148,20 @@ class BybitConnector(ExchangeInterface):
                 except Exception as e2:
                     logger.warning(f"Bybit fallback to CONTRACT failed. Retrying with SPOT. Error: {e2}")
                     # Retry with SPOT
-                    result = await self.exchange.create_order(
-                        symbol=symbol,
-                        type=order_type,
-                        side=side,
-                        amount=quantity,
-                        price=price,
-                        params={'accountType': 'SPOT'}
-                    )
-                    logger.info(f"Order placed successfully with SPOT: {result.get('id', 'unknown')}")
-                    return result
+                    try:
+                        result = await self.exchange.create_order(
+                            symbol=symbol,
+                            type=order_type,
+                            side=side,
+                            amount=quantity,
+                            price=price,
+                            params={'accountType': 'SPOT'}
+                        )
+                        logger.info(f"Order placed successfully with SPOT: {result.get('id', 'unknown')}")
+                        return result
+                    except Exception as e3:
+                        logger.error(f"Bybit fallback to SPOT also failed. Error: {e3}")
+                        raise e3 from e2
             else:
                 raise e
 
@@ -183,15 +191,7 @@ class BybitConnector(ExchangeInterface):
                         # CCXT often links trades to their originating order ID
                         if trade.get('order') == order_id or trade.get('info').get('orderId') == order_id: # Bybit uses 'orderId' in info
                             logger.info(f"Order {order_id} found in recent trades. Status: {trade.get('status', 'filled')}")
-                            # Reconstruct a basic order structure from trade info
-                            # This is a heuristic to get enough info for update_order_status to proceed
-                            return {
-                                'id': order_id,
-                                'symbol': symbol,
-                                'status': 'closed', # Assuming if found in trades, it was filled/closed
-                                'filled': trade.get('amount', 0), # Amount of the trade
-                                'average': trade.get('price', 0) # Price of the trade
-                            }
+                            # No implicit status reconstruction. Continue to fetch_orders fallback.
                     logger.warning(f"Order {order_id} not found in recent trades either.")
                     
                     # Fallback to fetch_orders (all orders) and filter
@@ -210,17 +210,37 @@ class BybitConnector(ExchangeInterface):
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):
         """
-        Cancels an existing order by its ID.
+        Cancels an existing order by its ID with retry logic and status verification.
         """
-        try:
-            return await self.exchange.cancel_order(order_id, symbol)
-        except ccxt.OrderNotFound as e:
-            logger.warning(f"Order {order_id} not found during cancellation, retrying with params={{'trigger': True}} for Bybit. Original error: {e}")
+        max_retries = 3
+        retry_delay = 0.5  # seconds
+
+        for i in range(max_retries):
             try:
-                return await self.exchange.cancel_order(order_id, symbol, params={'trigger': True})
-            except Exception as retry_e:
-                logger.error(f"Retry for conditional order cancellation {order_id} also failed: {retry_e}")
-                raise retry_e
+                # Attempt to cancel the order
+                cancel_result = await self.exchange.cancel_order(order_id, symbol)
+                logger.info(f"Order {order_id} cancelled successfully on attempt {i+1}.")
+                return cancel_result
+            except (ccxt.OrderNotFound, ccxt.ExchangeError) as e:
+                # If order not found, it might already be cancelled or filled. Verify status.
+                logger.warning(f"Cancellation attempt {i+1} for order {order_id} failed: {e}. Verifying status...")
+                await asyncio.sleep(retry_delay) # Wait before checking status and retrying
+
+        # After max retries, explicitly check the order status
+        try:
+            order_status = await self.get_order_status(order_id, symbol)
+            if order_status and order_status['status'] not in ['canceled', 'closed', 'filled']:
+                logger.error(f"Order {order_id} still active after {max_retries} cancellation attempts.")
+                raise OrderCancellationError(f"Failed to cancel order {order_id}. Current status: {order_status['status']}")
+            else:
+                logger.info(f"Order {order_id} is no longer active (status: {order_status['status']}). Considered successfully cancelled/closed.")
+                return {'id': order_id, 'status': order_status['status']} # Return a success indicator
+        except ccxt.OrderNotFound:
+            logger.info(f"Order {order_id} not found after cancellation attempts. Assumed cancelled/closed.")
+            return {'id': order_id, 'status': 'canceled'} # Assume successful cancellation due to not found
+        except Exception as e:
+            logger.error(f"Error verifying status of order {order_id} after cancellation attempts: {e}")
+            raise OrderCancellationError(f"Failed to verify cancellation status for order {order_id}: {e}")
 
     @map_exchange_errors
     async def get_current_price(self, symbol: str) -> float:

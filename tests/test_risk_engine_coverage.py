@@ -13,6 +13,10 @@ from app.models.user import User
 # --- Fixtures ---
 
 @pytest.fixture
+def mock_user():
+    return MagicMock(id=uuid.uuid4(), encrypted_api_keys={})
+
+@pytest.fixture
 def mock_config():
     return RiskEngineConfig(
         max_open_positions_global=5,
@@ -84,9 +88,12 @@ def test_filter_eligible_losers_age_filter(mock_position_group, mock_config):
 # --- Tests for calculate_partial_close_quantities ---
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_success():
+async def test_calculate_partial_close_quantities_success(mock_user):
     exchange_connector = AsyncMock()
     exchange_connector.get_current_price.return_value = Decimal("100.0")
+    exchange_connector.get_precision_rules.return_value = {
+        "ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("5.0")}
+    }
     
     winner = MagicMock()
     winner.symbol = "ETH/USD"
@@ -95,15 +102,12 @@ async def test_calculate_partial_close_quantities_success():
     winner.side = "long"
     winner.total_filled_quantity = Decimal("10.0")
     
-    precision_rules = {
-        "ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("5.0")}
-    }
-    
     required_usd = Decimal("20.0")
     
-    plan = await calculate_partial_close_quantities(
-        exchange_connector, [winner], required_usd, precision_rules
-    )
+    with patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector):
+        plan = await calculate_partial_close_quantities(
+            mock_user, [winner], required_usd
+        )
     
     assert len(plan) == 1
     # Profit per unit = 100 - 90 = 10.
@@ -111,9 +115,10 @@ async def test_calculate_partial_close_quantities_success():
     assert plan[0][1] == Decimal("2.00")
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_zero_profit_per_unit():
+async def test_calculate_partial_close_quantities_zero_profit_per_unit(mock_user):
     exchange_connector = AsyncMock()
     exchange_connector.get_current_price.return_value = Decimal("90.0") # Same as entry
+    exchange_connector.get_precision_rules.return_value = {}
     
     winner = MagicMock()
     winner.symbol = "ETH/USD"
@@ -121,19 +126,22 @@ async def test_calculate_partial_close_quantities_zero_profit_per_unit():
     winner.weighted_avg_entry = Decimal("90.0")
     winner.side = "long"
     
-    precision_rules = {}
     required_usd = Decimal("20.0")
     
-    plan = await calculate_partial_close_quantities(
-        exchange_connector, [winner], required_usd, precision_rules
-    )
+    with patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector):
+        plan = await calculate_partial_close_quantities(
+            mock_user, [winner], required_usd
+        )
     
     assert len(plan) == 0
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_below_min_notional():
+async def test_calculate_partial_close_quantities_below_min_notional(mock_user):
     exchange_connector = AsyncMock()
     exchange_connector.get_current_price.return_value = Decimal("100.0")
+    exchange_connector.get_precision_rules.return_value = {
+        "ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10.0")}
+    }
     
     winner = MagicMock()
     winner.symbol = "ETH/USD"
@@ -141,18 +149,15 @@ async def test_calculate_partial_close_quantities_below_min_notional():
     winner.weighted_avg_entry = Decimal("90.0")
     winner.side = "long"
     
-    precision_rules = {
-        "ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10.0")}
-    }
-    
     required_usd = Decimal("0.5")
     
     # Profit per unit = 10. Qty = 0.5 / 10 = 0.05.
     # Notional = 0.05 * 100 = 5.0. Min notional = 10.0. Should skip.
     
-    plan = await calculate_partial_close_quantities(
-        exchange_connector, [winner], required_usd, precision_rules
-    )
+    with patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector):
+        plan = await calculate_partial_close_quantities(
+            mock_user, [winner], required_usd
+        )
     
     assert len(plan) == 0
 
@@ -165,7 +170,6 @@ async def test_validate_pre_trade_risk_checks(mock_config):
         position_group_repository_class=MagicMock(),
         risk_action_repository_class=MagicMock(),
         dca_order_repository_class=MagicMock(),
-        exchange_connector=MagicMock(),
         order_service_class=MagicMock(),
         risk_engine_config=mock_config
     )
@@ -275,7 +279,6 @@ async def test_evaluate_user_positions_execution(mock_config):
             position_group_repository_class=MagicMock(return_value=mock_pos_repo),
             risk_action_repository_class=MagicMock(return_value=mock_risk_repo),
             dca_order_repository_class=MagicMock(),
-            exchange_connector=MagicMock(),
             order_service_class=mock_order_service,
             risk_engine_config=mock_config
         )

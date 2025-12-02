@@ -22,6 +22,9 @@ class MockExchange(ExchangeInterface):
     async def fetch_balance(self):
         pass
 
+    async def fetch_free_balance(self):
+        pass
+
     async def close(self):
         pass
 

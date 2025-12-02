@@ -62,7 +62,10 @@ async def fetch_data(data_type):
                     "pyramid_count": g.pyramid_count,
                     "created_at": g.created_at.isoformat() if g.created_at else None,
                     "updated_at": g.updated_at.isoformat() if g.updated_at else None,
-                    "closed_at": g.closed_at.isoformat() if g.closed_at else None
+                    "closed_at": g.closed_at.isoformat() if g.closed_at else None,
+                    "risk_timer_expires": g.risk_timer_expires.isoformat() if g.risk_timer_expires else None,
+                    "filled_dca_legs": g.filled_dca_legs,
+                    "total_dca_legs": g.total_dca_legs
                 })
             return data
         elif data_type == 'users':
@@ -84,7 +87,8 @@ async def fetch_data(data_type):
                     "dca_grid_config": u.dca_grid_config,
                     "created_at": u.created_at.isoformat() if u.created_at else None,
                     "updated_at": u.updated_at.isoformat() if u.updated_at else None,
-                    "webhook_secret_set": bool(u.webhook_secret) 
+                    "webhook_secret_set": bool(u.webhook_secret),
+                    "risk_config": u.risk_config
                 })
             return data
         else:

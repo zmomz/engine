@@ -1,19 +1,22 @@
 ## User CURRENT Configuration
 Target User:
 {
+    "id": "c788bbcd-57e7-42f7-aa06-870a8dfc994f",
     "username": "maaz",
-    "id": "e7d6ae10-2a7d-4383-90d3-461c986e1e71"
-    "webhook_secret":"1b6d3edada59826e786088a2161d70b6"
+    "email": "maaz@gmail.com",
+    "is_active": true,
+    "is_superuser": false,
+    "exchange": "binance",
     "configured_exchanges": [
-      "bybit",
-      "binance"
+      "binance",
+      "bybit"
     ],
     "risk_config": {
-      "max_open_positions_global": 3,
+      "max_open_positions_global": 10,
       "max_open_positions_per_symbol": 1,
-      "max_total_exposure_usd": "1000",
-      "max_daily_loss_usd": "500",
-      "loss_threshold_percent": "-3",
+      "max_total_exposure_usd": "500",
+      "max_daily_loss_usd": "50",
+      "loss_threshold_percent": "-1.5",
       "timer_start_condition": "after_all_dca_filled",
       "post_full_wait_minutes": 2,
       "max_winners_to_combine": 3,
@@ -22,7 +25,7 @@ Target User:
       "require_full_pyramids": true,
       "reset_timer_on_replacement": false,
       "partial_close_enabled": true,
-      "min_close_notional": "10"
+      "min_close_notional": "0"
     },
     "dca_grid_config": {
       "levels": [
@@ -32,34 +35,39 @@ Target User:
           "tp_percent": 1
         },
         {
-          "gap_percent": -0.5,
+          "gap_percent": -1,
           "weight_percent": 30,
-          "tp_percent": 1
+          "tp_percent": 2
         },
         {
-          "gap_percent": -1,
+          "gap_percent": -2,
           "weight_percent": 50,
           "tp_percent": 2
         }
       ],
-      }
       "tp_mode": "per_leg",
       "tp_aggregate_percent": 0
-}
+    },
+    "created_at": "2025-12-01T18:09:48.647368",
+    "updated_at": "2025-12-02T11:19:13.788398",
+    "webhook_secret": "453d64c9bda97b766a1500522dc3143d"
+  }
 
 current prices use it as entry prices:
 {
-    "BTCUSDT": 95992.3,
-    "ETHUSDT": 3394.0,
-    "SOLUSDT": 125.97,
-    "DOTUSDT": 2.075,
-    "XRPUSDT": 1.874,
-    "TRXUSDT": 0.2468,
-    "DOGEUSDT": 0.195,
-    "ADAUSDT": 0.387,
-    "GALAUSDT": 0.0066
+    "BTCUSDT": 87145.3,
+    "ETHUSDT": 2823.0,
+    "SOLUSDT": 127.97,
+    "DOTUSDT": 2.095,
+    "XRPUSDT": 2.03,
+    "TRXUSDT": 0.278,
+    "DOGEUSDT": 0.1368,
+    "ADAUSDT": 0.393,
+    "GALAUSDT": 0.0067
 }
 
+
+ 
 # Trading Engine Testing Plan - Multi-Exchange Workflow
 
 ## Overview
@@ -73,18 +81,18 @@ Comprehensive testing strategy for validating the automated trading execution en
 **Objective:** Verify signal reception, parsing, and first position creation
 
 ```bash
-python3 scripts/simulate_webhook.py \
+docker compose exec app python3 scripts/simulate_webhook.py \
   --user-id <BINANCE_USER_UUID> \
   --secret <WEBHOOK_SECRET> \
-  --exchange BINANCE \
-  --symbol BTCUSDT \
-  --timeframe 60 \
-  --action buy \
+  --exchange <EXCHANGE> \
+  --symbol <SYMBOL> \
+  --timeframe <TIMEFRAME> \
+  --action <ACTION> \
   --side long \
   --type signal \
-  --entry-price 95992.3 \
-  --close-price 95992.3 \
-  --order-size 0.001
+  --entry-price <ENTRY_PRICE> \
+  --close-price <CLOSE_PRICE> \
+  --order-size <ORDER_SIZE>
 ```
 
 **Validation Checklist:**
@@ -101,7 +109,7 @@ python3 scripts/simulate_webhook.py \
 - [ ] Binance Testnet UI shows open order
 - [ ] Database check:
   ```bash
-  python scripts/export_data.py --type positions --format json
+  python scripts/export_user_positions.py --type positions --format json
   # Verify position_group created with status 'open'
   ```
 
@@ -606,8 +614,8 @@ python scripts/simulate_webhook.py \
 ### Test 6.1: Database Consistency
 **After all tests, run:**
 ```bash
-python scripts/export_data.py --type positions --format json --output positions_final.json
-python scripts/export_data.py --type users --format json --output users_final.json
+python scripts/export_user_positions.py --type positions --format json --output positions_final.json
+python scripts/export_user_positions.py --type users --format json --output users_final.json
 ```
 
 **Validation:**
@@ -620,8 +628,8 @@ python scripts/export_data.py --type users --format json --output users_final.js
 ### Test 6.2: Data Cleanup
 **Test:**
 ```bash
-python scripts/clean_positions_for_user.py
-# (Will clean 'zmomz' user as per script)
+python scripts/clean_user_positions.py
+# (Will clean 'maaz' user as per script)
 ```
 
 **Validation:**
@@ -747,39 +755,11 @@ For each test, document issues:
 
 ---
 
-## Additional Scripts Needed
-
-Based on this plan, you may need these additional utility scripts:
-
-### `create_test_user.py`
-Creates test users with API credentials
-
-### `simulate_price_movement.py`
-Mocks exchange price changes for testing TP/DCA
-
-### `verify_database_state.py`
-Audits database for consistency issues
-
-### `bulk_webhook_test.py`
-Sends multiple signals from JSON configuration
-
-### `exchange_health_check.py`
-Validates API connectivity and credentials
-
-### `reset_test_environment.py`
-Cleans all test data and resets to initial state
-
----
-
 ## Notes
-
-- **Testnet Funds:** Ensure both testnet accounts have sufficient balance
-- **API Rate Limits:** Monitor closely, especially during stress tests
-- **Logging Level:** Set to DEBUG during initial tests, INFO for later phases
-- **Backup Frequently:** Export database and config after each phase
-- **Parallel Testing:** Run Binance and Bybit tests simultaneously when possible
-- **Documentation:** Update README with any discovered behavioral nuances
-
+** use "docker compose exec app python3 " infront of any script you need to run ex. docker compose exec app python3 scripts/simulate_webhook.py ...
+** check the logs: docker compose logs --tail 100 or docker compose logs --tail 100 app
+** use docker compose exec app python3 scripts/simulate_webhook.py for simulating the signal
+** read the code to find out what is missing and fix it
 ---
 
 **Good luck with testing! This plan should help you systematically identify and fix issues before production deployment.**

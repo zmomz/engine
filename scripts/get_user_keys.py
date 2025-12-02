@@ -22,5 +22,10 @@ async def get_user_keys(username: str):
         print(json.dumps(user.encrypted_api_keys, indent=2))
 
 if __name__ == "__main__":
-    target_username = "zmomz"
-    asyncio.run(get_user_keys(target_username))
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Get encrypted API keys for a user.")
+    parser.add_argument("--username", type=str, required=True, help="The username to retrieve API keys for.")
+    args = parser.parse_args()
+
+    asyncio.run(get_user_keys(args.username))

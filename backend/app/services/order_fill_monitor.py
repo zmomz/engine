@@ -153,22 +153,7 @@ class OrderFillMonitorService:
 
                                         # Handle filled orders
                                         if updated_order.status == OrderStatus.FILLED.value:
-                                            # For Bybit testnet workaround case: ensure filled_quantity and filled_price are set
-                                            if order.group and order.group.exchange.upper() == "BYBIT":
-                                                if updated_order.filled_quantity == Decimal('0'):
-                                                    logger.warning(f"Order {order.id} marked FILLED but filled_quantity is 0, setting to {updated_order.quantity}")
-                                                    updated_order.filled_quantity = updated_order.quantity
-                                                    
-                                                if updated_order.filled_price == Decimal('0'):
-                                                    logger.warning(f"Order {order.id} marked FILLED but filled_price is 0, setting to entry_price {updated_order.entry_price}")
-                                                    updated_order.filled_price = updated_order.entry_price
-                                                    
-                                                if updated_order.avg_fill_price is None or updated_order.avg_fill_price == Decimal('0'):
-                                                    logger.warning(f"Order {order.id} marked FILLED but avg_fill_price is 0, setting to entry_price {updated_order.entry_price}")
-                                                    updated_order.avg_fill_price = updated_order.entry_price
-                                                
-                                                await order_service.dca_order_repository.update(updated_order)
-
+                                            
                                             # CRITICAL: Flush order status and filled details update before recalculating stats
                                             await session.flush()
                                             

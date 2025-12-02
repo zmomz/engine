@@ -134,7 +134,7 @@ class SignalRouterService:
             if intent_type == "exit":
                 # Determine target position side to close
                 # If action is 'sell', we close 'long'. If 'buy', we close 'short'.
-                target_side = "long" if signal.tv.action.lower() == "sell" else "short"
+                target_side = "long" if signal.tv.action.lower() == "buy" else "short"
                 
                 group_to_close = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.side == target_side), None)
                 
@@ -189,8 +189,7 @@ class SignalRouterService:
 
             if existing_group:
                 # Pyramid Logic
-                max_pyramids = 5 # Default as not in config schemas currently
-                if existing_group.pyramid_count < max_pyramids:
+                if existing_group.pyramid_count < dca_config.max_pyramids - 1:
                     try:
                         # Create transient QueuedSignal
                         qs = QueuedSignal(

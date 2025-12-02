@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from decimal import Decimal
 from datetime import datetime, timedelta
 import uuid
@@ -9,7 +9,9 @@ from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.queued_signal import QueuedSignal
 from app.schemas.grid_config import RiskEngineConfig
 
-# --- Fixtures ---
+@pytest.fixture
+def mock_user():
+    return MagicMock(id=uuid.uuid4(), encrypted_api_keys={})
 
 @pytest.fixture
 def mock_config():
@@ -31,7 +33,6 @@ def risk_service(mock_config):
         position_group_repository_class=MagicMock(),
         risk_action_repository_class=MagicMock(),
         dca_order_repository_class=MagicMock(),
-        exchange_connector=AsyncMock(),
         order_service_class=MagicMock(),
         risk_engine_config=mock_config,
         polling_interval_seconds=1
@@ -204,7 +205,7 @@ def test_select_loser_sorting_logic(mock_config):
 # --- Test Cases: Offset Calculation ---
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_exact_coverage():
+async def test_calculate_partial_close_quantities_exact_coverage(mock_user):
     """Test calculating closure amount when winner has enough profit."""
     winner = PositionGroup(
         id=uuid.uuid4(), symbol="ETH/USD", side="short",
@@ -212,23 +213,27 @@ async def test_calculate_partial_close_quantities_exact_coverage():
         total_filled_quantity=Decimal("1.0")
     )
     
-    exchange = AsyncMock()
-    # Current price 2900 (Short profit = 3000 - 2900 = 100 per unit)
-    exchange.get_current_price.return_value = Decimal("2900.0") 
-    
     # Need 50 USD. Profit per unit is 100. Expect 0.5 units close.
     required_usd = Decimal("50.0")
     precision_rules = {"ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10")}}
     
-    plan = await calculate_partial_close_quantities(exchange, [winner], required_usd, precision_rules)
+    # Mock the exchange connector within the calculate_partial_close_quantities function
+    with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
+        mock_connector = AsyncMock()
+        mock_get_connector.return_value = mock_connector
+        mock_connector.get_current_price.return_value = Decimal("2900.0") 
+        mock_connector.get_precision_rules.return_value = precision_rules
+
+        plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
     
     assert len(plan) == 1
     pg, qty = plan[0]
     assert pg.symbol == "ETH/USD"
     assert qty == Decimal("0.50")
 
+    
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_insufficient_winner():
+async def test_calculate_partial_close_quantities_insufficient_winner(mock_user):
     """Test draining first winner and moving to second."""
     w1 = PositionGroup(
         id=uuid.uuid4(), symbol="ETH/USD", side="long",
@@ -241,18 +246,20 @@ async def test_calculate_partial_close_quantities_insufficient_winner():
         total_filled_quantity=Decimal("1.0")
     ) # Profit 100
     
-    exchange = AsyncMock()
-    # W1 Price: 1100 (Profit/unit = 100). To get 40, close 0.4
-    # W2 Price: 11000 (Profit/unit = 1000). Needed remaining: 60 - 40 = 20. Close 0.02
-    exchange.get_current_price.side_effect = [Decimal("1100.0"), Decimal("11000.0")]
-    
     required_usd = Decimal("60.0")
     precision_rules = {
         "ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10")},
         "BTC/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10")}
     }
     
-    plan = await calculate_partial_close_quantities(exchange, [w1, w2], required_usd, precision_rules)
+    # Mock the exchange connector within the calculate_partial_close_quantities function
+    with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
+        mock_connector = AsyncMock()
+        mock_get_connector.return_value = mock_connector
+        mock_connector.get_current_price.side_effect = [Decimal("1100.0"), Decimal("11000.0")]
+        mock_connector.get_precision_rules.return_value = precision_rules
+
+        plan = await calculate_partial_close_quantities(mock_user, [w1, w2], required_usd)
     
     assert len(plan) == 2
     assert plan[0][0].symbol == "ETH/USD"
@@ -262,23 +269,22 @@ async def test_calculate_partial_close_quantities_insufficient_winner():
     assert plan[1][1] == Decimal("0.02") # Takes remaining 20 USD profit
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_min_notional_skip():
+async def test_calculate_partial_close_min_notional_skip(mock_user):
     """Test skipping a winner if the calculated close quantity is too small."""
     winner = PositionGroup(
         id=uuid.uuid4(), symbol="DOGE/USD", side="long",
         unrealized_pnl_usd=Decimal("1.0"), weighted_avg_entry=Decimal("0.10"), exchange="binance"
     )
     
-    exchange = AsyncMock()
-    exchange.get_current_price.return_value = Decimal("0.11") # Profit 0.01 per unit
-    
-    # Need 0.5 USD. Qty = 0.5 / 0.01 = 50 units.
-    # Notional = 50 * 0.11 = 5.5 USD.
-    # Min notional is 10 USD. Should skip.
-    
     required_usd = Decimal("0.5")
     precision_rules = {"DOGE/USD": {"step_size": Decimal("1"), "min_notional": Decimal("10")}}
     
-    plan = await calculate_partial_close_quantities(exchange, [winner], required_usd, precision_rules)
+    with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
+        mock_connector = AsyncMock()
+        mock_get_connector.return_value = mock_connector
+        mock_connector.get_current_price.return_value = Decimal("0.11") # Profit 0.01 per unit
+        mock_connector.get_precision_rules.return_value = precision_rules
+        
+        plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
     
     assert len(plan) == 0
