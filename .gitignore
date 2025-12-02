@@ -64,3 +64,11 @@ Thumbs.db
 
 # Docker
 *.env
+
+# scripts
+scripts/
+scripts/*
+
+# Docs
+docs
+docs/*

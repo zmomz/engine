@@ -44,3 +44,7 @@ docker-compose.*.yml
 .vscode
 *.swp
 .venv
+
+# Docs
+docs
+docs/*
