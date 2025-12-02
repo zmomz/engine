@@ -19,7 +19,7 @@ def get_timestamp():
     return datetime.datetime.utcnow().isoformat() + "Z"
 
 def wait_for_app_ready(base_url, retries=10, delay=5):
-    health_endpoint = f"{base_url}/health"
+    health_endpoint = f"{base_url}/api/v1/health"
     print(f"Waiting for app to be ready at {health_endpoint}...")
     for i in range(retries):
         try:

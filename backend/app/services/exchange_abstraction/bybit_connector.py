@@ -116,7 +116,16 @@ class BybitConnector(ExchangeInterface):
                 price=price,
                 params=params
             )
-            logger.info(f"Order placed successfully: {result.get('id', 'unknown')}")
+            
+            # Extract native Bybit orderId from info field (CCXT returns composite ID)
+            if 'info' in result and 'orderId' in result['info']:
+                native_order_id = str(result['info']['orderId'])
+                logger.info(f"Order placed successfully. CCXT ID: {result.get('id')}, Native Bybit ID: {native_order_id}")
+                # Replace CCXT's composite ID with Bybit's native ID for consistency
+                result['id'] = native_order_id
+            else:
+                logger.info(f"Order placed successfully: {result.get('id', 'unknown')}")
+                
             return result
         except ccxt.ExchangeError as e:
             # Check for error code 10005 (Invalid permissions/key) or 170131 (Insufficient balance)
@@ -143,7 +152,14 @@ class BybitConnector(ExchangeInterface):
                         price=price,
                         params=retry_params
                     )
-                    logger.info(f"Order placed successfully with CONTRACT: {result.get('id', 'unknown')}")
+                    
+                    # Extract native Bybit orderId
+                    if 'info' in result and 'orderId' in result['info']:
+                        native_order_id = str(result['info']['orderId'])
+                        logger.info(f"Order placed successfully with CONTRACT. Native Bybit ID: {native_order_id}")
+                        result['id'] = native_order_id
+                    else:
+                        logger.info(f"Order placed successfully with CONTRACT: {result.get('id', 'unknown')}")
                     return result
                 except Exception as e2:
                     logger.warning(f"Bybit fallback to CONTRACT failed. Retrying with SPOT. Error: {e2}")
@@ -158,7 +174,14 @@ class BybitConnector(ExchangeInterface):
                             price=price,
                             params=retry_params_spot
                         )
-                        logger.info(f"Order placed successfully with SPOT: {result.get('id', 'unknown')}")
+                        
+                        # Extract native Bybit orderId
+                        if 'info' in result and 'orderId' in result['info']:
+                            native_order_id = str(result['info']['orderId'])
+                            logger.info(f"Order placed successfully with SPOT. Native Bybit ID: {native_order_id}")
+                            result['id'] = native_order_id
+                        else:
+                            logger.info(f"Order placed successfully with SPOT: {result.get('id', 'unknown')}")
                         return result
                     except Exception as e3:
                         logger.error(f"Bybit fallback to SPOT also failed. Error: {e3}")
@@ -171,7 +194,7 @@ class BybitConnector(ExchangeInterface):
         """
         Fetches the status of a specific order by its ID.
         Returns the full order dictionary.
-        Includes retry logic for Bybit conditional orders and checks closed trades for quickly filled orders.
+        Includes retry logic for Bybit conditional orders, account type fallback, and checks closed trades for quickly filled orders.
         """
         try:
             order = await self.exchange.fetch_order(order_id, symbol)
@@ -183,6 +206,27 @@ class BybitConnector(ExchangeInterface):
                 return order
             except Exception as retry_e:
                 logger.warning(f"Retry with trigger param for order {order_id} also failed: {retry_e}")
+                
+                # Try account type fallback if using UNIFIED
+                is_unified = self.exchange.options.get('accountType') == 'UNIFIED'
+                if is_unified:
+                    logger.info(f"Attempting account type fallback for order {order_id} (SPOT/CONTRACT)...")
+                    
+                    # Try SPOT
+                    try:
+                        order = await self.exchange.fetch_order(order_id, symbol, params={'accountType': 'SPOT'})
+                        logger.info(f"Order {order_id} found via SPOT account type.")
+                        return order
+                    except Exception as spot_e:
+                        logger.warning(f"SPOT fallback failed for order {order_id}: {spot_e}")
+                        
+                        # Try CONTRACT
+                        try:
+                            order = await self.exchange.fetch_order(order_id, symbol, params={'accountType': 'CONTRACT'})
+                            logger.info(f"Order {order_id} found via CONTRACT account type.")
+                            return order
+                        except Exception as contract_e:
+                            logger.warning(f"CONTRACT fallback failed for order {order_id}: {contract_e}")
                 
                 # If still not found, check recent trades for the order ID
                 logger.info(f"Attempting to find order {order_id} in recent trades for {symbol}...")
@@ -212,7 +256,7 @@ class BybitConnector(ExchangeInterface):
     async def cancel_order(self, order_id: str, symbol: str = None):
         """
         Cancels an existing order by its ID with retry logic and status verification.
-        Includes fallback for account types (UNIFIED -> CONTRACT -> SPOT).
+        Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
         """
         max_retries = 3
         retry_delay = 0.5  # seconds
@@ -252,15 +296,15 @@ class BybitConnector(ExchangeInterface):
         try:
             is_unified = self.exchange.options.get('accountType') == 'UNIFIED'
             if is_unified: 
-                logger.info(f"Attempting cancel fallback for order {order_id} (CONTRACT/SPOT)...")
+                logger.info(f"Attempting cancel fallback for order {order_id} (SPOT/CONTRACT)...")
                 
-                # Try CONTRACT
+                # Try SPOT first (Prioritize Spot for Spot pairs)
                 try:
-                    return await self.exchange.cancel_order(order_id, symbol, params={'accountType': 'CONTRACT'})
-                except Exception:
-                    # Try SPOT
+                    return await self.exchange.cancel_order(order_id, symbol, params={'accountType': 'SPOT'})
+                except Exception as e2:
+                    # Try CONTRACT
                     try:
-                        return await self.exchange.cancel_order(order_id, symbol, params={'accountType': 'SPOT'})
+                        return await self.exchange.cancel_order(order_id, symbol, params={'accountType': 'CONTRACT'})
                     except Exception as e3:
                         logger.error(f"All cancel fallbacks failed for order {order_id}. Last error: {e3}")
                         raise OrderCancellationError(f"Failed to cancel order {order_id} on all account types.")
@@ -281,19 +325,19 @@ class BybitConnector(ExchangeInterface):
     async def fetch_balance(self):
         """
         Fetches the total balance for all assets.
-        Includes fallback for account types (UNIFIED -> CONTRACT -> SPOT).
+        Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
         """
         try:
             balance = await self.exchange.fetch_balance(params={'accountType': 'UNIFIED'})
             return balance['total']
         except (ccxt.ExchangeError, Exception) as e:
-            logger.warning(f"fetch_balance failed with UNIFIED: {e}. Retrying with CONTRACT/SPOT.")
+            logger.warning(f"fetch_balance failed with UNIFIED: {e}. Retrying with SPOT/CONTRACT.")
             try:
-                balance = await self.exchange.fetch_balance(params={'accountType': 'CONTRACT'})
+                balance = await self.exchange.fetch_balance(params={'accountType': 'SPOT'})
                 return balance['total']
             except Exception as e2:
                 try:
-                    balance = await self.exchange.fetch_balance(params={'accountType': 'SPOT'})
+                    balance = await self.exchange.fetch_balance(params={'accountType': 'CONTRACT'})
                     return balance['total']
                 except Exception as e3:
                     logger.error(f"All fetch_balance fallbacks failed. Last error: {e3}")
@@ -303,19 +347,19 @@ class BybitConnector(ExchangeInterface):
     async def fetch_free_balance(self):
         """
         Fetches the free (available) balance for all assets.
-        Includes fallback for account types (UNIFIED -> CONTRACT -> SPOT).
+        Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
         """
         try:
             balance = await self.exchange.fetch_balance(params={'accountType': 'UNIFIED'})
             return balance['free']
         except (ccxt.ExchangeError, Exception) as e:
-            logger.warning(f"fetch_free_balance failed with UNIFIED: {e}. Retrying with CONTRACT/SPOT.")
+            logger.warning(f"fetch_free_balance failed with UNIFIED: {e}. Retrying with SPOT/CONTRACT.")
             try:
-                balance = await self.exchange.fetch_balance(params={'accountType': 'CONTRACT'})
+                balance = await self.exchange.fetch_balance(params={'accountType': 'SPOT'})
                 return balance['free']
             except Exception as e2:
                 try:
-                    balance = await self.exchange.fetch_balance(params={'accountType': 'SPOT'})
+                    balance = await self.exchange.fetch_balance(params={'accountType': 'CONTRACT'})
                     return balance['free']
                 except Exception as e3:
                     logger.error(f"All fetch_free_balance fallbacks failed. Last error: {e3}")

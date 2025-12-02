@@ -159,22 +159,9 @@ class OrderService:
             logger.debug(f"Exchange response for order {dca_order.id}: {exchange_order_data}")
 
         except (ccxt.OrderNotFound, APIError, ExchangeConnectionError) as e:
-            # Temporary workaround for Bybit testnet 'Order not found' issues where orders are actually filled.
-            # This block now lives within OrderService.check_order_status
-            if dca_order.group and dca_order.group.exchange.upper() == "BYBIT" and self.exchange_connector.exchange.options.get('testnet'):
-                logger.warning(
-                    f"BYBIT TESTNET WORKAROUND (OrderService): Order {dca_order.exchange_order_id} for {dca_order.symbol} not found "
-                    f"but assuming filled for testing purposes. Marking as FILLED."
-                )
-                dca_order.status = OrderStatus.FILLED.value
-                dca_order.filled_quantity = dca_order.quantity  # Assume full fill
-                dca_order.filled_price = dca_order.entry_price  # Assume fill at entry price
-                dca_order.closed_at = datetime.utcnow()
-                await self.dca_order_repository.update(dca_order) # Update the order in DB
-                return dca_order # Return the updated order directly
-            else:
-                logger.error(f"Failed to check status for order {dca_order.id}: Order validation failed. Original error: {e}")
-                raise APIError(f"Order not found on exchange for order {dca_order.id}") from e
+            # Order not found on exchange - this could mean it was cancelled, filled and cleared, or never placed
+            logger.error(f"Failed to check status for order {dca_order.id}: Order not found on exchange. Original error: {e}")
+            raise APIError(f"Order not found on exchange for order {dca_order.id}") from e
         except Exception as e:
             logger.error(f"Failed to retrieve order status for {dca_order.id}: {e}")
             raise APIError(f"Failed to retrieve order status: {e}") from e
