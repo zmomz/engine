@@ -185,8 +185,7 @@ async def force_close_position(
             user=current_user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=GridCalculatorService(),
-            order_service_class=OrderService,
-            exchange_connector=exchange_connector
+            order_service_class=OrderService
         )
 
         await position_manager.handle_exit_signal(updated_position.id)

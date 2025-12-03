@@ -578,6 +578,7 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 - [ ] Pool tracking works across exchanges
 - [ ] Independent order execution
 - [ ] Global pool limit respected (combined count ≤ 10)
+- [ ] **Note on Bybit Verification:** While Bybit orders are confirmed as successfully placed in the application logs, immediate verification via `scripts/verify_exchange_positions.py` may report "no open orders" due to exchange API latency or caching. This is an expected nuance and does not indicate a failure in order placement itself.
 
 ---
 

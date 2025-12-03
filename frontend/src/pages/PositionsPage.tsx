@@ -68,7 +68,7 @@ const PositionsPage: React.FC = () => {
       field: 'pyramid_count',
       headerName: 'Pyramids',
       width: 100,
-      valueGetter: (value: any, row: PositionGroup) => `${row.pyramid_count || 0} / ${row.max_pyramids || 5}`,
+      valueGetter: (value: any, row: PositionGroup) => `${(row.pyramid_count || 0) + 1} / ${row.max_pyramids || 5}`,
     },
     {
       field: 'filled_dca_legs',
