@@ -49,7 +49,7 @@ def main():
     parser.add_argument('--action', default='buy', help='Action (buy/sell)')
     parser.add_argument('--market-position', default='flat', help='Current market position')
     parser.add_argument('--market-position-size', type=float, default=0.0, help='Current position size')
-    parser.add_argument('--entry-price', type=float, default=50000.0, help='Entry price')
+    parser.add_argument('--entry-price', type=float, default=argparse.SUPPRESS, help='Entry price')
     parser.add_argument('--close-price', type=float, default=50000.0, help='Close price')
     parser.add_argument('--order-size', type=float, default=0.1, help='Order size')
     
@@ -87,7 +87,7 @@ def main():
             "market_position_size": args.market_position_size,
             "prev_market_position": "flat", # simplified
             "prev_market_position_size": 0.0, # simplified
-            "entry_price": args.entry_price,
+            "entry_price": getattr(args, 'entry_price', args.close_price),
             "close_price": args.close_price,
             "order_size": args.order_size
         },

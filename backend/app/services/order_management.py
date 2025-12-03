@@ -82,22 +82,23 @@ class OrderService:
     async def cancel_order(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Cancels a DCA order on the exchange and updates its status in the database.
+        Handles OrderNotFound gracefully.
         """
         if not dca_order.exchange_order_id:
-            raise APIError("Cannot cancel order without an exchange_order_id.")
+            logger.warning(f"Order {dca_order.id} has no exchange_order_id, marking as CANCELLED.")
+            dca_order.status = OrderStatus.CANCELLED.value
+            await self.dca_order_repository.update(dca_order)
+            return dca_order
 
         try:
-            exchange_order_data = await self.exchange_connector.cancel_order(
+            await self.exchange_connector.cancel_order(
                 order_id=dca_order.exchange_order_id,
                 symbol=dca_order.symbol
             )
-
-            dca_order.status = OrderStatus.CANCELLED.value
-            dca_order.cancelled_at = datetime.utcnow()
-            
-            await self.dca_order_repository.update(dca_order)
-            return dca_order
+        except ccxt.OrderNotFound:
+            logger.warning(f"Order {dca_order.exchange_order_id} not found on exchange during cancellation. Assuming already closed/cancelled.")
         except APIError as e:
+            # Re-raise APIErrors to be handled by the caller
             dca_order.status = OrderStatus.FAILED.value
             await self.dca_order_repository.update(dca_order)
             raise e
@@ -105,6 +106,12 @@ class OrderService:
             dca_order.status = OrderStatus.FAILED.value
             await self.dca_order_repository.update(dca_order)
             raise APIError(f"Failed to cancel order: {e}") from e
+
+        # If cancellation was successful or order was not found, mark as cancelled
+        dca_order.status = OrderStatus.CANCELLED.value
+        dca_order.cancelled_at = datetime.utcnow()
+        await self.dca_order_repository.update(dca_order)
+        return dca_order
 
     async def place_tp_order(self, dca_order: DCAOrder) -> DCAOrder:
         """
@@ -387,6 +394,7 @@ class OrderService:
     async def cancel_tp_order(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Cancels the TP order associated with a filled DCA order.
+        Handles OrderNotFound gracefully.
         """
         if not dca_order.tp_order_id:
             return dca_order
@@ -397,22 +405,20 @@ class OrderService:
                 order_id=dca_order.tp_order_id,
                 symbol=dca_order.symbol
             )
-            # Clear TP order ID to stop monitoring and indicate no active TP
-            dca_order.tp_order_id = None
-            dca_order.tp_hit = False # Reset just in case
-            await self.dca_order_repository.update(dca_order)
-            return dca_order
+        except ccxt.OrderNotFound:
+            logger.warning(f"TP order {dca_order.tp_order_id} not found on exchange during cancellation. Assuming already closed/cancelled.")
         except APIError as e:
             logger.error(f"Failed to cancel TP order {dca_order.tp_order_id}: {e}")
-            # If order not found, maybe it's already closed/cancelled?
-            # We should probably clear the ID anyway if it's not found to prevent stuck state
-            if "Order not found" in str(e) or "Unknown order" in str(e):
-                 dca_order.tp_order_id = None
-                 await self.dca_order_repository.update(dca_order)
-            raise e
+            # Do not re-raise, but log the error. The goal is to close the position.
+            # If TP cancel fails, market close should still proceed.
         except Exception as e:
             logger.error(f"Unexpected error cancelling TP order {dca_order.tp_order_id}: {e}")
-            raise APIError(f"Failed to cancel TP order: {e}") from e
+
+        # In any case (success, not found, or other error), clear the TP order ID
+        dca_order.tp_order_id = None
+        dca_order.tp_hit = False # Reset just in case
+        await self.dca_order_repository.update(dca_order)
+        return dca_order
 
     async def cancel_open_orders_for_group(self, group_id: uuid.UUID):
         """
@@ -424,17 +430,13 @@ class OrderService:
         orders = await self.dca_order_repository.get_all_orders_by_group_id(group_id)
         
         for order in orders:
-            try:
-                # Cancel Entry Orders
-                if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]:
-                    await self.cancel_order(order)
-                
-                # Cancel TP Orders for Filled entries
-                elif order.status == OrderStatus.FILLED.value and order.tp_order_id:
-                    await self.cancel_tp_order(order)
-                    
-            except Exception as e:
-                logger.error(f"Failed to process cancellation for order {order.id} in group {group_id}: {e}")
+            # Cancel Entry Orders
+            if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]:
+                await self.cancel_order(order)
+            
+            # Cancel TP Orders for Filled entries
+            elif order.status == OrderStatus.FILLED.value and order.tp_order_id:
+                await self.cancel_tp_order(order)
 
     async def close_position_market(self, position_group: PositionGroup, quantity_to_close: Decimal):
         """

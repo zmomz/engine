@@ -1,3 +1,4 @@
+import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
@@ -140,8 +141,8 @@ async def force_close_position(
     if not position_group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
 
+    exchange_connector = None
     try:
-
         # 2. Get credentials and config for the specific exchange
         target_exchange = position_group.exchange
         exchange_config_data = None
@@ -175,26 +176,31 @@ async def force_close_position(
 
         # 4. Mark as CLOSING
         updated_position = await order_service.execute_force_close(group_id)
-        
-        # Commit to release lock
-        await db.commit()
 
         # 5. Execute the actual close logic
         position_manager = PositionManagerService(
-            session_factory=AsyncSessionLocal,
+            session_factory=lambda: db, # Pass the existing session
             user=current_user,
             position_group_repository_class=PositionGroupRepository,
             grid_calculator_service=GridCalculatorService(),
             order_service_class=OrderService
         )
 
-        await position_manager.handle_exit_signal(updated_position.id)
+        # Pass the session explicitly to handle_exit_signal
+        await position_manager.handle_exit_signal(updated_position.id, session=db)
         
-        # Refresh
+        # Refresh to get the latest state after all operations
         await db.refresh(updated_position)
 
         return PositionGroupSchema.from_orm(updated_position)
     except APIError as e:
+        await db.rollback()
         raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(f"Error force closing position {group_id}: {e}\n{traceback.format_exc()}")
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during force close.")
+    finally:
+        # Always close the exchange connector
+        if exchange_connector:
+            await exchange_connector.close()

@@ -324,22 +324,33 @@ class PositionManagerService:
         
         return existing_position_group
 
-    async def handle_exit_signal(self, position_group_id: uuid.UUID):
+    async def handle_exit_signal(self, position_group_id: uuid.UUID, session: Optional[AsyncSession] = None):
         """
         Handles an exit signal for a position group.
         1. Cancels all open DCA orders.
         2. Places a market order to close the total filled quantity.
         """
-        async with self.session_factory() as session:
-            # Re-fetch position group with orders attached in this session
-            position_group_repo = self.position_group_repository_class(session)
-            position_group = await position_group_repo.get_with_orders(position_group_id)
-            
-            if not position_group:
-                logger.error(f"PositionGroup {position_group_id} not found for exit signal.")
-                return
+        if session:
+            await self._execute_handle_exit_signal(position_group_id, session)
+        else:
+            async with self.session_factory() as new_session:
+                await self._execute_handle_exit_signal(position_group_id, new_session)
+                await new_session.commit()
 
-            exchange_connector = self._get_exchange_connector_for_user(self.user, position_group.exchange)
+    async def _execute_handle_exit_signal(self, position_group_id: uuid.UUID, session: AsyncSession):
+        """
+        Core logic for handling an exit signal within a provided session.
+        """
+        # Re-fetch position group with orders attached in this session
+        position_group_repo = self.position_group_repository_class(session)
+        position_group = await position_group_repo.get_with_orders(position_group_id)
+        
+        if not position_group:
+            logger.error(f"PositionGroup {position_group_id} not found for exit signal.")
+            return
+
+        exchange_connector = self._get_exchange_connector_for_user(self.user, position_group.exchange)
+        try:
             order_service = self.order_service_class(session=session, user=self.user, exchange_connector=exchange_connector)
 
             # 1. Cancel open orders
@@ -376,7 +387,6 @@ class PositionManagerService:
                     position_group.closed_at = datetime.utcnow()
 
                     await position_group_repo.update(position_group)
-                    await session.commit()
                     logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
                 except Exception as e:
@@ -420,7 +430,6 @@ class PositionManagerService:
                                 position_group.unrealized_pnl_usd = Decimal("0")
                                 position_group.closed_at = datetime.utcnow()
                                 await position_group_repo.update(position_group)
-                                await session.commit()
                                 logger.info(f"PositionGroup {position_group.id} closed after retry. Realized PnL: {realized_pnl}")
                             else:
                                 logger.error(f"No balance found for {base_currency}. Cannot retry close.")
@@ -436,7 +445,8 @@ class PositionManagerService:
                 position_group.status = PositionGroupStatus.CLOSED
                 position_group.closed_at = datetime.utcnow()
                 await position_group_repo.update(position_group)
-                await session.commit()
+        finally:
+            await exchange_connector.close()
 
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None, position_group: Optional[PositionGroup] = None):
