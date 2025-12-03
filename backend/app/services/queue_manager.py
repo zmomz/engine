@@ -195,8 +195,19 @@ class QueueManagerService:
             
             # Check slot
             if self.execution_pool_manager:
-                # We assume no pyramid check for manual promotion, or we check it?
-                # Let's check simply.
+                user = await session.get(User, signal.user_id)
+                if not user:
+                    logger.error(f"User {signal.user_id} not found for signal {signal.id}")
+                    return None
+
+                try:
+                    risk_config = RiskEngineConfig(**user.risk_config)
+                    user_max_groups = risk_config.max_open_positions_global
+                except Exception as e:
+                    logger.error(f"Failed to load user config for user {user.id}: {e}")
+                    # Fallback to global default if user config is invalid
+                    user_max_groups = None
+
                 pos_group_repo = self.position_group_repository_class(session)
                 active_groups = await pos_group_repo.get_active_position_groups_for_user(signal.user_id)
                 is_pyramid = any(
@@ -206,7 +217,10 @@ class QueueManagerService:
                     for g in active_groups
                 )
                 
-                slot_granted = await self.execution_pool_manager.request_slot(is_pyramid_continuation=is_pyramid)
+                slot_granted = await self.execution_pool_manager.request_slot(
+                    is_pyramid_continuation=is_pyramid,
+                    max_open_groups_override=user_max_groups
+                )
                 if not slot_granted:
                     return None
             
