@@ -25,6 +25,9 @@ async def get_all_orders():
 @app.post("/orders", response_model=Order)
 async def create_order(order: Order):
     order.id = str(uuid.uuid4())
+    order.status = "filled" # Automatically mark as filled for mock
+    order.quantity = order.quantity # Assume full fill for simplicity
+    order.price = order.price # Assume fill at requested price
     mock_db[order.id] = order
     return order
 

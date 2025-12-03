@@ -3,6 +3,7 @@ import ccxt.async_support as ccxt
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
 import logging
+from typing import List, Dict, Any, Optional # Added Optional
 
 logger = logging.getLogger(__name__)
 
@@ -365,9 +366,116 @@ class BybitConnector(ExchangeInterface):
                     logger.error(f"All fetch_free_balance fallbacks failed. Last error: {e3}")
                     raise e
 
-    async def close(self):
-        """
-        Closes the underlying ccxt exchange instance.
-        """
-        if self.exchange:
-            await self.exchange.close()
+        async def fetch_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+
+            """
+
+            Fetches all currently open orders for a given symbol or all symbols on Bybit.
+
+            Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
+
+            """
+
+            try:
+
+                return await self.exchange.fetch_open_orders(symbol, params={'accountType': 'UNIFIED'})
+
+            except (ccxt.ExchangeError, Exception) as e:
+
+                logger.warning(f"fetch_open_orders failed with UNIFIED: {e}. Retrying with SPOT/CONTRACT.")
+
+                try:
+
+                    return await self.exchange.fetch_open_orders(symbol, params={'accountType': 'SPOT'})
+
+                except Exception as e2:
+
+                    try:
+
+                        return await self.exchange.fetch_open_orders(symbol, params={'accountType': 'CONTRACT'})
+
+                    except Exception as e3:
+
+                        logger.error(f"All fetch_open_orders fallbacks failed. Last error: {e3}")
+
+                        raise e
+
+    
+
+        async def close(self):
+
+            """
+
+            Closes the underlying ccxt exchange instance.
+
+            """
+
+            if self.exchange:
+
+                await self.exchange.close()
+
+    
+
+        async def cancel_all_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+
+            """
+
+            Cancels all open orders for a given symbol or all symbols on Bybit.
+
+            Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
+
+            """
+
+            if symbol:
+
+                try:
+
+                    return await self.exchange.cancelAllOrders(symbol)
+
+                except (ccxt.ExchangeError, Exception) as e:
+
+                    logger.warning(f"cancel_all_open_orders for symbol {symbol} failed with UNIFIED: {e}. Retrying with SPOT/CONTRACT.")
+
+                    try:
+
+                        return await self.exchange.cancelAllOrders(symbol, params={'accountType': 'SPOT'})
+
+                    except Exception as e2:
+
+                        try:
+
+                            return await self.exchange.cancelAllOrders(symbol, params={'accountType': 'CONTRACT'})
+
+                        except Exception as e3:
+
+                            logger.error(f"All cancel_all_open_orders fallbacks failed for symbol {symbol}. Last error: {e3}")
+
+                            raise e
+
+            else:
+
+                open_orders = await self.fetch_open_orders(symbol=None)
+
+                cancelled_orders = []
+
+                for order in open_orders:
+
+                    try:
+
+                        cancelled_order = await self.exchange.cancel_order(order['id'], order['symbol'])
+
+                        cancelled_orders.append(cancelled_order)
+
+                    except Exception as e:
+
+                        # Log and continue if a single order cancellation fails
+
+                        print(f"WARNING: Failed to cancel order {order['id']} ({order['symbol']}): {e}")
+
+                return cancelled_orders
+
+    
+
+        
+
+    

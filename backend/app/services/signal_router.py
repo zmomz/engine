@@ -178,6 +178,8 @@ class SignalRouterService:
                     logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
                     total_capital = max_exposure
 
+            logger.debug(f"DEBUG: Final total_capital_usd: {total_capital}")
+
             # Map 'buy'/'sell' to 'long'/'short'
             raw_action = signal.tv.action.lower()
             if raw_action == "buy":

@@ -51,7 +51,7 @@ def main():
     parser.add_argument('--market-position-size', type=float, default=0.0, help='Current position size')
     parser.add_argument('--entry-price', type=float, default=50000.0, help='Entry price')
     parser.add_argument('--close-price', type=float, default=50000.0, help='Close price')
-    parser.add_argument('--order-size', type=float, default=0.0001, help='Order size')
+    parser.add_argument('--order-size', type=float, default=0.1, help='Order size')
     
     # Strategy Info
     parser.add_argument('--alert-name', default='Test Alert', help='Alert name')

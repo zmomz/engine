@@ -449,7 +449,6 @@ class OrderService:
             symbol=position_group.symbol,
             side=close_side,
             quantity=quantity_to_close,
-            position_group_id=position_group.id,
-            reduce_only=True
+            position_group_id=position_group.id
         )
 

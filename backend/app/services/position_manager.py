@@ -432,7 +432,11 @@ class PositionManagerService:
                     else:
                         raise e
             else:
-                logger.info(f"No filled quantity to close for PositionGroup {position_group.id}")
+                logger.info(f"No filled quantity to close for PositionGroup {position_group.id}. Closing group.")
+                position_group.status = PositionGroupStatus.CLOSED
+                position_group.closed_at = datetime.utcnow()
+                await position_group_repo.update(position_group)
+                await session.commit()
 
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None, position_group: Optional[PositionGroup] = None):
