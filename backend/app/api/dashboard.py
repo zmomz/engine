@@ -12,6 +12,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Minimum balance threshold in USD to consider for TVL calculation
+# This helps skip "dust" balances that would slow down the dashboard
+MIN_BALANCE_THRESHOLD = 0.10  # $0.10 USD
+
 router = APIRouter()
 
 @router.get("/account-summary", response_model=DashboardOutput)
@@ -83,22 +87,68 @@ async def get_account_summary(
                 exchange_free_usdt = free_balances.get("USDT", total_balances.get("USDT", 0.0))
                 total_free_usdt += float(exchange_free_usdt)
 
+                # Fetch ALL tickers once
+                all_tickers = {}
+                try:
+                    all_tickers = await connector.get_all_tickers()
+                    logger.info(f"Fetched {len(all_tickers)} tickers from {exchange_name}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch all tickers from {exchange_name}: {e}. Falling back to individual fetches.")
+                
+                # Helper to get price from cache or fetch individually
+                async def get_price(symbol):
+                    # Try direct match
+                    if symbol in all_tickers:
+                        return float(all_tickers[symbol]['last'])
+                    
+                    # Try common variations if needed (e.g. BTC/USDT vs BTCUSDT)
+                    # CCXT usually unifies to BTC/USDT, but let's be safe
+                    if symbol.replace('/', '') in all_tickers:
+                         return float(all_tickers[symbol.replace('/', '')]['last'])
+                         
+                    # Fallback to individual fetch
+                    return await connector.get_current_price(symbol)
+
                 for asset, amount in total_balances.items():
-                    if amount > 0 and asset != exchange_name:
-                        if asset == "USDT":
-                            total_tvl += amount
-                        else:
-                            # Convert other assets to USDT value
-                            try:
-                                # Assuming get_current_price can handle conversion to USDT
-                                price_in_usdt = await connector.get_current_price(f"{asset}/USDT")
-                                total_tvl += amount * price_in_usdt
-                            except Exception as e:
-                                error_msg = str(e)
-                                if "does not have market symbol" in error_msg or "symbol not found" in error_msg.lower():
-                                    logger.debug(f"Skipping TVL calculation for {asset}: No market symbol {asset}/USDT on {exchange_name}")
-                                else:
-                                    logger.warning(f"Could not fetch price for {asset}/USDT on {exchange_name}: {e}")
+                    # Skip assets with zero or negative amounts
+                    if amount <= 0:
+                        continue
+                    
+                    # Skip the exchange's native token if it appears as a balance key
+                    if asset == exchange_name:
+                        continue
+                        
+                    if asset == "USDT":
+                        total_tvl += amount
+                    else:
+                        # Skip dust balances to avoid slow price lookups
+                        # For non-USDT assets, we estimate: if the asset had a price of $0.10,
+                        # would the balance be worth at least MIN_BALANCE_THRESHOLD?
+                        if amount < (MIN_BALANCE_THRESHOLD / 0.10):  # ~1 unit minimum
+                            # logger.debug(f"Skipping dust balance for {asset}: {amount} (below threshold)")
+                            continue
+                            
+                        # Convert other assets to USDT value
+                        try:
+                            # Assuming get_current_price can handle conversion to USDT
+                            symbol = f"{asset}/USDT"
+                            price_in_usdt = await get_price(symbol)
+                            
+                            asset_value = amount * price_in_usdt
+                            
+                            # Final check: skip if the actual USD value is below threshold
+                            if asset_value < MIN_BALANCE_THRESHOLD:
+                                # logger.debug(f"Skipping low-value balance for {asset}: ${asset_value:.4f}")
+                                continue
+                                
+                            total_tvl += asset_value
+                        except Exception as e:
+                            # error_msg = str(e)
+                            # if "does not have market symbol" in error_msg or "symbol not found" in error_msg.lower():
+                            #     logger.debug(f"Skipping TVL calculation for {asset}: No market symbol {asset}/USDT on {exchange_name}")
+                            # else:
+                            #     logger.warning(f"Could not fetch price for {asset}/USDT on {exchange_name}: {e}")
+                            pass # Skip silently to reduce log noise for non-USDT pairs
             except Exception as e:
                 logger.error(f"Error processing account summary for {exchange_name}: {e}")
             finally:
@@ -181,10 +231,31 @@ async def get_pnl(
                     logger.warning(f"get_pnl: Could not create connector for {exchange_name}: {e}")
                     continue
 
+                # Fetch ALL tickers once
+                all_tickers = {}
+                try:
+                    all_tickers = await connector.get_all_tickers()
+                    logger.info(f"get_pnl: Fetched {len(all_tickers)} tickers from {exchange_name}")
+                except Exception as e:
+                    logger.warning(f"get_pnl: Could not fetch all tickers from {exchange_name}: {e}. Falling back to individual fetches.")
+
+                # Helper to get price from cache or fetch individually
+                async def get_price(symbol):
+                    # Try direct match
+                    if symbol in all_tickers:
+                        return float(all_tickers[symbol]['last'])
+                    
+                    # Try common variations if needed
+                    if symbol.replace('/', '') in all_tickers:
+                         return float(all_tickers[symbol.replace('/', '')]['last'])
+                         
+                    # Fallback to individual fetch
+                    return await connector.get_current_price(symbol)
+
                 for group in groups:
                     logger.debug(f"get_pnl: Processing active group {group.id} (Symbol: {group.symbol}) on {exchange_name}")
                     try:
-                        current_price = await connector.get_current_price(group.symbol)
+                        current_price = await get_price(group.symbol)
                         qty = float(group.total_filled_quantity)
                         avg_entry = float(group.weighted_avg_entry)
                         

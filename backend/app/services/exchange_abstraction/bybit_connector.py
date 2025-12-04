@@ -323,6 +323,13 @@ class BybitConnector(ExchangeInterface):
         return ticker['last']
 
     @map_exchange_errors
+    async def get_all_tickers(self):
+        """
+        Fetches all tickers from the exchange.
+        """
+        return await self.exchange.fetch_tickers()
+
+    @map_exchange_errors
     async def fetch_balance(self):
         """
         Fetches the total balance for all assets.

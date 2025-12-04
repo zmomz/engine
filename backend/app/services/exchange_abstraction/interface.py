@@ -29,6 +29,14 @@ class ExchangeInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_all_tickers(self):
+        """
+        Fetches all tickers from the exchange.
+        Returns a dictionary where keys are symbols and values are ticker data (including 'last' price).
+        """
+        pass
+
+    @abstractmethod
     async def fetch_balance(self):
         pass
 

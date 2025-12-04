@@ -135,6 +135,17 @@ class MockConnector(ExchangeInterface):
             except Exception as e:
                 raise APIError(f"MockConnector get_current_price failed: {e}")
 
+    async def get_all_tickers(self) -> Dict:
+        """
+        Fetches all tickers from the mock exchange.
+        """
+        # Return hardcoded tickers for now to satisfy interface
+        return {
+            "BTC/USDT": {"last": 50000.0},
+            "ETH/USDT": {"last": 3000.0},
+            "SOL/USDT": {"last": 100.0},
+        }
+
     async def fetch_balance(self) -> Dict:
         async with await self._get_client() as client:
             try:
