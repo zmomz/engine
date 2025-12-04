@@ -665,6 +665,16 @@ const SettingsPage: React.FC = () => {
                 />
               )}
             />
+            <TextField
+              label="Webhook URL"
+              fullWidth
+              margin="normal"
+              value={settings?.id ? `${window.location.origin}/api/v1/webhooks/${settings.id}/tradingview` : 'Loading...'}
+              InputProps={{
+                readOnly: true,
+              }}
+              helperText="Copy this URL to your TradingView Alert Webhook settings."
+            />
             <Controller
               name="appSettings.webhook_secret"
               control={control}
