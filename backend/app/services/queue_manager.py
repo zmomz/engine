@@ -42,6 +42,7 @@ def calculate_queue_priority(signal: QueuedSignal, active_groups: List[PositionG
     # 1. Pyramid Continuation (Highest Priority)
     is_pyramid = any(
         g.symbol == signal.symbol and
+        g.exchange == signal.exchange and
         g.timeframe == signal.timeframe and
         g.side == signal.side and
         g.user_id == signal.user_id
@@ -127,7 +128,7 @@ class QueueManagerService:
                 # New Signal
                 new_signal = QueuedSignal(
                     user_id=self.user.id,
-                    exchange=payload.tv.exchange,
+                    exchange=payload.tv.exchange.lower(),
                     symbol=payload.tv.symbol,
                     timeframe=payload.tv.timeframe,
                     side=payload.tv.action,
@@ -212,6 +213,7 @@ class QueueManagerService:
                 active_groups = await pos_group_repo.get_active_position_groups_for_user(signal.user_id)
                 is_pyramid = any(
                     g.symbol == signal.symbol and 
+                    g.exchange == signal.exchange and
                     g.timeframe == signal.timeframe and 
                     g.side == signal.side
                     for g in active_groups
@@ -342,6 +344,7 @@ class QueueManagerService:
 
             is_pyramid = any(
                 g.symbol == best_signal.symbol and 
+                g.exchange == best_signal.exchange and
                 g.timeframe == best_signal.timeframe and 
                 g.side == best_signal.side
                 for g in active_groups
@@ -429,7 +432,7 @@ class QueueManagerService:
                     logger.info(f"Capital Allocation: Total {total_capital} USD, Allocating {allocated_capital} USD ({alloc_percent}%)")
 
                     if is_pyramid:
-                        existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
+                        existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
                         if existing_group:
                             await pos_manager.handle_pyramid_continuation(
                                 session=session,

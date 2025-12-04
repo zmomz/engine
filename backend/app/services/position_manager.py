@@ -142,7 +142,7 @@ class PositionManagerService:
         # 4. Create PositionGroup
         new_position_group = PositionGroup(
             user_id=user_id,
-            exchange=signal.exchange,
+            exchange=signal.exchange.lower(),
             symbol=signal.symbol,
             timeframe=signal.timeframe,
             side=signal.side,

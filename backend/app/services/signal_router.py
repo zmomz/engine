@@ -136,7 +136,7 @@ class SignalRouterService:
                 # If action is 'buy', we close 'long'. If 'sell', we close 'short'.
                 target_side = "long" if signal.tv.action.lower() == "buy" else "short"
                 
-                group_to_close = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.side == target_side), None)
+                group_to_close = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.exchange == signal.tv.exchange and g.side == target_side), None)
                 
                 if group_to_close:
                     await pos_manager.handle_exit_signal(group_to_close.id)
@@ -155,7 +155,7 @@ class SignalRouterService:
             else:
                 signal_side = raw_action # Fallback
 
-            existing_group = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.timeframe == signal.tv.timeframe and g.side == signal_side), None)
+            existing_group = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.exchange == signal.tv.exchange and g.timeframe == signal.tv.timeframe and g.side == signal_side), None)
             
             # Fetch Capital (Try to get from exchange, fallback to default)
             total_capital = Decimal("1000")
@@ -196,7 +196,7 @@ class SignalRouterService:
                         # Create transient QueuedSignal
                         qs = QueuedSignal(
                             user_id=self.user.id,
-                            exchange=signal.tv.exchange,
+                            exchange=signal.tv.exchange.lower(),
                             symbol=signal.tv.symbol,
                             timeframe=signal.tv.timeframe,
                             side=signal_side,
@@ -233,7 +233,7 @@ class SignalRouterService:
                     try:
                         qs = QueuedSignal(
                             user_id=self.user.id,
-                            exchange=signal.tv.exchange,
+                            exchange=signal.tv.exchange.lower(),
                             symbol=signal.tv.symbol,
                             timeframe=signal.tv.timeframe,
                             side=signal_side,
