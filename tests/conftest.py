@@ -183,5 +183,9 @@ def mock_async_session():
     
     # Also mock session.get for specific calls if needed, as it bypasses execute/scalars
     mock_session.get.return_value = None # Default, can be overridden per test
+    mock_session.commit = mock.AsyncMock() # Ensure commit is awaitable
+    mock_session.refresh = mock.AsyncMock() # Ensure refresh is awaitable
+    mock_session.close = mock.AsyncMock() # Ensure close is awaitable
+    mock_session.rollback = mock.AsyncMock() # Ensure rollback is awaitable
 
     return mock_session

@@ -14,7 +14,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y postgresql-client docker.io && rm -rf /var/lib/apt/lists/*
 
 # Create logs directory and set ownership
 RUN mkdir -p /app/logs && chown appuser:appuser /app/logs

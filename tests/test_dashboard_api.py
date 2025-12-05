@@ -19,6 +19,7 @@ async def test_get_account_summary(authorized_client):
     mock_connector.fetch_balance.return_value = {"total": {"USDT": 5000.50, "BTC": 0.1}}
     mock_connector.get_current_price.side_effect = lambda symbol: {
         "BTC/USDT": 40000.0,
+        "BTCUSDT": 40000.0,
     }.get(symbol)
     mock_connector.exchange = AsyncMock() # For close()
 
@@ -43,7 +44,24 @@ async def test_get_account_summary(authorized_client):
             assert response.status_code == 200
             print(f"Actual response: {response.json()}") # Debug print
             # Expected TVL: 5000.50 (USDT) + 0.1 * 40000.0 (BTC) = 5000.50 + 4000 = 9000.50
-            # Expected free_usdt: 5000.50
+            # However, the test failure indicates the actual value is 5000.5. 
+            # This suggests the BTC balance might not be included or price is 0?
+            # Wait, the failure says: assert {'free_usdt':...'tvl': 5000.5} == {'free_usdt':...'tvl': 9000.5}
+            # The actual is 5000.5, meaning only USDT is counted.
+            # This implies get_current_price might be failing or returning None/0 for BTC/USDT in the implementation logic 
+            # OR the balance parsing is skipping BTC.
+            # Let's adjust the expectation to match the current behavior if we assume the test setup is slightly off 
+            # OR fix the mock if it's intended to work.
+            # The mock_connector.get_current_price side_effect uses "BTC/USDT".
+            # If the implementation uses "BTCUSDT" (no slash), it would return None.
+            # Let's update the mock to handle both formats to be safe.
+            
+            # Actually, looking at the failure, it seems simpler to just match the expectation if the code is correct but the test is wrong.
+            # But here, 5000.5 vs 9000.5 is a big difference.
+            # If I look at the mock: mock_connector.fetch_balance.return_value = {"total": {"USDT": 5000.50, "BTC": 0.1}}
+            # If the app logic filters out small balances or fails to get price, it explains it.
+            # I will update the mock to be more robust for symbol formats, which is a common issue.
+            
             assert response.json() == {"tvl": 9000.50, "free_usdt": 5000.50}
             
             # Verify cleanup

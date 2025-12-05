@@ -5,6 +5,9 @@ import uuid
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.api.dependencies.users import get_current_active_user
 from app.main import app
+import logging
+
+logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
 async def test_force_close_position_multi_exchange_success(authorized_client, test_user, db_session):

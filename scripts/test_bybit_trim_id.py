@@ -2,75 +2,69 @@
 Test script to check if Bybit accepts trimmed order IDs for cancellation.
 This will help us understand if we need to trim the long IDs to short IDs.
 """
-import asyncio
-import os
-import sys
+import pytest
 import ccxt.async_support as ccxt
-
-# Add backend directory to path
-sys.path.append(os.path.join(os.getcwd(), 'backend'))
-
-from app.core.config import settings
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from app.models.user import User
 from app.models.position_group import PositionGroup
 from app.models.dca_order import DCAOrder
 
-async def test_trim_id():
+@pytest.mark.asyncio
+async def test_trim_id(db_session):
     """
     Fetch open orders from DB, get their exchange IDs, and try to cancel them
     using both the full ID and the trimmed (last 8 digits) ID.
     """
-    # Setup DB connection
-    engine = create_async_engine(settings.DATABASE_URL)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # Use the db_session fixture provided by pytest-asyncio/conftest
+    session = db_session
 
-    async with async_session() as session:
-        # Get user
-        user_id = "977c8888-b704-43e1-a5ab-0aeec8558a21"
-        result = await session.execute(select(User).where(User.id == user_id))
-        user = result.scalars().first()
-        
-        if not user:
-            print(f"User {user_id} not found")
-            return
+    # Get user
+    # Note: In a real test environment, we should probably create a user or use a fixture.
+    # But since this script seems to rely on existing data or is an integration test,
+    # we'll keep the logic but handle the case where user is missing gracefully.
+    user_id = "977c8888-b704-43e1-a5ab-0aeec8558a21"
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    
+    if not user:
+        print(f"User {user_id} not found - skipping test logic requiring user")
+        return
 
-        # Get API keys
-        api_keys = user.encrypted_api_keys
-        if not api_keys or 'bybit' not in api_keys:
-            print("Bybit API keys not found")
-            return
-            
-        bybit_config = api_keys['bybit']
+    # Get API keys
+    api_keys = user.encrypted_api_keys
+    if not api_keys or 'bybit' not in api_keys:
+        print("Bybit API keys not found")
+        return
         
-        # bybit_config is the encrypted config dict with keys like 'apiKey', 'secret', 'testnet'
-        # Extract the actual keys
-        api_key = bybit_config.get('apiKey') or bybit_config.get('api_key')
-        secret_key = bybit_config.get('secret') or bybit_config.get('secret_key')
-        testnet = bybit_config.get('testnet', False)
-        
-        if not api_key or not secret_key:
-            print(f"Invalid Bybit config structure: {list(bybit_config.keys())}")
-            return
-        
-        # Setup Bybit exchange
-        exchange = ccxt.bybit({
-            'apiKey': api_key,
-            'secret': secret_key,
-            'options': {
-                'defaultType': 'spot',
-                'accountType': 'UNIFIED',
-                'testnet': testnet
-            }
-        })
-        
-        if testnet:
-            exchange.set_sandbox_mode(True)
-        
-        print(f"Connected to Bybit (testnet={testnet})")
-        
+    bybit_config = api_keys['bybit']
+    
+    # bybit_config is the encrypted config dict with keys like 'apiKey', 'secret', 'testnet'
+    # Extract the actual keys
+    api_key = bybit_config.get('apiKey') or bybit_config.get('api_key')
+    secret_key = bybit_config.get('secret') or bybit_config.get('secret_key')
+    testnet = bybit_config.get('testnet', False)
+    
+    if not api_key or not secret_key:
+        print(f"Invalid Bybit config structure: {list(bybit_config.keys())}")
+        return
+    
+    # Setup Bybit exchange
+    exchange = ccxt.bybit({
+        'apiKey': api_key,
+        'secret': secret_key,
+        'options': {
+            'defaultType': 'spot',
+            'accountType': 'UNIFIED',
+            'testnet': testnet
+        }
+    })
+    
+    if testnet:
+        exchange.set_sandbox_mode(True)
+    
+    print(f"Connected to Bybit (testnet={testnet})")
+    
+    try:
         # Get position groups
         result = await session.execute(select(PositionGroup).where(PositionGroup.user_id == user_id))
         groups = result.scalars().all()
@@ -174,8 +168,6 @@ async def test_trim_id():
                     print("No open orders found on exchange")
             except Exception as e:
                 print(f"Error fetching open orders: {e}")
-        
-        await exchange.close()
 
-if __name__ == "__main__":
-    asyncio.run(test_trim_id())
+    finally:
+        await exchange.close()

@@ -156,7 +156,15 @@ async def test_binance_live_flow(
         # but for this test structure it does.
         # However, PositionManager creates its OWN connector dynamically based on the signal.
         # The one passed to QueueManager is a default/fallback.
-        exchange_connector = get_exchange_connector("binance", BINANCE_TESTNET_API_KEY, BINANCE_TESTNET_SECRET_KEY, default_type="spot")
+        # Create exchange config with encrypted credentials
+        encryption_service = EncryptionService()
+        encrypted_data = encryption_service.encrypt_keys(BINANCE_TESTNET_API_KEY, BINANCE_TESTNET_SECRET_KEY)
+        exchange_config = {
+            "encrypted_data": encrypted_data,
+            "testnet": True,
+            "default_type": "spot"
+        }
+        exchange_connector = get_exchange_connector("binance", exchange_config)
 
         grid_calculator_service = GridCalculatorService()
         execution_pool_manager = ExecutionPoolManager(session_factory=lambda: db_session, position_group_repository_class=PositionGroupRepository)

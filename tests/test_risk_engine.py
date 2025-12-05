@@ -36,7 +36,6 @@ def mock_risk_engine_service():
         position_group_repository_class=position_group_repo_cls,
         risk_action_repository_class=risk_action_repo,
         dca_order_repository_class=dca_order_repo,
-        exchange_connector=exchange_connector,
         order_service_class=order_service,
         risk_engine_config=risk_config
     )

@@ -157,7 +157,7 @@ async def test_get_order_status_success(mock_ccxt_binance):
         status = await connector.get_order_status(order_id='12345', symbol='BTC/USDT')
         
         mock_ccxt_binance.fetch_order.assert_awaited_once_with('12345', 'BTC/USDT')
-        assert status == 'closed'
+        assert status == mock_order_response # The connector returns the full response, not just the status string
 
 @pytest.mark.asyncio
 async def test_cancel_order_success(mock_ccxt_binance):

@@ -88,7 +88,8 @@ async def test_full_signal_flow_new_position(
     from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
     from decimal import Decimal
 
-    exchange_connector = get_exchange_connector("mock")
+    mock_exchange_config = {"encrypted_data": "dummy_mock_key"}
+    exchange_connector = get_exchange_connector("mock", mock_exchange_config)
     grid_calculator_service = GridCalculatorService()
     risk_engine_config = RiskEngineConfig()
     
@@ -101,17 +102,15 @@ async def test_full_signal_flow_new_position(
         user=test_user,
         position_group_repository_class=PositionGroupRepository,
         grid_calculator_service=grid_calculator_service,
-        order_service_class=OrderService,
-        exchange_connector=exchange_connector
+        order_service_class=OrderService
     )
     
     # Instantiate RiskEngineService
     risk_engine_service = RiskEngineService(
-        session_factory=lambda: db_session, # Not used for sync validation check
+        session_factory=lambda: db_session,
         position_group_repository_class=PositionGroupRepository,
         risk_action_repository_class=RiskActionRepository,
         dca_order_repository_class=DCAOrderRepository,
-        exchange_connector=exchange_connector,
         order_service_class=OrderService,
         risk_engine_config=risk_engine_config
     )

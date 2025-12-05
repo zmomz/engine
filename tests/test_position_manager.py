@@ -47,7 +47,8 @@ async def user_id_fixture(db_session: AsyncMock): # Use AsyncMock for db_session
             email="test_pm@example.com",
             hashed_password="hashedpassword",
             risk_config=convert_decimals_to_str(risk_config_data),
-            dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
+            dca_grid_config=convert_decimals_to_str(dca_grid_config_data),
+            encrypted_api_keys={'binance': {'encrypted_data': 'test_encrypted_key'}} # Add default keys
         )
         db_session.add(user)
         await db_session.commit()
@@ -73,6 +74,7 @@ def mock_order_service_class():
     mock_instance = MagicMock(spec=OrderService)
     mock_instance.cancel_open_orders_for_group = AsyncMock()
     mock_instance.close_position_market = AsyncMock()
+    mock_instance.submit_order = AsyncMock() # Ensure submit_order is mocked
     mock_class = MagicMock(spec=OrderService, return_value=mock_instance)
     return mock_class
 
@@ -96,6 +98,7 @@ def mock_db_session():
     session.add = MagicMock() # Ensure add is a synchronous mock
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
+    session.flush = AsyncMock() # Mock flush
     
     # Mock result for session.execute
     mock_result = MagicMock()
@@ -150,7 +153,8 @@ async def position_manager_service(
         exchange="mock",
         webhook_secret="mock_secret",
         risk_config=convert_decimals_to_str(risk_config_data),
-        dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
+        dca_grid_config=convert_decimals_to_str(dca_grid_config_data),
+        encrypted_api_keys={'binance': {'encrypted_data': 'test_encrypted_key'}}
     )
     mock_db_session.get.return_value = user
     
@@ -159,8 +163,7 @@ async def position_manager_service(
         user=user, 
         position_group_repository_class=mock_position_group_repository_class,
         grid_calculator_service=mock_grid_calculator_service,
-        order_service_class=mock_order_service_class,
-        exchange_connector=mock_exchange_connector
+        order_service_class=mock_order_service_class
     )
 
 # --- Test Data ---
@@ -247,21 +250,22 @@ async def test_create_position_group_from_signal_new_position(
     mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
     mock_db_session.get.return_value = mock_user
 
-    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+    # Patch EncryptionService at the source (app.core.security) to avoid InvalidToken
+    with patch('app.core.security.EncryptionService') as MockEncryptionService:
         with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
             MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
             mock_connector = MagicMock()
             mock_connector.get_precision_rules = AsyncMock(return_value={})
             mock_get_connector.return_value = mock_connector
 
-        created_pg = await position_manager_service.create_position_group_from_signal(
-            session=mock_db_session, 
-            user_id=sample_queued_signal.user_id,
-            signal=sample_queued_signal,
-            risk_config=sample_risk_config,
-            dca_grid_config=sample_dca_grid_config,
-            total_capital_usd=sample_total_capital_usd
-        )
+            created_pg = await position_manager_service.create_position_group_from_signal(
+                session=mock_db_session, 
+                user_id=sample_queued_signal.user_id,
+                signal=sample_queued_signal,
+                risk_config=sample_risk_config,
+                dca_grid_config=sample_dca_grid_config,
+                total_capital_usd=sample_total_capital_usd
+            )
 
     assert isinstance(created_pg, PositionGroup)
     assert created_pg.user_id == sample_queued_signal.user_id
@@ -295,20 +299,22 @@ async def test_create_position_group_submits_orders(
     ]
     mock_grid_calculator_service.calculate_order_quantities.return_value = dca_levels
     
-    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_connector.get_precision_rules = AsyncMock(return_value={})
-        mock_get_connector.return_value = mock_connector
+    with patch('app.core.security.EncryptionService') as MockEncryptionService:
+        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
+            mock_connector = MagicMock()
+            mock_connector.get_precision_rules = AsyncMock(return_value={})
+            mock_get_connector.return_value = mock_connector
 
-        # Act
-        await position_manager_service.create_position_group_from_signal(
-            session=mock_db_session, 
-            user_id=sample_queued_signal.user_id,
-            signal=sample_queued_signal,
-            risk_config=sample_risk_config,
-            dca_grid_config=sample_dca_grid_config,
-            total_capital_usd=sample_total_capital_usd
-        )
+            # Act
+            await position_manager_service.create_position_group_from_signal(
+                session=mock_db_session, 
+                user_id=sample_queued_signal.user_id,
+                signal=sample_queued_signal,
+                risk_config=sample_risk_config,
+                dca_grid_config=sample_dca_grid_config,
+                total_capital_usd=sample_total_capital_usd
+            )
     
     # Assert
     mock_order_service_instance = mock_order_service_class.return_value
@@ -342,22 +348,22 @@ async def test_handle_pyramid_continuation_increment_count(
     initial_pyramid_count = sample_position_group.pyramid_count
     initial_replacement_count = sample_position_group.replacement_count
 
-    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+    with patch('app.core.security.EncryptionService') as MockEncryptionService:
         with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
             MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
             mock_connector = MagicMock()
             mock_connector.get_precision_rules = AsyncMock(return_value={})
             mock_get_connector.return_value = mock_connector
 
-        updated_pg = await position_manager_service.handle_pyramid_continuation(
-            session=mock_db_session, 
-            user_id=sample_queued_signal.user_id,
-            signal=sample_queued_signal,
-            existing_position_group=sample_position_group,
-            risk_config=sample_risk_config,
-            dca_grid_config=sample_dca_grid_config,
-            total_capital_usd=sample_total_capital_usd
-        )
+            updated_pg = await position_manager_service.handle_pyramid_continuation(
+                session=mock_db_session, 
+                user_id=sample_queued_signal.user_id,
+                signal=sample_queued_signal,
+                existing_position_group=sample_position_group,
+                risk_config=sample_risk_config,
+                dca_grid_config=sample_dca_grid_config,
+                total_capital_usd=sample_total_capital_usd
+            )
 
     assert updated_pg.pyramid_count == initial_pyramid_count + 1
     assert updated_pg.replacement_count == initial_replacement_count + 1
@@ -381,22 +387,22 @@ async def test_handle_pyramid_continuation_reset_timer(
     sample_risk_config.reset_timer_on_replacement = True # Set config to reset timer
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+    with patch('app.core.security.EncryptionService') as MockEncryptionService:
         with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
             MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
             mock_connector = MagicMock()
             mock_connector.get_precision_rules = AsyncMock(return_value={})
             mock_get_connector.return_value = mock_connector
 
-        updated_pg = await position_manager_service.handle_pyramid_continuation(
-            session=mock_db_session, 
-            user_id=sample_queued_signal.user_id,
-            signal=sample_queued_signal,
-            existing_position_group=sample_position_group,
-            risk_config=sample_risk_config,
-            dca_grid_config=sample_dca_grid_config,
-            total_capital_usd=sample_total_capital_usd
-        )
+            updated_pg = await position_manager_service.handle_pyramid_continuation(
+                session=mock_db_session, 
+                user_id=sample_queued_signal.user_id,
+                signal=sample_queued_signal,
+                existing_position_group=sample_position_group,
+                risk_config=sample_risk_config,
+                dca_grid_config=sample_dca_grid_config,
+                total_capital_usd=sample_total_capital_usd
+            )
 
     assert updated_pg.risk_timer_start is not None
     assert updated_pg.risk_timer_expires is not None
@@ -423,22 +429,22 @@ async def test_handle_pyramid_continuation_no_reset_timer(
     initial_timer_start = sample_position_group.risk_timer_start
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    with patch('app.services.position_manager.EncryptionService') as MockEncryptionService:
+    with patch('app.core.security.EncryptionService') as MockEncryptionService:
         with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
             MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
             mock_connector = MagicMock()
             mock_connector.get_precision_rules = AsyncMock(return_value={})
             mock_get_connector.return_value = mock_connector
 
-        updated_pg = await position_manager_service.handle_pyramid_continuation(
-            session=mock_db_session, 
-            user_id=sample_queued_signal.user_id,
-            signal=sample_queued_signal,
-            existing_position_group=sample_position_group,
-            risk_config=sample_risk_config,
-            dca_grid_config=sample_dca_grid_config,
-            total_capital_usd=sample_total_capital_usd
-        )
+            updated_pg = await position_manager_service.handle_pyramid_continuation(
+                session=mock_db_session, 
+                user_id=sample_queued_signal.user_id,
+                signal=sample_queued_signal,
+                existing_position_group=sample_position_group,
+                risk_config=sample_risk_config,
+                dca_grid_config=sample_dca_grid_config,
+                total_capital_usd=sample_total_capital_usd
+            )
 
     assert updated_pg.risk_timer_start == initial_timer_start # Timer should NOT have been reset
     assert updated_pg.risk_timer_expires == initial_timer_expires # Timer should NOT have been reset
@@ -465,7 +471,14 @@ async def test_handle_exit_signal(
     mock_repo_instance = mock_position_group_repository_class.return_value
     mock_repo_instance.get_with_orders.return_value = sample_position_group
 
-    await position_manager_service.handle_exit_signal(sample_position_group.id)
+    # Patch get_exchange_connector to avoid real connection and encryption issues
+    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+        mock_connector = MagicMock()
+        mock_connector.get_current_price = AsyncMock(return_value=Decimal("100"))
+        mock_connector.close = AsyncMock()
+        mock_get_connector.return_value = mock_connector
+        
+        await position_manager_service.handle_exit_signal(sample_position_group.id)
 
     # Get the mock instance that was created inside the method
     # In this setup, the instance is the same as the one returned by the class mock

@@ -101,6 +101,10 @@ async def test_route_missing_api_keys(sample_user, sample_signal, mock_async_ses
     sample_user.encrypted_api_keys = {}
     
     service = SignalRouterService(sample_user)
+    # Ensure mock_async_session is an AsyncMock if it's not already
+    if not isinstance(mock_async_session, AsyncMock):
+        mock_async_session = AsyncMock()
+    
     result = await service.route(sample_signal, mock_async_session)
     
     assert "Configuration Error: No API keys" in result
@@ -140,6 +144,10 @@ async def test_route_fetch_balance_failure(sample_user, sample_signal, mock_asyn
     # Setup: Pos Manager success
     pos_manager_instance = mock_deps["pos_manager"].return_value
     pos_manager_instance.create_position_group_from_signal = AsyncMock()
+    # Mock the return value of create_position_group_from_signal to have a status attribute
+    mock_group = MagicMock()
+    mock_group.status.value = "active" # Or whatever status enum value
+    pos_manager_instance.create_position_group_from_signal.return_value = mock_group
 
     service = SignalRouterService(sample_user)
     result = await service.route(sample_signal, mock_async_session)
@@ -156,9 +164,10 @@ async def test_route_pyramid_continuation(sample_user, sample_signal, mock_async
     # Setup: Existing group
     existing_group = MagicMock(spec=PositionGroup)
     existing_group.symbol = "BTCUSDT"
-    existing_group.timeframe = 15
+    existing_group.timeframe = "15" # Match signal timeframe type (str vs int issue potentially, but here str)
     existing_group.side = "long"
     existing_group.pyramid_count = 1
+    existing_group.exchange = "binance" # Added exchange match
     
     repo_instance = mock_deps["repo"].return_value
     repo_instance.get_active_position_groups_for_user = AsyncMock(return_value=[existing_group])
@@ -189,9 +198,47 @@ async def test_route_max_pyramids_reached(sample_user, sample_signal, mock_async
     # Setup: Existing group with max pyramids
     existing_group = MagicMock(spec=PositionGroup)
     existing_group.symbol = "BTCUSDT"
-    existing_group.timeframe = 15
+    existing_group.timeframe = "15"
     existing_group.side = "long"
-    existing_group.pyramid_count = 5 # Max
+    existing_group.pyramid_count = 5 # Max is 5 in sample_user config (actually dca_config has 2 levels, but let's assume logic checks max_pyramids)
+    # Wait, sample_user dca_config has 2 levels. max_pyramids property usually derived from levels length + 1 or similar.
+    # If dca_config.max_pyramids is used.
+    existing_group.exchange = "binance"
+
+    repo_instance = mock_deps["repo"].return_value
+    repo_instance.get_active_position_groups_for_user = AsyncMock(return_value=[existing_group])
+    
+    mock_exchange = AsyncMock()
+    mock_exchange.get_precision_rules.return_value = {
+        "BTCUSDT": {
+            "tick_size": Decimal("0.01"),
+            "step_size": Decimal("0.001"),
+            "min_notional": Decimal("10.0"),
+            "min_qty": Decimal("0.00001")
+        }
+    }
+    mock_deps["connector"].return_value = mock_exchange
+
+    # We need to ensure dca_config.max_pyramids is set correctly or mocked.
+    # In SignalRouter, it validates dca_config.
+    # DCAGridConfig model likely has max_pyramids property.
+    # If sample_user has 2 levels, max_pyramids might be 2 or 3.
+    # existing_group.pyramid_count = 5 should trigger the limit.
+
+    service = SignalRouterService(sample_user)
+    result = await service.route(sample_signal, mock_async_session)
+    
+    assert "Max pyramids reached" in result
+
+@pytest.mark.asyncio
+async def test_route_pyramid_exception(sample_user, sample_signal, mock_async_session, mock_deps):
+    # Setup: Existing group
+    existing_group = MagicMock(spec=PositionGroup)
+    existing_group.symbol = "BTCUSDT"
+    existing_group.timeframe = "15"
+    existing_group.side = "long"
+    existing_group.pyramid_count = 1
+    existing_group.exchange = "binance"
     
     repo_instance = mock_deps["repo"].return_value
     repo_instance.get_active_position_groups_for_user = AsyncMock(return_value=[existing_group])
@@ -207,28 +254,9 @@ async def test_route_max_pyramids_reached(sample_user, sample_signal, mock_async
     }
     mock_deps["connector"].return_value = mock_exchange
 
-@pytest.mark.asyncio
-async def test_route_pyramid_exception(sample_user, sample_signal, mock_async_session, mock_deps):
-    # Setup: Existing group
-    existing_group = MagicMock(spec=PositionGroup)
-    existing_group.symbol = "BTCUSDT"
-    existing_group.timeframe = 15
-    existing_group.side = "long"
-    existing_group.pyramid_count = 1
-    
-    repo_instance = mock_deps["repo"].return_value
-    repo_instance.get_active_position_groups_for_user = AsyncMock(return_value=[existing_group])
-    
-    mock_exchange = AsyncMock()
-    mock_exchange.get_precision_rules.return_value = {
-        "BTCUSDT": {
-            "tick_size": Decimal("0.01"),
-            "step_size": Decimal("0.001"),
-            "min_notional": Decimal("10.0"),
-            "min_qty": Decimal("0.00001")
-        }
-    }
-    mock_deps["connector"].return_value = mock_exchange
+    # Fix: Mock handle_pyramid_continuation as AsyncMock raising exception
+    pos_manager_instance = mock_deps["pos_manager"].return_value
+    pos_manager_instance.handle_pyramid_continuation = AsyncMock(side_effect=Exception("Pyramid Error"))
 
     service = SignalRouterService(sample_user)
     result = await service.route(sample_signal, mock_async_session)
@@ -254,6 +282,10 @@ async def test_route_new_position_exception(sample_user, sample_signal, mock_asy
         }
     }
     mock_deps["connector"].return_value = mock_exchange
+
+    # Fix: Mock create_position_group_from_signal as AsyncMock raising exception
+    pos_manager_instance = mock_deps["pos_manager"].return_value
+    pos_manager_instance.create_position_group_from_signal = AsyncMock(side_effect=Exception("New Pos Error"))
 
     service = SignalRouterService(sample_user)
     result = await service.route(sample_signal, mock_async_session)

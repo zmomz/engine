@@ -32,9 +32,8 @@ def get_auth_headers(user: User):
 
 # --- Helper for encrypted keys ---
 def get_encrypted_keys(exchange: str = "MOCK"):
-    encryption_service = EncryptionService()
-    encrypted_data = encryption_service.encrypt_keys("dummy_api", "dummy_secret")
-    return {exchange: encrypted_data}
+    # Return mock encrypted data that MockEncryptionService can handle
+    return {exchange: {"encrypted_data": "dummy_mock_key"}}
 
 # --- Tests for /positions endpoints ---
 

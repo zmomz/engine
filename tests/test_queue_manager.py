@@ -497,6 +497,9 @@ async def test_promote_highest_priority_signal_slot_available(queue_manager_serv
     mock_execution_pool_manager.request_slot.return_value = True
     mock_exchange_connector.get_current_price.return_value = Decimal("49000") # Simulate loss
 
+    # Mock session.get
+    mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
+    
     await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
 
     mock_exchange_connector.get_current_price.assert_called_once_with("BTCUSDT")

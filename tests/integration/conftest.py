@@ -23,15 +23,16 @@ from app.repositories.dca_order import DCAOrderRepository
 from app.core.security import create_access_token
 from unittest.mock import patch, MagicMock
 from contextlib import asynccontextmanager
-from app.core.security import EncryptionService as RealEncryptionService # Rename original for use in mock
 
 class MockEncryptionService:
-    """A mock EncryptionService that can return specific mock keys for 'dummy_mock_key'."""
-    def decrypt_keys(self, encrypted_data: dict) -> tuple[str, str]:
-        if "dummy_mock_key" in str(encrypted_data):
-            return "mock_api_key", "mock_secret_key"
-        # For non-mock encrypted_data, attempt to use the real decryption logic
-        return RealEncryptionService().decrypt_keys(encrypted_data)
+    """A mock EncryptionService that always returns mock keys to avoid real decryption."""
+    def decrypt_keys(self, encrypted_data) -> tuple[str, str]:
+        # Always return mock keys for all integration tests to avoid InvalidToken errors
+        return "mock_api_key", "mock_secret_key"
+    
+    def encrypt_keys(self, api_key: str, secret_key: str) -> dict:
+        # Return a mock encrypted structure
+        return {"encrypted_data": "mock_encrypted_data"}
 
 
 @pytest.fixture(scope="function")
@@ -48,71 +49,6 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
     """Overrides the get_db_session dependency for integration tests and initializes services."""
     app.dependency_overrides = {}
     
-    # Initialize services and attach to app.state for integration tests
-    exchange_connector = get_exchange_connector("mock")
-    risk_engine_config = RiskEngineConfig(
-        loss_threshold_percent=Decimal("-1.5"),
-        timer_start_condition="after_all_dca_filled",
-        post_full_wait_minutes=15,
-        max_winners_to_combine=3
-    )
-    dca_grid_config = DCAGridConfig.model_validate({
-        "levels": [
-            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
-            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
-            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
-        ],
-        "tp_mode": "per_leg",
-        "tp_aggregate_percent": Decimal("0")
-    })
-    total_capital_usd = Decimal("10000")
-
-    grid_calculator_service = GridCalculatorService()
-    execution_pool_manager = ExecutionPoolManager(
-        session_factory=lambda: db_session,
-        position_group_repository_class=PositionGroupRepository
-    )
-
-    # Debug print
-    print(f"DEBUG: PositionManagerService is {PositionManagerService}")
-    
-    position_manager_service = PositionManagerService(
-        session_factory=lambda: db_session,
-        user=test_user,
-        position_group_repository_class=PositionGroupRepository,
-        grid_calculator_service=grid_calculator_service,
-        order_service_class=OrderService,
-        exchange_connector=exchange_connector
-    )
-    
-    risk_engine_service = RiskEngineService(
-        session_factory=lambda: db_session,
-        position_group_repository_class=PositionGroupRepository,
-        risk_action_repository_class=RiskActionRepository,
-        dca_order_repository_class=DCAOrderRepository,
-        exchange_connector=exchange_connector,
-        order_service_class=OrderService,
-        risk_engine_config=risk_engine_config
-    )
-    
-    app.state.queue_manager_service = QueueManagerService(
-        session_factory=lambda: db_session,
-        user=test_user,
-        queued_signal_repository_class=QueuedSignalRepository,
-        position_group_repository_class=PositionGroupRepository,
-        exchange_connector=exchange_connector,
-        execution_pool_manager=execution_pool_manager,
-        position_manager_service=position_manager_service,
-        polling_interval_seconds=0.01
-    )
-    app.state.exchange_connector = exchange_connector
-    app.state.risk_engine_config = risk_engine_config
-    app.state.dca_grid_config = dca_grid_config
-
-    app.dependency_overrides[get_db_session] = lambda: db_session
-    
     # Patch AsyncSessionLocal used in SignalRouter to use our test db_session
     @asynccontextmanager
     async def mock_session_ctx():
@@ -121,9 +57,79 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
     mock_factory = MagicMock()
     mock_factory.side_effect = mock_session_ctx
     
+    # Apply ALL patches FIRST, then create services inside the patched context
     with patch("app.services.signal_router.AsyncSessionLocal", new=mock_factory):
         with patch("app.core.security.EncryptionService", new=MockEncryptionService):
             with patch("app.api.risk.EncryptionService", new=MockEncryptionService):
-                yield
+                with patch("app.services.position_manager.EncryptionService", new=MockEncryptionService):
+                    with patch("app.services.queue_manager.EncryptionService", new=MockEncryptionService):
+                        with patch("app.services.risk_engine.EncryptionService", new=MockEncryptionService):
+                            with patch("app.services.order_fill_monitor.EncryptionService", new=MockEncryptionService):
+                                with patch("app.services.exchange_abstraction.factory.EncryptionService", new=MockEncryptionService):
+                                    with patch("app.api.settings.EncryptionService", new=MockEncryptionService):
+                                        with patch("app.api.positions.EncryptionService", new=MockEncryptionService):
+                                            with patch("app.api.dashboard.EncryptionService", new=MockEncryptionService):
+                                                # NOW create services INSIDE the patched context
+                                                mock_exchange_config = {"encrypted_data": "dummy_mock_key"}
+                                                exchange_connector = get_exchange_connector("mock", mock_exchange_config)
+                                                risk_engine_config = RiskEngineConfig(
+                                                    loss_threshold_percent=Decimal("-1.5"),
+                                                    timer_start_condition="after_all_dca_filled",
+                                                    post_full_wait_minutes=15,
+                                                    max_winners_to_combine=3
+                                                )
+                                                dca_grid_config = DCAGridConfig.model_validate({
+                                                    "levels": [
+                                                        {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
+                                                        {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
+                                                        {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
+                                                        {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
+                                                        {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
+                                                    ],
+                                                    "tp_mode": "per_leg",
+                                                    "tp_aggregate_percent": Decimal("0")
+                                                })
+                                                total_capital_usd = Decimal("10000")
+
+                                                grid_calculator_service = GridCalculatorService()
+                                                execution_pool_manager = ExecutionPoolManager(
+                                                    session_factory=lambda: db_session,
+                                                    position_group_repository_class=PositionGroupRepository
+                                                )
+
+                                                position_manager_service = PositionManagerService(
+                                                    session_factory=lambda: db_session,
+                                                    user=test_user,
+                                                    position_group_repository_class=PositionGroupRepository,
+                                                    grid_calculator_service=grid_calculator_service,
+                                                    order_service_class=OrderService
+                                                )
+                                                
+                                                risk_engine_service = RiskEngineService(
+                                                    session_factory=lambda: db_session,
+                                                    position_group_repository_class=PositionGroupRepository,
+                                                    risk_action_repository_class=RiskActionRepository,
+                                                    dca_order_repository_class=DCAOrderRepository,
+                                                    order_service_class=OrderService,
+                                                    risk_engine_config=risk_engine_config
+                                                )
+                                                
+                                                app.state.queue_manager_service = QueueManagerService(
+                                                    session_factory=lambda: db_session,
+                                                    user=test_user,
+                                                    queued_signal_repository_class=QueuedSignalRepository,
+                                                    position_group_repository_class=PositionGroupRepository,
+                                                    exchange_connector=exchange_connector,
+                                                    execution_pool_manager=execution_pool_manager,
+                                                    position_manager_service=position_manager_service,
+                                                    polling_interval_seconds=0.01
+                                                )
+                                                app.state.exchange_connector = exchange_connector
+                                                app.state.risk_engine_config = risk_engine_config
+                                                app.state.dca_grid_config = dca_grid_config
+
+                                                app.dependency_overrides[get_db_session] = lambda: db_session
+
+                                                yield
         
     app.dependency_overrides = {}

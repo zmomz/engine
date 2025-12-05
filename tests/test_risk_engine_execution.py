@@ -88,7 +88,6 @@ async def test_evaluate_positions_execution_flow(mock_deps):
             position_group_repository_class=MagicMock(return_value=mock_deps["position_group_repo"]),
             risk_action_repository_class=MagicMock(return_value=mock_deps["risk_action_repo"]),
             dca_order_repository_class=MagicMock(return_value=mock_deps["dca_order_repo"]),
-            exchange_connector=exchange_connector_mock,
             order_service_class=mock_deps["order_service"],
             risk_engine_config=RiskEngineConfig(loss_threshold_percent=-5.0)
         )
@@ -150,7 +149,6 @@ async def test_evaluate_positions_no_losers(mock_deps):
             position_group_repository_class=MagicMock(return_value=mock_deps["position_group_repo"]),
             risk_action_repository_class=MagicMock(),
             dca_order_repository_class=MagicMock(),
-            exchange_connector=MagicMock(),
             order_service_class=MagicMock(),
             risk_engine_config=RiskEngineConfig()
         )
@@ -165,7 +163,6 @@ async def test_monitor_task_lifecycle(mock_deps):
         position_group_repository_class=MagicMock(),
         risk_action_repository_class=MagicMock(),
         dca_order_repository_class=MagicMock(),
-        exchange_connector=MagicMock(),
         order_service_class=MagicMock(),
         risk_engine_config=RiskEngineConfig(),
         polling_interval_seconds=0.1

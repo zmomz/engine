@@ -5,6 +5,7 @@ services:
       - .:/app
       - ./logs:/app/logs
       - /app/.venv
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     user: "${UID}:${GID}"

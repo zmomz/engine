@@ -70,11 +70,19 @@ def main():
 
     exit_code = 0
     try:
-        # 2. Start services
-        logger.info("Starting test services...")
-        test_env["TESTING"] = "true"
-        run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "build", "--no-cache", SERVICE_APP], check=True, env=test_env)
-        run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "up", "-d"], check=True, env=test_env)
+        # Try to use existing images first (skip build to avoid network issues)
+        logger.info("Attempting to use existing Docker images...")
+        try:
+            # Try to start with existing images
+            run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "up", "-d", "--no-build"], check=True, env=test_env)
+        except subprocess.CalledProcessError:
+            logger.info("No existing images found. Attempting to build...")
+            try:
+                run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "build"], check=True, env=test_env)
+                run_command(["docker", "compose", "-p", PROJECT_NAME, "-f", COMPOSE_FILE, "up", "-d"], check=True, env=test_env)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Build failed due to network issues. Please check your Docker Hub connectivity.")
+                raise
 
         # 3. Wait for DB
         logger.info("Waiting for database (with a 10s delay to allow app container to start)...")

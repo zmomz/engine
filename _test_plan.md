@@ -6,9 +6,17 @@ username : maaz
 user-id : 491ba4af-56b9-46ea-922d-d58e077e9b9c 
 secret : 2e86de391d459bd0d920e88dd1291798 
 ```
-
+username: zmomz
 user-id : "977c8888-b704-43e1-a5ab-0aeec8558a21"
 secret : "cfb500da73584201ca4263fe14eab200"
+
+
+
+docker compose exec app python3 scripts/simulate_webhook.py --user-id 977c8888-b704-43e1-a5ab-0aeec8558a21 --secret cfb500da73584201ca4263fe14eab200 --exchange bybit --symbol BTCUSDT --side buy --action buy --entry-price 73213.0 --order-size 0.01
+
+docker compose exec app python3 scripts/simulate_webhook.py --user-id 977c8888-b704-43e1-a5ab-0aeec8558a21 --secret cfb500da73584201ca4263fe14eab200 --exchange BYBIT --symbol BTCUSDT --timeframe 60 --side long --type exit
+
+
 
 current prices use it as entry prices: { "BTCUSDT": 87145.3, "ETHUSDT": 2823.0, "SOLUSDT": 127.97, "DOTUSDT": 2.095, "XRPUSDT": 2.03, "TRXUSDT": 0.278, "DOGEUSDT": 0.1368, "ADAUSDT": 0.393, "GALAUSDT": 0.0067 }
 ---
