@@ -11,7 +11,7 @@ from app.services.exchange_abstraction.precision_service import PrecisionService
 class MockExchange(ExchangeInterface):
     async def get_precision_rules(self):
         return {"symbol_1": {"precision": 2}, "symbol_2": {"precision": 4}}
-    async def place_order(self):
+    async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None, **kwargs):
         pass
     async def get_order_status(self):
         pass
@@ -19,6 +19,8 @@ class MockExchange(ExchangeInterface):
         pass
     async def get_current_price(self):
         pass
+    async def get_all_tickers(self):
+        return {"BTC/USDT": {"last": 50000.0}, "ETH/USDT": {"last": 3000.0}}
     async def fetch_balance(self):
         pass
 
@@ -127,10 +129,11 @@ async def test_get_exchange_connector_bybit():
                 'apiKey': "test_key",
                 'secret': "test_secret",
                 'options': {
-                    'defaultType': 'spot', # Changed to spot
+                    'defaultType': 'spot',
                     'accountType': 'UNIFIED',
+                    'testnet': True 
                 },
-                'verbose': True,
+                'verbose': False,
             })
             mock_exchange_instance.set_sandbox_mode.assert_called_once_with(True)
 

@@ -6,12 +6,18 @@ from sqlalchemy import select
 import json
 from datetime import datetime
 import argparse
+from decimal import Decimal
 
 sys.path.append(os.path.join(os.getcwd(), 'backend'))
 
 from app.db.database import AsyncSessionLocal
 from app.models.dca_order import DCAOrder
 from app.models.position_group import PositionGroup
+
+def decimal_default(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)
+    raise TypeError
 
 async def export_dca_orders(position_group_id: str):
     async with AsyncSessionLocal() as session:
@@ -36,15 +42,15 @@ async def export_dca_orders(position_group_id: str):
                 "symbol": order.symbol,
                 "side": order.side,
                 "order_type": order.order_type.value if order.order_type else None,
-                "price": float(order.price),
-                "quantity": float(order.quantity),
-                "gap_percent": float(order.gap_percent),
-                "weight_percent": float(order.weight_percent),
-                "tp_percent": float(order.tp_percent),
-                "tp_price": float(order.tp_price),
+                "price": order.price,
+                "quantity": order.quantity,
+                "gap_percent": order.gap_percent,
+                "weight_percent": order.weight_percent,
+                "tp_percent": order.tp_percent,
+                "tp_price": order.tp_price,
                 "status": order.status.value if order.status else None,
-                "filled_quantity": float(order.filled_quantity),
-                "avg_fill_price": float(order.avg_fill_price) if order.avg_fill_price else None,
+                "filled_quantity": order.filled_quantity,
+                "avg_fill_price": order.avg_fill_price,
                 "tp_hit": order.tp_hit,
                 "tp_order_id": order.tp_order_id,
                 "tp_executed_at": order.tp_executed_at.isoformat() if order.tp_executed_at else None,
@@ -55,7 +61,7 @@ async def export_dca_orders(position_group_id: str):
             }
             order_list.append(order_data)
         
-        print(json.dumps(order_list, indent=2))
+        print(json.dumps(order_list, indent=2, default=decimal_default))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export DCA orders for a given position group ID.")

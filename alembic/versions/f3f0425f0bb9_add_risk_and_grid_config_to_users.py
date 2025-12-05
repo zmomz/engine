@@ -8,7 +8,7 @@ Create Date: 2025-11-21 20:50:00.000000
 from alembic import op
 import sqlalchemy as sa
 import json
-
+from decimal import Decimal
 
 # revision identifiers, used by Alembic.
 revision = 'f3f0425f0bb9'
@@ -16,6 +16,10 @@ down_revision = 'e2e0425f0bb8'
 branch_labels = None
 depends_on = None
 
+def decimal_default(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)
+    raise TypeError
 
 def upgrade() -> None:
     # Add columns as nullable first
@@ -44,7 +48,7 @@ def upgrade() -> None:
     # Update existing rows
     op.execute(
         sa.text("UPDATE users SET risk_config = CAST(:risk_config AS JSON), dca_grid_config = CAST(:dca_grid_config AS JSON)").bindparams(
-            risk_config=json.dumps(default_risk_config),
+            risk_config=json.dumps(default_risk_config, default=decimal_default),
             dca_grid_config=json.dumps(default_grid_config)
         )
     )

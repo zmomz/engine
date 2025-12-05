@@ -218,6 +218,11 @@ class OrderService:
                 logger.info(f"Order {dca_order.id}: Average fill price changed from {dca_order.avg_fill_price} to {avg_fill_price_from_exchange}")
                 dca_order.avg_fill_price = avg_fill_price_from_exchange
                 changed = True
+            
+            # Set filled_at if the order is now filled and it wasn't before
+            if new_status == OrderStatus.FILLED and dca_order.filled_at is None:
+                dca_order.filled_at = datetime.utcnow()
+                changed = True
 
         if changed:
             await self.dca_order_repository.update(dca_order)

@@ -49,6 +49,8 @@ async def test_force_close_position_multi_exchange_success(authorized_client, te
         mock_order_service = mock_order_service_cls.return_value
         async def mock_exec_close(group_id):
             pg.status = PositionGroupStatus.CLOSING.value
+            db_session.add(pg)
+            await db_session.commit()
             return pg
         mock_order_service.execute_force_close.side_effect = mock_exec_close
 
@@ -61,7 +63,7 @@ async def test_force_close_position_multi_exchange_success(authorized_client, te
         assert response.json()["status"] == "closing"
         
         mock_order_service.execute_force_close.assert_called_once_with(pg.id)
-        mock_pm_service.handle_exit_signal.assert_called_once_with(pg.id)
+        mock_pm_service.handle_exit_signal.assert_called_once_with(pg.id, session=db_session)
 
 
 

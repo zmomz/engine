@@ -1,3 +1,4 @@
+import json
 import uuid
 import logging
 import asyncio
@@ -336,8 +337,16 @@ class QueueManagerService:
 
             # Load Configs from User
             try:
-                risk_config = RiskEngineConfig(**user.risk_config)
-                dca_config = DCAGridConfig.model_validate(user.dca_grid_config)
+                # Ensure configs are loaded from JSON strings if coming from DB
+                risk_config_data = user.risk_config
+                if isinstance(risk_config_data, str):
+                    risk_config_data = json.loads(risk_config_data)
+                risk_config = RiskEngineConfig(**risk_config_data)
+
+                dca_config_data = user.dca_grid_config
+                if isinstance(dca_config_data, str):
+                    dca_config_data = json.loads(dca_config_data)
+                dca_config = DCAGridConfig.model_validate(dca_config_data)
             except Exception as e:
                 logger.error(f"Failed to load user config: {e}")
                 continue

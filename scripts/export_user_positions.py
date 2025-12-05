@@ -5,14 +5,7 @@ Exports data from the database to JSON or CSV.
 Usage:
     python scripts/export_data.py --type {positions,history} [--format {json,csv}] [--output FILE]
 """
-import sys
-import os
-import argparse
-import asyncio
-import json
-import csv
-import logging
-from datetime import datetime
+from decimal import Decimal
 
 # Add backend to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../backend'))
@@ -35,6 +28,11 @@ except ImportError as e:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def decimal_default(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)
+    raise TypeError
 
 async def fetch_data(data_type):
     async with AsyncSessionLocal() as session:
@@ -109,7 +107,7 @@ def main():
         return 1
 
     if args.format == 'json':
-        output_str = json.dumps(data, indent=2)
+        output_str = json.dumps(data, indent=2, default=decimal_default)
     else:
         # CSV
         if not data:

@@ -139,7 +139,8 @@ async def test_place_order_success(mock_ccxt_binance):
             type='limit',
             side='buy',
             amount=0.1,
-            price=50000.0
+            price=50000.0,
+            params={}
         )
         assert order == mock_order_response
 

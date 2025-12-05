@@ -46,6 +46,7 @@ async def user_id_fixture(db_session: AsyncMock): # Use AsyncMock for db_session
             username="testuser_pm",
             email="test_pm@example.com",
             hashed_password="hashedpassword",
+            exchange="binance",
             risk_config=convert_decimals_to_str(risk_config_data),
             dca_grid_config=convert_decimals_to_str(dca_grid_config_data),
             encrypted_api_keys={'binance': {'encrypted_data': 'test_encrypted_key'}} # Add default keys
@@ -61,7 +62,8 @@ async def user_id_fixture(db_session: AsyncMock): # Use AsyncMock for db_session
 def mock_grid_calculator_service():
     mock = MagicMock(spec=GridCalculatorService)
     mock.calculate_dca_levels.return_value = [
-        {"leg_index": 0, "price": Decimal("100"), "quantity": Decimal("1"), "gap_percent": Decimal("0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")}
+        {"leg_index": 0, "price": Decimal("100"), "quantity": Decimal("2.0"), "gap_percent": Decimal("0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")},
+        {"leg_index": 1, "price": Decimal("99"), "quantity": Decimal("2.02"), "gap_percent": Decimal("-1"), "weight_percent": Decimal("20"), "tp_percent": Decimal("1"), "tp_price": Decimal("100")}
     ]
     # Use side_effect to call the real method for calculate_order_quantities
     mock.calculate_order_quantities.side_effect = GridCalculatorService.calculate_order_quantities
@@ -79,12 +81,39 @@ def mock_order_service_class():
     return mock_class
 
 @pytest.fixture
-def mock_position_group_repository_class():
+def mock_position_group_repository_class(user_id_fixture): # Add user_id_fixture dependency
     mock_instance = MagicMock(spec=PositionGroupRepository)
     mock_instance.get_by_id = AsyncMock()
     mock_instance.create = AsyncMock()
     mock_instance.update = AsyncMock()
-    mock_instance.get_with_orders = AsyncMock() # Added mock
+    
+    # Create a dummy PositionGroup instance for get_with_orders and get_by_id to return
+    dummy_position_group = PositionGroup(
+        id=uuid.uuid4(),
+        user_id=user_id_fixture,
+        exchange="binance", # Ensure this is a string
+        symbol="BTCUSDT",
+        timeframe=15,
+        side="long",
+        status=PositionGroupStatus.ACTIVE,
+        total_dca_legs=1,
+        base_entry_price=Decimal("100"),
+        weighted_avg_entry=Decimal("100"),
+        total_invested_usd=Decimal("1.5"),
+        total_filled_quantity=Decimal("1.5"),
+        unrealized_pnl_usd=Decimal("0"),
+        unrealized_pnl_percent=Decimal("0"),
+        realized_pnl_usd=Decimal("0"),
+        tp_mode="per_leg",
+        pyramid_count=0,
+        max_pyramids=5,
+        replacement_count=0,
+        risk_timer_start=datetime.utcnow() - timedelta(minutes=30),
+        risk_timer_expires=datetime.utcnow() + timedelta(minutes=30)
+    )
+    mock_instance.get_with_orders = AsyncMock(return_value=dummy_position_group)
+    mock_instance.get_by_id = AsyncMock(return_value=dummy_position_group)
+    
     mock_class = MagicMock(return_value=mock_instance)
     return mock_class
 
@@ -150,7 +179,7 @@ async def position_manager_service(
         username="testuser_pm_service",
         email="test_pm_service@example.com",
         hashed_password="hashedpassword",
-        exchange="mock",
+        exchange="binance", # Ensure exchange is a string
         webhook_secret="mock_secret",
         risk_config=convert_decimals_to_str(risk_config_data),
         dca_grid_config=convert_decimals_to_str(dca_grid_config_data),
@@ -158,13 +187,24 @@ async def position_manager_service(
     )
     mock_db_session.get.return_value = user
     
-    return PositionManagerService(
-        session_factory=mock_session_factory, 
-        user=user, 
-        position_group_repository_class=mock_position_group_repository_class,
-        grid_calculator_service=mock_grid_calculator_service,
-        order_service_class=mock_order_service_class
-    )
+    with patch('app.core.security.EncryptionService') as MockEncryptionService:
+        MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
+        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+            mock_connector = AsyncMock() # Ensure it's an AsyncMock
+            mock_connector.get_precision_rules.return_value = {
+                "BTCUSDT": {"tick_size": 0.01, "step_size": 0.000001, "min_qty": 0.000001, "min_notional": 10.0}
+            }
+            mock_connector.get_current_price.return_value = Decimal("100") # Mock return value for get_current_price
+            mock_connector.close = AsyncMock() # Mock the close method
+            mock_get_connector.return_value = mock_connector
+
+            yield PositionManagerService(
+                session_factory=mock_session_factory, 
+                user=user, 
+                position_group_repository_class=mock_position_group_repository_class,
+                grid_calculator_service=mock_grid_calculator_service,
+                order_service_class=mock_order_service_class
+            )
 
 # --- Test Data ---
 
@@ -211,7 +251,7 @@ def sample_position_group(sample_risk_config, user_id_fixture):
     pg = PositionGroup(
         id=uuid.uuid4(),
         user_id=user_id_fixture,
-        exchange="binance",
+        exchange="binance", # Explicitly set exchange to a string
         symbol="BTCUSDT",
         timeframe=15,
         side="long",
@@ -220,7 +260,7 @@ def sample_position_group(sample_risk_config, user_id_fixture):
         base_entry_price=Decimal("100"),
         weighted_avg_entry=Decimal("100"),
         total_invested_usd=Decimal("1000"),
-        total_filled_quantity=Decimal("10"),
+        total_filled_quantity=Decimal("1.5"),
         unrealized_pnl_usd=Decimal("0"),
         unrealized_pnl_percent=Decimal("0"),
         realized_pnl_usd=Decimal("0"),
@@ -246,26 +286,16 @@ async def test_create_position_group_from_signal_new_position(
     sample_total_capital_usd
 ):
     """Test creating a new PositionGroup from a queued signal with correct timer settings."""
-    mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
-    mock_db_session.get.return_value = mock_user
+    # Arrange
 
-    # Patch EncryptionService at the source (app.core.security) to avoid InvalidToken
-    with patch('app.core.security.EncryptionService') as MockEncryptionService:
-        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
-            mock_connector = MagicMock()
-            mock_connector.get_precision_rules = AsyncMock(return_value={})
-            mock_get_connector.return_value = mock_connector
-
-            created_pg = await position_manager_service.create_position_group_from_signal(
-                session=mock_db_session, 
-                user_id=sample_queued_signal.user_id,
-                signal=sample_queued_signal,
-                risk_config=sample_risk_config,
-                dca_grid_config=sample_dca_grid_config,
-                total_capital_usd=sample_total_capital_usd
-            )
+    created_pg = await position_manager_service.create_position_group_from_signal(
+        session=mock_db_session, 
+        user_id=sample_queued_signal.user_id,
+        signal=sample_queued_signal,
+        risk_config=sample_risk_config,
+        dca_grid_config=sample_dca_grid_config,
+        total_capital_usd=sample_total_capital_usd
+    )
 
     assert isinstance(created_pg, PositionGroup)
     assert created_pg.user_id == sample_queued_signal.user_id
@@ -288,33 +318,22 @@ async def test_create_position_group_submits_orders(
     sample_total_capital_usd
 ):
     """Test that creating a position group also creates and submits DCA orders."""
-    # Arrange
-    mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
-    mock_db_session.get.return_value = mock_user 
+    # Arrange 
 
     dca_levels = [
-        {"price": Decimal("100"), "quantity": Decimal("1.0"), "gap_percent": Decimal("1"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")},
-        {"price": Decimal("98"), "quantity": Decimal("1.2"), "gap_percent": Decimal("2"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1"), "tp_price": Decimal("99")}
+        {"price": Decimal("100"), "quantity": Decimal("2.0"), "gap_percent": Decimal("1"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1"), "tp_price": Decimal("101")},
+        {"price": Decimal("98"), "quantity": Decimal("2.02"), "gap_percent": Decimal("2"), "weight_percent": Decimal("50"), "tp_percent": Decimal("1"), "tp_price": Decimal("99")}
     ]
-    mock_grid_calculator_service.calculate_order_quantities.return_value = dca_levels
     
-    with patch('app.core.security.EncryptionService') as MockEncryptionService:
-        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
-            mock_connector = MagicMock()
-            mock_connector.get_precision_rules = AsyncMock(return_value={})
-            mock_get_connector.return_value = mock_connector
-
-            # Act
-            await position_manager_service.create_position_group_from_signal(
-                session=mock_db_session, 
-                user_id=sample_queued_signal.user_id,
-                signal=sample_queued_signal,
-                risk_config=sample_risk_config,
-                dca_grid_config=sample_dca_grid_config,
-                total_capital_usd=sample_total_capital_usd
-            )
+    # Act
+    await position_manager_service.create_position_group_from_signal(
+        session=mock_db_session, 
+        user_id=sample_queued_signal.user_id,
+        signal=sample_queued_signal,
+        risk_config=sample_risk_config,
+        dca_grid_config=sample_dca_grid_config,
+        total_capital_usd=sample_total_capital_usd
+    )
     
     # Assert
     mock_order_service_instance = mock_order_service_class.return_value
@@ -341,29 +360,18 @@ async def test_handle_pyramid_continuation_increment_count(
     sample_position_group
 ):
     """Test handling a pyramid continuation increments pyramid_count and replacement_count."""
-    mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
-    mock_db_session.get.return_value = mock_user 
-
     initial_pyramid_count = sample_position_group.pyramid_count
     initial_replacement_count = sample_position_group.replacement_count
 
-    with patch('app.core.security.EncryptionService') as MockEncryptionService:
-        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
-            mock_connector = MagicMock()
-            mock_connector.get_precision_rules = AsyncMock(return_value={})
-            mock_get_connector.return_value = mock_connector
-
-            updated_pg = await position_manager_service.handle_pyramid_continuation(
-                session=mock_db_session, 
-                user_id=sample_queued_signal.user_id,
-                signal=sample_queued_signal,
-                existing_position_group=sample_position_group,
-                risk_config=sample_risk_config,
-                dca_grid_config=sample_dca_grid_config,
-                total_capital_usd=sample_total_capital_usd
-            )
+    updated_pg = await position_manager_service.handle_pyramid_continuation(
+        session=mock_db_session, 
+        user_id=sample_queued_signal.user_id,
+        signal=sample_queued_signal,
+        existing_position_group=sample_position_group,
+        risk_config=sample_risk_config,
+        dca_grid_config=sample_dca_grid_config,
+        total_capital_usd=sample_total_capital_usd
+    )
 
     assert updated_pg.pyramid_count == initial_pyramid_count + 1
     assert updated_pg.replacement_count == initial_replacement_count + 1
@@ -380,29 +388,18 @@ async def test_handle_pyramid_continuation_reset_timer(
     sample_position_group
 ):
     """Test handling a pyramid continuation resets the timer when configured."""
-    mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
-    mock_db_session.get.return_value = mock_user 
-
     sample_risk_config.reset_timer_on_replacement = True # Set config to reset timer
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    with patch('app.core.security.EncryptionService') as MockEncryptionService:
-        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
-            mock_connector = MagicMock()
-            mock_connector.get_precision_rules = AsyncMock(return_value={})
-            mock_get_connector.return_value = mock_connector
-
-            updated_pg = await position_manager_service.handle_pyramid_continuation(
-                session=mock_db_session, 
-                user_id=sample_queued_signal.user_id,
-                signal=sample_queued_signal,
-                existing_position_group=sample_position_group,
-                risk_config=sample_risk_config,
-                dca_grid_config=sample_dca_grid_config,
-                total_capital_usd=sample_total_capital_usd
-            )
+    updated_pg = await position_manager_service.handle_pyramid_continuation(
+        session=mock_db_session, 
+        user_id=sample_queued_signal.user_id,
+        signal=sample_queued_signal,
+        existing_position_group=sample_position_group,
+        risk_config=sample_risk_config,
+        dca_grid_config=sample_dca_grid_config,
+        total_capital_usd=sample_total_capital_usd
+    )
 
     assert updated_pg.risk_timer_start is not None
     assert updated_pg.risk_timer_expires is not None
@@ -421,30 +418,19 @@ async def test_handle_pyramid_continuation_no_reset_timer(
     sample_position_group
 ):
     """Test handling a pyramid continuation does not reset the timer when not configured."""
-    mock_user = MagicMock(spec=User)
-    mock_user.encrypted_api_keys = {'binance': {'encrypted_data': 'test'}}
-    mock_db_session.get.return_value = mock_user 
-
     sample_risk_config.reset_timer_on_replacement = False # Set config to NOT reset timer
     initial_timer_start = sample_position_group.risk_timer_start
     initial_timer_expires = sample_position_group.risk_timer_expires
 
-    with patch('app.core.security.EncryptionService') as MockEncryptionService:
-        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-            MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
-            mock_connector = MagicMock()
-            mock_connector.get_precision_rules = AsyncMock(return_value={})
-            mock_get_connector.return_value = mock_connector
-
-            updated_pg = await position_manager_service.handle_pyramid_continuation(
-                session=mock_db_session, 
-                user_id=sample_queued_signal.user_id,
-                signal=sample_queued_signal,
-                existing_position_group=sample_position_group,
-                risk_config=sample_risk_config,
-                dca_grid_config=sample_dca_grid_config,
-                total_capital_usd=sample_total_capital_usd
-            )
+    updated_pg = await position_manager_service.handle_pyramid_continuation(
+        session=mock_db_session, 
+        user_id=sample_queued_signal.user_id,
+        signal=sample_queued_signal,
+        existing_position_group=sample_position_group,
+        risk_config=sample_risk_config,
+        dca_grid_config=sample_dca_grid_config,
+        total_capital_usd=sample_total_capital_usd
+    )
 
     assert updated_pg.risk_timer_start == initial_timer_start # Timer should NOT have been reset
     assert updated_pg.risk_timer_expires == initial_timer_expires # Timer should NOT have been reset
@@ -467,18 +453,14 @@ async def test_handle_exit_signal(
     open_order = DCAOrder(status=OrderStatus.OPEN, filled_quantity=Decimal("0"))
     sample_position_group.dca_orders = [filled_order, open_order]
     
+    # Ensure sample_position_group.exchange is a string
+    sample_position_group.exchange = "binance"
+
     # Configure the repository mock to return our sample position group
     mock_repo_instance = mock_position_group_repository_class.return_value
     mock_repo_instance.get_with_orders.return_value = sample_position_group
-
-    # Patch get_exchange_connector to avoid real connection and encryption issues
-    with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_connector.get_current_price = AsyncMock(return_value=Decimal("100"))
-        mock_connector.close = AsyncMock()
-        mock_get_connector.return_value = mock_connector
-        
-        await position_manager_service.handle_exit_signal(sample_position_group.id)
+    
+    await position_manager_service.handle_exit_signal(sample_position_group.id)
 
     # Get the mock instance that was created inside the method
     # In this setup, the instance is the same as the one returned by the class mock

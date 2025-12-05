@@ -49,6 +49,8 @@ class SignalRouterService:
         Routes the signal.
         """
         logger.info(f"Received signal for {signal.tv.symbol} ({signal.tv.action}) on {signal.tv.exchange} for user {self.user.id}")
+        
+        response_message = ""
 
         # Load Configs First
         user_risk_config = self.user.risk_config
@@ -58,7 +60,12 @@ class SignalRouterService:
             logger.warning("User risk_config found as list. Using default RiskEngineConfig.")
             risk_config = RiskEngineConfig()
         else:
-            risk_config = RiskEngineConfig(**user_risk_config)
+            # Ensure proper handling of JSON string if coming from DB
+            if isinstance(user_risk_config, str):
+                risk_config = RiskEngineConfig(**json.loads(user_risk_config))
+            else:
+                risk_config = RiskEngineConfig(**user_risk_config)
+
 
         user_dca_grid_config = self.user.dca_grid_config
         if isinstance(user_dca_grid_config, list):
@@ -67,7 +74,11 @@ class SignalRouterService:
             dca_config_dict = {"levels": user_dca_grid_config, "tp_mode": "per_leg", "tp_aggregate_percent": Decimal("0")}
             dca_config = DCAGridConfig.model_validate(dca_config_dict)
         else:
-            dca_config = DCAGridConfig.model_validate(user_dca_grid_config) # Use model_validate for V2
+            # Ensure proper handling of JSON string if coming from DB
+            if isinstance(user_dca_grid_config, str):
+                dca_config = DCAGridConfig.model_validate(json.loads(user_dca_grid_config))
+            else:
+                dca_config = DCAGridConfig.model_validate(user_dca_grid_config) # Use model_validate for V2
         logger.debug(f"DEBUG: dca_config after validation type: {type(dca_config)}, content: {dca_config}")
 
         # Initialize Dependencies
@@ -76,19 +87,19 @@ class SignalRouterService:
         queue_service = QueueManagerService(AsyncSessionLocal, user=self.user, execution_pool_manager=exec_pool)
         
         # Initialize Exchange Connector
-        
-        target_exchange = signal.tv.exchange.lower()
-        encrypted_data = self.user.encrypted_api_keys
-        if isinstance(encrypted_data, dict):
-             if target_exchange in encrypted_data:
-                 encrypted_data = encrypted_data[target_exchange]
-             elif "encrypted_data" not in encrypted_data:
-                 logger.error(f"Signal Router: No keys configured for {target_exchange}")
-                 return f"Configuration Error: No API keys for {signal.tv.exchange}"
-
+        exchange: Optional[Any] = None
         try:
+            target_exchange = signal.tv.exchange.lower()
+            encrypted_data = self.user.encrypted_api_keys
+            
+            if isinstance(encrypted_data, dict):
+                 if target_exchange in encrypted_data:
+                     encrypted_data = encrypted_data[target_exchange]
+                 elif "encrypted_data" not in encrypted_data:
+                     logger.error(f"Signal Router: No keys configured for {target_exchange}")
+                     return f"Configuration Error: No API keys for {signal.tv.exchange}"
+
             # Build exchange_config dict for the factory function
-            # Use the config dictionary directly as in Dashboard to ensure consistency
             exchange_config = {}
             if isinstance(encrypted_data, str):
                 # Legacy format
@@ -111,10 +122,12 @@ class SignalRouterService:
                 precision_rules = await exchange.get_precision_rules()
                 validator = PrecisionValidator(precision_rules)
                 if not validator.validate_symbol(signal.tv.symbol):
-                    return f"Validation Error: Metadata missing or incomplete for symbol {signal.tv.symbol}"
+                    response_message = f"Validation Error: Metadata missing or incomplete for symbol {signal.tv.symbol}"
+                    return response_message
             except Exception as e:
                 logger.error(f"Signal Router: Precision validation failed: {e}")
-                return f"Validation Error: Failed to fetch precision rules: {e}"
+                response_message = f"Validation Error: Failed to fetch precision rules: {e}"
+                return response_message
 
             grid_calc = GridCalculatorService()
             
@@ -128,6 +141,7 @@ class SignalRouterService:
 
             # 1. Check for Existing Active Group
             active_groups = await pg_repo.get_active_position_groups_for_user(self.user.id)
+            logger.debug(f"DEBUG: Active groups found: {active_groups}")
             
             # --- Handle Exit Signal ---
             intent_type = signal.execution_intent.type.lower() if signal.execution_intent else "signal"
@@ -140,137 +154,123 @@ class SignalRouterService:
                 
                 if group_to_close:
                     await pos_manager.handle_exit_signal(group_to_close.id)
-                    return f"Exit signal executed for {signal.tv.symbol}"
+                    response_message = f"Exit signal executed for {signal.tv.symbol}"
                 else:
                     logger.warning(f"Exit signal received for {signal.tv.symbol} but no active {target_side} position found.")
-                    return f"No active {target_side} position found for {signal.tv.symbol} to exit."
+                    response_message = f"No active {target_side} position found for {signal.tv.symbol} to exit."
 
             # --- Handle Entry/Pyramid Signal ---
-            # Map 'buy'/'sell' to 'long'/'short' for entry matching
-            raw_action = signal.tv.action.lower()
-            if raw_action == "buy":
-                signal_side = "long"
-            elif raw_action == "sell":
-                signal_side = "short"
-            else:
-                signal_side = raw_action # Fallback
-
-            existing_group = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.exchange == signal.tv.exchange and g.timeframe == signal.tv.timeframe and g.side == signal_side), None)
-            
-            # Fetch Capital (Try to get from exchange, fallback to default)
-            total_capital = Decimal("1000")
-            try:
-                balance = await exchange.fetch_balance()
-                # Standardized flat structure (e.g., {'USDT': 1000.0})
-                # Handle legacy/standard CCXT nested structure if present (robustness)
-                if "total" in balance and isinstance(balance["total"], dict):
-                    balance = balance["total"]
-
-                if isinstance(balance, dict):
-                    total_capital = Decimal(str(balance.get('USDT', 1000)))
-            except Exception as e:
-                 logger.warning(f"Failed to fetch balance, using default: {e}")
-
-            # Apply Risk Config Limit (max exposure)
-            if risk_config.max_total_exposure_usd:
-                max_exposure = Decimal(str(risk_config.max_total_exposure_usd))
-                if total_capital > max_exposure:
-                    logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
-                    total_capital = max_exposure
-
-            logger.debug(f"DEBUG: Final total_capital_usd: {total_capital}")
-
-            # Map 'buy'/'sell' to 'long'/'short'
-            raw_action = signal.tv.action.lower()
-            if raw_action == "buy":
-                signal_side = "long"
-            elif raw_action == "sell":
-                signal_side = "short"
-            else:
-                signal_side = raw_action # Fallback or error if needed
-
-            if existing_group:
-                # Pyramid Logic
-                if existing_group.pyramid_count < dca_config.max_pyramids - 1:
-                    try:
-                        # Create transient QueuedSignal
-                        qs = QueuedSignal(
-                            user_id=self.user.id,
-                            exchange=signal.tv.exchange.lower(),
-                            symbol=signal.tv.symbol,
-                            timeframe=signal.tv.timeframe,
-                            side=signal_side,
-                            entry_price=Decimal(str(signal.tv.entry_price)),
-                            signal_payload=signal.dict()
-                        )
-                        
-                        await pos_manager.handle_pyramid_continuation(
-                            session=db_session,
-                            user_id=self.user.id,
-                            signal=qs,
-                            existing_position_group=existing_group,
-                            risk_config=risk_config,
-                            dca_grid_config=dca_config,
-                            total_capital_usd=total_capital
-                        )
-                        # Commit handled by caller (main loop in API usually? No, route is called by API)
-                        # API route has db_session injected. Dependencies usually commit? 
-                        # `db` dependency in FastAPI with `yield` typically commits on exit if no exception.
-                        # But explicit commit here is safer if we want immediate result.
-                        await db_session.commit()
-                        logger.info(f"Pyramid executed for {signal.tv.symbol}")
-                        return f"Pyramid executed for {signal.tv.symbol}"
-                    except Exception as e:
-                        logger.error(f"Pyramid execution failed: {e}")
-                        return f"Pyramid execution failed: {e}"
+            else: # intent_type != "exit"
+                # Map 'buy'/'sell' to 'long'/'short' for entry matching
+                raw_action = signal.tv.action.lower()
+                if raw_action == "buy":
+                    signal_side = "long"
+                elif raw_action == "sell":
+                    signal_side = "short"
                 else:
-                    return "Max pyramids reached. Signal ignored."
+                    signal_side = raw_action # Fallback
 
-            else:
-                # New Position Logic
-                slot_available = await exec_pool.request_slot()
-                if slot_available:
-                    try:
-                        qs = QueuedSignal(
-                            user_id=self.user.id,
-                            exchange=signal.tv.exchange.lower(),
-                            symbol=signal.tv.symbol,
-                            timeframe=signal.tv.timeframe,
-                            side=signal_side,
-                            entry_price=Decimal(str(signal.tv.entry_price)),
-                            signal_payload=signal.dict()
-                        )
-                        
-                        new_position_group = await pos_manager.create_position_group_from_signal(
-                            session=db_session,
-                            user_id=self.user.id,
-                            signal=qs,
-                            risk_config=risk_config,
-                            dca_grid_config=dca_config,
-                            total_capital_usd=total_capital
-                        )
-                        await db_session.commit() # Commit the new position group and its final status
-                        
-                        if new_position_group.status == PositionGroupStatus.FAILED:
-                            logger.warning(f"New position created for {signal.tv.symbol}, but order submission failed. Status: FAILED.")
-                            return f"New position created for {signal.tv.symbol}, but order submission failed."
-                        else:
-                            logger.info(f"New position created for {signal.tv.symbol}. Status: {new_position_group.status.value}")
-                            return f"New position created for {signal.tv.symbol}"
-                    except Exception as e:
-                        logger.error(f"New position execution failed in SignalRouter: {e}")
-                        return f"New position execution failed: {e}"
+                existing_group = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.exchange == signal.tv.exchange and g.timeframe == signal.tv.timeframe and g.side == signal_side), None)
+                logger.debug(f"DEBUG: Existing group after next(): {existing_group}")
+                
+                # Fetch Capital (Try to get from exchange, fallback to default)
+                total_capital = Decimal("1000")
+                try:
+                    balance = await exchange.fetch_balance()
+                    # Standardized flat structure (e.g., {'USDT': 1000.0})
+                    # Handle legacy/standard CCXT nested structure if present (robustness)
+                    if "total" in balance and isinstance(balance["total"], dict):
+                        balance = balance["total"]
+
+                    if isinstance(balance, dict):
+                        total_capital = Decimal(str(balance.get('USDT', 1000)))
+                except Exception as e:
+                     logger.warning(f"Failed to fetch balance, using default: {e}")
+
+                # Apply Risk Config Limit (max exposure)
+                if risk_config.max_total_exposure_usd:
+                    max_exposure = Decimal(str(risk_config.max_total_exposure_usd))
+                    if total_capital > max_exposure:
+                        logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
+                        total_capital = max_exposure
+
+                logger.debug(f"DEBUG: Final total_capital_usd: {total_capital}")
+
+                if existing_group:
+                    # Pyramid Logic
+                    if existing_group.pyramid_count < dca_config.max_pyramids - 1:
+                        try:
+                            # Create transient QueuedSignal
+                            qs = QueuedSignal(
+                                user_id=self.user.id,
+                                exchange=signal.tv.exchange.lower(),
+                                symbol=signal.tv.symbol,
+                                timeframe=signal.tv.timeframe,
+                                side=signal_side,
+                                entry_price=Decimal(str(signal.tv.entry_price)),
+                                signal_payload=signal.model_dump(mode='json')
+                            )
+                            
+                            await pos_manager.handle_pyramid_continuation(
+                                session=db_session,
+                                user_id=self.user.id,
+                                signal=qs,
+                                existing_position_group=existing_group,
+                                risk_config=risk_config,
+                                dca_grid_config=dca_config,
+                                total_capital_usd=total_capital
+                            )
+                            await db_session.commit()
+                            logger.info(f"Pyramid executed for {signal.tv.symbol}")
+                            response_message = f"Pyramid executed for {signal.tv.symbol}"
+                        except Exception as e:
+                            logger.error(f"Pyramid execution failed: {e}")
+                            response_message = f"Pyramid execution failed: {e}"
+                    else:
+                        response_message = "Max pyramids reached. Signal ignored."
+
                 else:
-                    # Add to Queue
-                    # Update the payload side to match 'long'/'short' before queuing? 
-                    # Or just update the model object. The model object takes 'side'.
-                    # The 'signal' passed to add_signal_to_queue is the payload object.
-                    # We should update the payload object or modify add_signal_to_queue.
-                    # Let's modify the payload object side to be safe.
-                    signal.tv.action = signal_side 
-                    await queue_service.add_signal_to_queue(signal)
-                    logger.info(f"Pool full. Signal queued for {signal.tv.symbol}")
-                    return f"Pool full. Signal queued for {signal.tv.symbol}"
+                    # New Position Logic
+                    slot_available = await exec_pool.request_slot()
+                    if slot_available:
+                        try:
+                            qs = QueuedSignal(
+                                user_id=self.user.id,
+                                exchange=signal.tv.exchange.lower(),
+                                symbol=signal.tv.symbol,
+                                timeframe=signal.tv.timeframe,
+                                side=signal_side,
+                                entry_price=Decimal(str(signal.tv.entry_price)),
+                                signal_payload=signal.model_dump(mode='json')
+                            )
+                            
+                            new_position_group = await pos_manager.create_position_group_from_signal(
+                                session=db_session,
+                                user_id=self.user.id,
+                                signal=qs,
+                                risk_config=risk_config,
+                                dca_grid_config=dca_config,
+                                total_capital_usd=total_capital
+                            )
+                            await db_session.commit() # Commit the new position group and its final status
+                            
+                            if new_position_group.status == PositionGroupStatus.FAILED:
+                                logger.warning(f"New position created for {signal.tv.symbol}, but order submission failed. Status: FAILED.")
+                                response_message = f"New position created for {signal.tv.symbol}, but order submission failed."
+                            else:
+                                logger.info(f"New position created for {signal.tv.symbol}. Status: {new_position_group.status.value}")
+                                response_message = f"New position created for {signal.tv.symbol}"
+                        except Exception as e:
+                            logger.error(f"New position execution failed in SignalRouter: {e}")
+                            response_message = f"New position execution failed: {e}"
+                    else:
+                        # Add to Queue
+                        signal.tv.action = signal_side 
+                        await queue_service.add_signal_to_queue(signal)
+                        logger.info(f"Pool full. Signal queued for {signal.tv.symbol}")
+                        response_message = f"Pool full. Signal queued for {signal.tv.symbol}"
         finally:
             if exchange:
                 await exchange.close()
+        
+        return response_message

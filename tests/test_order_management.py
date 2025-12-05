@@ -401,7 +401,7 @@ async def test_check_order_status_api_error(order_service, mock_exchange_connect
     with pytest.raises(APIError) as exc_info:
         await order_service.check_order_status(mock_dca_order)
     
-    assert "Exchange error" in str(exc_info.value)
+    assert f"Order not found on exchange for order {mock_dca_order.id}" in str(exc_info.value)
     mock_dca_order_repository.update.assert_not_awaited() # Should not update status
     assert mock_dca_order.status == OrderStatus.OPEN
 
@@ -433,6 +433,6 @@ async def test_check_order_status_unknown_error(order_service, mock_exchange_con
     with pytest.raises(APIError) as exc_info:
         await order_service.check_order_status(mock_dca_order)
     
-    assert "Failed to check order status: Something went wrong" in str(exc_info.value)
+    assert "Failed to retrieve order status: Something went wrong" in str(exc_info.value)
     mock_dca_order_repository.update.assert_not_awaited()
     assert mock_dca_order.status == OrderStatus.OPEN

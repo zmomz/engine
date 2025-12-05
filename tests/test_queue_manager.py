@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import uuid
 import asyncio
+import json
 
 from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
@@ -25,15 +26,10 @@ from app.schemas.webhook_payloads import WebhookPayload # Added
 from pydantic import BaseModel, Field # Added
 from typing import Optional, Literal # Added
 
-# Helper to convert Decimal to str for JSON serialization
-def convert_decimals_to_str(obj):
+def decimal_default(obj):
     if isinstance(obj, Decimal):
         return str(obj)
-    if isinstance(obj, dict):
-        return {k: convert_decimals_to_str(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [convert_decimals_to_str(elem) for elem in obj]
-    return obj
+    raise TypeError
 
 # --- Fixtures for QueueManagerService ---
 
@@ -54,8 +50,8 @@ async def user_id_fixture(db_session: AsyncMock):
         username="testuser_qm",
         email="test_qm@example.com",
         hashed_password="hashedpassword",
-        risk_config=convert_decimals_to_str(risk_config_data),
-        dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
+        risk_config=json.dumps(risk_config_data, default=decimal_default), # Stored as JSON string
+        dca_grid_config=json.dumps(dca_grid_config_data, default=decimal_default) # Stored as JSON string
     )
     db_session.add(user)
     await db_session.commit()
@@ -163,8 +159,8 @@ async def queue_manager_service(
             hashed_password="hashedpassword",
             exchange="mock",
             webhook_secret="mock_secret",
-            risk_config=convert_decimals_to_str(risk_config_data),
-            dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
+            risk_config=json.dumps(risk_config_data, default=decimal_default), # Stored as JSON string
+            dca_grid_config=json.dumps(dca_grid_config_data, default=decimal_default) # Stored as JSON string
         )
         db_session.add(user)
         await db_session.commit()
@@ -439,8 +435,8 @@ async def test_promote_highest_priority_signal_logic(queue_manager_service, mock
     user_mock.username = "testuser_qm"
     user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
     user_mock.exchange = "binance"
-    user_mock.risk_config = RiskEngineConfig().model_dump() # Mock as a dictionary
-    user_mock.dca_grid_config = DCAGridConfig(levels=[]).model_dump() # Mock as a dictionary with default levels
+    user_mock.risk_config = json.dumps(RiskEngineConfig().model_dump(), default=decimal_default) # Mock as JSON string
+    user_mock.dca_grid_config = json.dumps(DCAGridConfig(levels=[]).model_dump(), default=decimal_default) # Mock as JSON string
     
     mock_session.get.return_value = user_mock
 
@@ -500,13 +496,21 @@ async def test_promote_highest_priority_signal_slot_available(queue_manager_serv
     # Mock session.get
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
     
+    user_mock = MagicMock(spec=User)
+    user_mock.id = user_id_fixture
+    user_mock.exchange = "mock"
+    user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
+    user_mock.risk_config = json.dumps(RiskEngineConfig().model_dump(), default=decimal_default) # Mock as JSON string
+    user_mock.dca_grid_config = json.dumps(DCAGridConfig(levels=[]).model_dump(), default=decimal_default) # Mock as JSON string
+    mock_session.get.return_value = user_mock
+
     await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
 
     mock_exchange_connector.get_current_price.assert_called_once_with("BTCUSDT")
     # Update called 2 times: 1 for loss calc, 1 for promotion
     assert mock_queued_signal_repository_class.return_value.update.call_count == 2
     assert signal_to_promote.status == QueueStatus.PROMOTED.value # Assert status change
-    mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=False) # Removed session arg
+    mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=False, max_open_groups_override=ANY) # Updated assertion with ANY
 @pytest.mark.asyncio
 async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mock_queued_signal_repository_class, mock_execution_pool_manager, user_id_fixture):
     """
@@ -533,8 +537,8 @@ async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mo
     user_mock.id = user_id_fixture
     user_mock.exchange = "mock"
     user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
-    user_mock.risk_config = RiskEngineConfig().model_dump() # Mock as a dictionary
-    user_mock.dca_grid_config = DCAGridConfig(levels=[]).model_dump() # Mock as a dictionary
+    user_mock.risk_config = json.dumps(RiskEngineConfig().model_dump(), default=decimal_default) # Mock as JSON string
+    user_mock.dca_grid_config = json.dumps(DCAGridConfig(levels=[]).model_dump(), default=decimal_default) # Mock as JSON string
 
     # Mock session.get
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
@@ -543,7 +547,7 @@ async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mo
     await queue_manager_service.promote_highest_priority_signal(session=mock_session) # Call the correct method
 
     queue_manager_service.exchange_connector.get_current_price.assert_called_once_with("ETHUSDT")
-    mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=False) # Removed session arg
+    mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=False, max_open_groups_override=ANY) # Updated assertion with ANY
     # Assert that update was called once for loss calc, but not for promotion
     assert mock_queued_signal_repository_class.return_value.update.call_count == 1
     assert signal_in_queue.status == QueueStatus.QUEUED # Status should NOT change
@@ -585,8 +589,8 @@ async def test_promote_highest_priority_signal_pyramid_continuation(queue_manage
     user_mock.id = user_id_fixture
     user_mock.exchange = "mock"
     user_mock.encrypted_api_keys = {"encrypted_data": "mock_key"}
-    user_mock.risk_config = RiskEngineConfig().model_dump() # Mock as a dictionary
-    user_mock.dca_grid_config = DCAGridConfig(levels=[]).model_dump() # Mock as a dictionary
+    user_mock.risk_config = json.dumps(RiskEngineConfig().model_dump(), default=decimal_default) # Mock as JSON string
+    user_mock.dca_grid_config = json.dumps(DCAGridConfig(levels=[]).model_dump(), default=decimal_default) # Mock as JSON string
 
     # Mock session.get
     mock_session = queue_manager_service.session_factory.return_value.__aenter__.return_value
@@ -598,7 +602,7 @@ async def test_promote_highest_priority_signal_pyramid_continuation(queue_manage
     # Update called 2 times: 1 for loss calc, 1 for promotion
     assert mock_queued_signal_repository_class.return_value.update.call_count == 2
     assert signal_pyramid.status == QueueStatus.PROMOTED.value
-    mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=True)
+    mock_execution_pool_manager.request_slot.assert_called_once_with(is_pyramid_continuation=True, max_open_groups_override=ANY) # Updated assertion with ANY
 
 @pytest.mark.asyncio
 async def test_start_and_stop_promotion_task(queue_manager_service):

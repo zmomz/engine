@@ -1,3 +1,4 @@
+import logging
 import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,7 @@ from app.core.security import EncryptionService
 from app.services.exchange_abstraction.factory import get_exchange_connector
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 async def get_order_service(
     request: Request,
@@ -199,7 +201,7 @@ async def force_close_position(
     except Exception as e:
         logger.error(f"Error force closing position {group_id}: {e}\n{traceback.format_exc()}")
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during force close.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred during force close: {str(e)}")
     finally:
         # Always close the exchange connector
         if exchange_connector:

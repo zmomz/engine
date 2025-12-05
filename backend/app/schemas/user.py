@@ -55,6 +55,7 @@ class UserRead(UserBase):
     exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
     dca_grid_config: Optional[DCAGridConfig] = None # Now a pydantic model after validation
+    encrypted_api_keys: Optional[Dict[str, Any]] = None # Explicitly include to pass to validator
     configured_exchange_details: Optional[Dict[str, Dict[str, Any]]] = None # Detailed exchange configs
     configured_exchanges: List[str] = [] # List of configured exchange names
 
@@ -74,16 +75,19 @@ class UserRead(UserBase):
             # Populate configured_exchange_details from encrypted_api_keys
             if "encrypted_api_keys" in data and isinstance(data["encrypted_api_keys"], dict):
                 details = {}
+                configured_exchanges_list = []
                 for exchange_name, config in data["encrypted_api_keys"].items():
                     if isinstance(config, dict):
                         exchange_detail = {
                             "testnet": config.get("testnet", False),
-                            "account_type": config.get("account_type", "UNIFIED") # Default for Bybit
+                            "account_type": config.get("account_type", "UNIFIED") 
                         }
-                        # For Binance, default_type is already 'spot' and is not dynamically set from here.
-                        # We could add 'default_type' to config if it ever became user configurable per exchange.
                         details[exchange_name] = exchange_detail
+                        configured_exchanges_list.append(exchange_name)
                 data["configured_exchange_details"] = details
-                data["configured_exchanges"] = list(data["encrypted_api_keys"].keys())
+                data["configured_exchanges"] = configured_exchanges_list
+            else:
+                data["configured_exchange_details"] = {}
+                data["configured_exchanges"] = []
 
         return data

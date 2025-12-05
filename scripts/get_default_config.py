@@ -10,6 +10,8 @@ import os
 import json
 import argparse
 
+from decimal import Decimal
+
 # Add backend to path to allow imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '../backend'))
 
@@ -18,6 +20,11 @@ try:
 except ImportError:
     print("Error: Could not import schemas. Make sure you are running from the project root or backend is in PYTHONPATH.", file=sys.stderr)
     sys.exit(1)
+
+def decimal_default(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)
+    raise TypeError
 
 def get_risk_config():
     return RiskEngineConfig().model_dump(mode='json')
@@ -57,7 +64,7 @@ def main():
     else:
         output_data = data
 
-    json_output = json.dumps(output_data, indent=2)
+    json_output = json.dumps(output_data, indent=2, default=decimal_default)
 
     if args.output:
         try:

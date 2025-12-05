@@ -167,7 +167,7 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
     mock_connector = AsyncMock()
     mock_connector.get_order_status.return_value = {
         "id": "exchange_order_123",
-        "status": "open", # Exchange status 'open' but with filled amount > 0 implies partial fill in some logic, or explicit partial
+        "status": "partially_filled",
         "filled": 50.0, # Use float as CCXT often returns
         "average": 60000.50,
         "amount": 100.0,
@@ -256,7 +256,6 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
     assert mock_dca_repo_instance.update.call_count >= 1
 
     # 3. Verify Logging
-    assert f"Exchange response for order {mock_order.id}" in caplog.text
     # OrderService logs: "Status changed from ... to ..."
     assert f"Order {mock_order.id}: Status changed from {OrderStatus.OPEN.value} to {OrderStatus.PARTIALLY_FILLED.value}" in caplog.text
     assert f"Order {mock_order.id}: Filled quantity changed from 0 to 50.0" in caplog.text

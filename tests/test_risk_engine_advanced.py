@@ -8,10 +8,18 @@ from app.services.risk_engine import RiskEngineService, select_loser_and_winners
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.queued_signal import QueuedSignal
 from app.schemas.grid_config import RiskEngineConfig
+from app.core.security import EncryptionService # Import EncryptionService
 
 @pytest.fixture
 def mock_user():
-    return MagicMock(id=uuid.uuid4(), encrypted_api_keys={})
+    user_id = uuid.uuid4()
+    return MagicMock(
+        id=user_id,
+        encrypted_api_keys={
+            "binance": {"encrypted_data": "dummy_binance_key", "testnet": True, "account_type": "SPOT"},
+            "bybit": {"encrypted_data": "dummy_bybit_key", "testnet": False, "account_type": "UNIFIED"}
+        }
+    )
 
 @pytest.fixture
 def mock_config():
@@ -28,15 +36,21 @@ def mock_config():
 
 @pytest.fixture
 def risk_service(mock_config):
-    return RiskEngineService(
-        session_factory=AsyncMock(),
-        position_group_repository_class=MagicMock(),
-        risk_action_repository_class=MagicMock(),
-        dca_order_repository_class=MagicMock(),
-        order_service_class=MagicMock(),
-        risk_engine_config=mock_config,
-        polling_interval_seconds=1
-    )
+    # Patch EncryptionService globally for risk_engine tests
+    with patch("app.services.risk_engine.EncryptionService") as MockEncryptionService:
+        mock_encryption_instance = MockEncryptionService.return_value
+        mock_encryption_instance.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
+        
+        service = RiskEngineService(
+            session_factory=AsyncMock(),
+            position_group_repository_class=MagicMock(),
+            risk_action_repository_class=MagicMock(),
+            dca_order_repository_class=MagicMock(),
+            order_service_class=MagicMock(),
+            risk_engine_config=mock_config,
+            polling_interval_seconds=1
+        )
+        yield service
 
 @pytest.fixture
 def mock_positions():
@@ -86,7 +100,7 @@ async def test_validate_pre_trade_risk_max_global(risk_service, mock_config):
     active_positions = [MagicMock(), MagicMock()] # 2 positions
     # Config max is 2
     
-    signal = QueuedSignal(symbol="SOL/USD", user_id="user1")
+    signal = QueuedSignal(symbol="SOL/USD", user_id=uuid.uuid4())
     
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
@@ -100,7 +114,7 @@ async def test_validate_pre_trade_risk_max_per_symbol(risk_service):
     active_positions = [p1]
     # Config max per symbol is 1
     
-    signal = QueuedSignal(symbol="BTC/USD", user_id="user1")
+    signal = QueuedSignal(symbol="BTC/USD", user_id=uuid.uuid4())
     
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
@@ -114,7 +128,7 @@ async def test_validate_pre_trade_risk_max_exposure(risk_service):
     active_positions = [p1]
     # Config max exposure is 1000
     
-    signal = QueuedSignal(symbol="SOL/USD", user_id="user1")
+    signal = QueuedSignal(symbol="SOL/USD", user_id=uuid.uuid4())
     
     # 950 + 100 = 1050 > 1000
     result = await risk_service.validate_pre_trade_risk(
@@ -126,7 +140,7 @@ async def test_validate_pre_trade_risk_max_exposure(risk_service):
 async def test_validate_pre_trade_risk_daily_loss(risk_service):
     """Test rejection when daily loss limit is hit."""
     active_positions = []
-    signal = QueuedSignal(symbol="SOL/USD", user_id="user1")
+    signal = QueuedSignal(symbol="SOL/USD", user_id=uuid.uuid4())
     
     # Mock repo call
     mock_session = AsyncMock()
@@ -146,7 +160,7 @@ async def test_validate_pre_trade_risk_pyramid_bypass(risk_service):
     p2 = MagicMock(total_invested_usd=Decimal("10"))
     active_positions = [p1, p2] 
     
-    signal = QueuedSignal(symbol="BTC/USD", user_id="user1")
+    signal = QueuedSignal(symbol="BTC/USD", user_id=uuid.uuid4())
     
     # Max global positions reached, but is_pyramid_continuation=True
     # Mock daily loss to pass
@@ -219,11 +233,14 @@ async def test_calculate_partial_close_quantities_exact_coverage(mock_user):
     
     # Mock the exchange connector within the calculate_partial_close_quantities function
     with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
-        mock_connector = AsyncMock()
-        mock_get_connector.return_value = mock_connector
-        mock_connector.get_current_price.return_value = Decimal("2900.0") 
-        mock_connector.get_precision_rules.return_value = precision_rules
+        # Create an AsyncMock instance that will be returned by get_exchange_connector
+        mock_exchange_instance = AsyncMock()
+        mock_exchange_instance.get_current_price.return_value = Decimal("2900.0") 
+        mock_exchange_instance.get_precision_rules.return_value = precision_rules
+        mock_exchange_instance.close.return_value = None # Explicitly set return for close
 
+        mock_get_connector.return_value = mock_exchange_instance # Set the return value for the patched function
+        
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
     
     assert len(plan) == 1
@@ -254,10 +271,13 @@ async def test_calculate_partial_close_quantities_insufficient_winner(mock_user)
     
     # Mock the exchange connector within the calculate_partial_close_quantities function
     with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
-        mock_connector = AsyncMock()
-        mock_get_connector.return_value = mock_connector
-        mock_connector.get_current_price.side_effect = [Decimal("1100.0"), Decimal("11000.0")]
-        mock_connector.get_precision_rules.return_value = precision_rules
+        # Create an AsyncMock instance that will be returned by get_exchange_connector
+        mock_exchange_instance = AsyncMock()
+        mock_exchange_instance.get_current_price.side_effect = [Decimal("1100.0"), Decimal("11000.0")]
+        mock_exchange_instance.get_precision_rules.return_value = precision_rules
+        mock_exchange_instance.close.return_value = None # Explicitly set return for close
+
+        mock_get_connector.return_value = mock_exchange_instance # Set the return value for the patched function
 
         plan = await calculate_partial_close_quantities(mock_user, [w1, w2], required_usd)
     
@@ -280,10 +300,13 @@ async def test_calculate_partial_close_min_notional_skip(mock_user):
     precision_rules = {"DOGE/USD": {"step_size": Decimal("1"), "min_notional": Decimal("10")}}
     
     with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
-        mock_connector = AsyncMock()
-        mock_get_connector.return_value = mock_connector
-        mock_connector.get_current_price.return_value = Decimal("0.11") # Profit 0.01 per unit
-        mock_connector.get_precision_rules.return_value = precision_rules
+        # Create an AsyncMock instance that will be returned by get_exchange_connector
+        mock_exchange_instance = AsyncMock()
+        mock_exchange_instance.get_current_price.return_value = Decimal("0.11") # Profit 0.01 per unit
+        mock_exchange_instance.get_precision_rules.return_value = precision_rules
+        mock_exchange_instance.close.return_value = None # Explicitly set return for close
+        
+        mock_get_connector.return_value = mock_exchange_instance # Set the return value for the patched function
         
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
     

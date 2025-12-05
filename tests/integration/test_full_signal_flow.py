@@ -124,7 +124,7 @@ async def test_full_signal_flow_new_position(
         execution_pool_manager=execution_pool_manager,
         position_manager_service=position_manager_service
     )
-    await queue_manager.promote_highest_priority_signal()
+    await queue_manager.promote_highest_priority_signal(session=db_session)
 
     # 3. Verify database state
     await db_session.commit() # Ensure transaction is committed so we can read the data
