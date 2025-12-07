@@ -8,11 +8,12 @@ import { z } from 'zod';
 import useConfigStore from '../store/configStore';
 import useConfirmStore from '../store/confirmStore';
 import useNotificationStore from '../store/notificationStore';
+import QueuePrioritySettings from '../components/QueuePrioritySettings';
 
 // Define Zod schemas for validation
 const exchangeSettingsSchema = z.object({
   exchange: z.string().min(1, 'Exchange is required'),
-  key_target_exchange: z.string().min(1, 'Target exchange is required'), 
+  key_target_exchange: z.string().min(1, 'Target exchange is required'),
   api_key: z.string().optional(),
   secret_key: z.string().optional(),
   testnet: z.boolean().optional(), // Added testnet
@@ -34,6 +35,17 @@ const riskEngineConfigSchema = z.object({
   reset_timer_on_replacement: z.boolean(),
   partial_close_enabled: z.boolean(),
   min_close_notional: z.coerce.number().min(0),
+  priority_rules: z.object({
+    priority_rules_enabled: z.object({
+      same_pair_timeframe: z.boolean(),
+      deepest_loss_percent: z.boolean(),
+      highest_replacement: z.boolean(),
+      fifo_fallback: z.boolean(),
+    }).refine((data) => Object.values(data).some(Boolean), {
+      message: "At least one priority rule must be enabled"
+    }),
+    priority_order: z.array(z.string()).length(4, "Must contain all 4 priority rules")
+  }),
 });
 
 const dcaLevelConfigSchema = z.object({
@@ -145,6 +157,20 @@ const SettingsPage: React.FC = () => {
         reset_timer_on_replacement: false,
         partial_close_enabled: true,
         min_close_notional: 10,
+        priority_rules: {
+          priority_rules_enabled: {
+            same_pair_timeframe: true,
+            deepest_loss_percent: true,
+            highest_replacement: true,
+            fifo_fallback: true
+          },
+          priority_order: [
+            "same_pair_timeframe",
+            "deepest_loss_percent",
+            "highest_replacement",
+            "fifo_fallback"
+          ]
+        }
       },
       dcaGridConfig: settings?.dca_grid_config || { levels: [], tp_mode: "per_leg", tp_aggregate_percent: 0 },
       appSettings: {
@@ -165,7 +191,7 @@ const SettingsPage: React.FC = () => {
         exchangeSettings: {
           exchange: settings.exchange,
           key_target_exchange: settings.exchange, // Default to active exchange
-          api_key: '', 
+          api_key: '',
           secret_key: '',
           testnet: currentExchangeDetails.testnet || false, // Initialize testnet
           account_type: currentExchangeDetails.account_type || '', // Initialize account_type
@@ -203,10 +229,10 @@ const SettingsPage: React.FC = () => {
 
     // Only send keys if they are provided
     if (data.exchangeSettings.api_key && data.exchangeSettings.secret_key) {
-        payload.api_key = data.exchangeSettings.api_key;
-        payload.secret_key = data.exchangeSettings.secret_key;
-        // Explicitly set the target exchange for these keys
-        payload.key_target_exchange = data.exchangeSettings.key_target_exchange;
+      payload.api_key = data.exchangeSettings.api_key;
+      payload.secret_key = data.exchangeSettings.secret_key;
+      // Explicitly set the target exchange for these keys
+      payload.key_target_exchange = data.exchangeSettings.key_target_exchange;
     }
 
     await updateSettings(payload);
@@ -218,11 +244,15 @@ const SettingsPage: React.FC = () => {
     if (errors.exchangeSettings) {
       setCurrentTab(0);
     } else if (errors.riskEngineConfig) {
-      setCurrentTab(1);
+      if (errors.riskEngineConfig.priority_rules) {
+        setCurrentTab(2);
+      } else {
+        setCurrentTab(1);
+      }
     } else if (errors.dcaGridConfig) {
-      setCurrentTab(2);
-    } else if (errors.appSettings) {
       setCurrentTab(3);
+    } else if (errors.appSettings) {
+      setCurrentTab(4);
     }
     // Optional: show a snackbar or alert
     // alert("Please correct the errors in the highlighted tab before saving.");
@@ -270,7 +300,7 @@ const SettingsPage: React.FC = () => {
 
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-        <Typography variant="h4" gutterBottom>
+      <Typography variant="h4" gutterBottom>
         Settings
       </Typography>
       <Paper sx={{ p: 3 }}>
@@ -278,9 +308,10 @@ const SettingsPage: React.FC = () => {
           <Tabs value={currentTab} onChange={handleTabChange} aria-label="settings tabs">
             <Tab label="Exchange" {...a11yProps(0)} />
             <Tab label="Risk Engine" {...a11yProps(1)} />
-            <Tab label="DCA Grid" {...a11yProps(2)} />
-            <Tab label="Account" {...a11yProps(3)} />
-            <Tab label="System" {...a11yProps(4)} />
+            <Tab label="Queue Configuration" {...a11yProps(2)} />
+            <Tab label="DCA Grid" {...a11yProps(3)} />
+            <Tab label="Account" {...a11yProps(4)} />
+            <Tab label="System" {...a11yProps(5)} />
           </Tabs>
         </Box>
 
@@ -289,171 +320,171 @@ const SettingsPage: React.FC = () => {
             {/* Exchange Settings */}
             <Typography variant="h6" gutterBottom>Configured API Keys</Typography>
             <Paper variant="outlined" sx={{ mb: 3 }}>
-                <List>
-                    {settings?.configured_exchanges && settings.configured_exchanges.length > 0 ? (
-                        settings.configured_exchanges.map((ex) => (
-                            <ListItem key={ex} divider>
-                                <ListItemText 
-                                    primary={
-                                        <Box display="flex" alignItems="center" gap={1}>
-                                            {ex}
-                                        </Box>
-                                    } 
-                                    secondary="API Keys Configured" 
-                                />
-                                <ListItemSecondaryAction>
-                                    <IconButton edge="end" aria-label="edit" onClick={() => handleEditKey(ex)} sx={{ mr: 1 }}>
-                                        <EditIcon />
-                                    </IconButton>
-                                    <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteKey(ex)} color="error">
-                                        <DeleteIcon />
-                                    </IconButton>
-                                </ListItemSecondaryAction>
-                            </ListItem>
-                        ))
-                    ) : (
-                        <ListItem>
-                            <ListItemText primary="No exchanges configured." secondary="Add API keys below." />
-                        </ListItem>
-                    )}
-                </List>
+              <List>
+                {settings?.configured_exchanges && settings.configured_exchanges.length > 0 ? (
+                  settings.configured_exchanges.map((ex) => (
+                    <ListItem key={ex} divider>
+                      <ListItemText
+                        primary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            {ex}
+                          </Box>
+                        }
+                        secondary="API Keys Configured"
+                      />
+                      <ListItemSecondaryAction>
+                        <IconButton edge="end" aria-label="edit" onClick={() => handleEditKey(ex)} sx={{ mr: 1 }}>
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteKey(ex)} color="error">
+                          <DeleteIcon />
+                        </IconButton>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  ))
+                ) : (
+                  <ListItem>
+                    <ListItemText primary="No exchanges configured." secondary="Add API keys below." />
+                  </ListItem>
+                )}
+              </List>
             </Paper>
 
             <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>Add / Update API Keys</Typography>
             <Paper elevation={0} sx={{ p: 2, bgcolor: 'background.default' }}>
-                <Grid container spacing={2} alignItems="flex-start">
-                    <Grid size={{ xs: 12, md: 4 }}>
-                         <Controller
-                            name="exchangeSettings.key_target_exchange"
-                            control={control}
-                            render={({ field }) => (
-                                <TextField
-                                {...field}
-                                select
-                                label="Exchange to Configure"
-                                fullWidth
-                                margin="normal"
-                                error={!!errors.exchangeSettings?.key_target_exchange}
-                                SelectProps={{ native: true }}
-                                InputLabelProps={{ shrink: true }}
-                                >
-                                {supportedExchanges.map((exchange) => (
-                                    <option key={exchange} value={exchange}>
-                                    {exchange}
-                                    </option>
-                                ))}
-                                </TextField>
-                            )}
-                        />
-                    </Grid>
-                </Grid>
-               
-                <Box sx={{ mt: 1, mb: 2 }}>
-                    {selectedTargetExchange && (
-                        <Alert severity={isConfigured(selectedTargetExchange) ? "info" : "warning"}>
-                            {isConfigured(selectedTargetExchange) 
-                                ? `Keys are already configured for ${selectedTargetExchange}. Entering new keys will overwrite them.` 
-                                : `No keys found for ${selectedTargetExchange}. Please configure them.`}
-                        </Alert>
+              <Grid container spacing={2} alignItems="flex-start">
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <Controller
+                    name="exchangeSettings.key_target_exchange"
+                    control={control}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        select
+                        label="Exchange to Configure"
+                        fullWidth
+                        margin="normal"
+                        error={!!errors.exchangeSettings?.key_target_exchange}
+                        SelectProps={{ native: true }}
+                        InputLabelProps={{ shrink: true }}
+                      >
+                        {supportedExchanges.map((exchange) => (
+                          <option key={exchange} value={exchange}>
+                            {exchange}
+                          </option>
+                        ))}
+                      </TextField>
                     )}
-                </Box>
+                  />
+                </Grid>
+              </Grid>
 
-                <Controller
-                  name="exchangeSettings.api_key"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="API Key (Public)"
-                      fullWidth
-                      margin="normal"
-                      error={!!errors.exchangeSettings?.api_key}
-                      helperText={errors.exchangeSettings?.api_key?.message}
-                    />
-                  )}
-                />
-                <Controller
-                  name="exchangeSettings.secret_key"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Secret Key (Private)"
-                      fullWidth
-                      margin="normal"
-                      type="password"
-                      error={!!errors.exchangeSettings?.secret_key}
-                      helperText={errors.exchangeSettings?.secret_key?.message}
-                    />
-                  )}
-                />
-                <Controller
-                  name="exchangeSettings.testnet"
-                  control={control}
-                  render={({ field }) => (
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={!!field.value}
-                          onChange={(e) => field.onChange(e.target.checked)}
-                        />
-                      }
-                      label="Use Testnet"
-                    />
-                  )}
-                />
-                 <Controller
-                  name="exchangeSettings.account_type"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Account Type (e.g., UNIFIED for Bybit)"
-                      fullWidth
-                      margin="normal"
-                      error={!!errors.exchangeSettings?.account_type}
-                      helperText={errors.exchangeSettings?.account_type?.message}
-                    />
-                  )}
-                />
-                <Button 
-                    variant="contained" 
-                    color="primary"
-                    sx={{ mt: 2 }}
-                    onClick={async (e) => {
-                         // Prevent form submission
-                         e.preventDefault();
-                         e.stopPropagation();
+              <Box sx={{ mt: 1, mb: 2 }}>
+                {selectedTargetExchange && (
+                  <Alert severity={isConfigured(selectedTargetExchange) ? "info" : "warning"}>
+                    {isConfigured(selectedTargetExchange)
+                      ? `Keys are already configured for ${selectedTargetExchange}. Entering new keys will overwrite them.`
+                      : `No keys found for ${selectedTargetExchange}. Please configure them.`}
+                  </Alert>
+                )}
+              </Box>
 
-                         const currentValues = watch("exchangeSettings");
-                         
-                         if (currentValues.api_key && currentValues.secret_key) {
-                            const payload: any = {
-                                key_target_exchange: currentValues.key_target_exchange,
-                                api_key: currentValues.api_key,
-                                secret_key: currentValues.secret_key,
-                            };
-                            // Add testnet and account_type if they have values
-                            if (currentValues.testnet !== undefined) {
-                                payload.testnet = currentValues.testnet;
-                            }
-                            if (currentValues.account_type) {
-                                payload.account_type = currentValues.account_type;
-                            }
-                            await updateSettings(payload);
-                            // Clear fields after successful update
-                            setValue("exchangeSettings.api_key", "");
-                            setValue("exchangeSettings.secret_key", "");
-                            // Optionally clear testnet and account_type or reset to defaults
-                            setValue("exchangeSettings.testnet", false); 
-                            setValue("exchangeSettings.account_type", "");
-                        } else {
-                            useNotificationStore.getState().showNotification("Please enter both API Key and Secret Key.", 'warning');
-                        }
-                    }}
-                >
-                    Save API Keys
-                </Button>
+              <Controller
+                name="exchangeSettings.api_key"
+                control={control}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    label="API Key (Public)"
+                    fullWidth
+                    margin="normal"
+                    error={!!errors.exchangeSettings?.api_key}
+                    helperText={errors.exchangeSettings?.api_key?.message}
+                  />
+                )}
+              />
+              <Controller
+                name="exchangeSettings.secret_key"
+                control={control}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    label="Secret Key (Private)"
+                    fullWidth
+                    margin="normal"
+                    type="password"
+                    error={!!errors.exchangeSettings?.secret_key}
+                    helperText={errors.exchangeSettings?.secret_key?.message}
+                  />
+                )}
+              />
+              <Controller
+                name="exchangeSettings.testnet"
+                control={control}
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={!!field.value}
+                        onChange={(e) => field.onChange(e.target.checked)}
+                      />
+                    }
+                    label="Use Testnet"
+                  />
+                )}
+              />
+              <Controller
+                name="exchangeSettings.account_type"
+                control={control}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    label="Account Type (e.g., UNIFIED for Bybit)"
+                    fullWidth
+                    margin="normal"
+                    error={!!errors.exchangeSettings?.account_type}
+                    helperText={errors.exchangeSettings?.account_type?.message}
+                  />
+                )}
+              />
+              <Button
+                variant="contained"
+                color="primary"
+                sx={{ mt: 2 }}
+                onClick={async (e) => {
+                  // Prevent form submission
+                  e.preventDefault();
+                  e.stopPropagation();
+
+                  const currentValues = watch("exchangeSettings");
+
+                  if (currentValues.api_key && currentValues.secret_key) {
+                    const payload: any = {
+                      key_target_exchange: currentValues.key_target_exchange,
+                      api_key: currentValues.api_key,
+                      secret_key: currentValues.secret_key,
+                    };
+                    // Add testnet and account_type if they have values
+                    if (currentValues.testnet !== undefined) {
+                      payload.testnet = currentValues.testnet;
+                    }
+                    if (currentValues.account_type) {
+                      payload.account_type = currentValues.account_type;
+                    }
+                    await updateSettings(payload);
+                    // Clear fields after successful update
+                    setValue("exchangeSettings.api_key", "");
+                    setValue("exchangeSettings.secret_key", "");
+                    // Optionally clear testnet and account_type or reset to defaults
+                    setValue("exchangeSettings.testnet", false);
+                    setValue("exchangeSettings.account_type", "");
+                  } else {
+                    useNotificationStore.getState().showNotification("Please enter both API Key and Secret Key.", 'warning');
+                  }
+                }}
+              >
+                Save API Keys
+              </Button>
             </Paper>
           </CustomTabPanel>
 
@@ -506,12 +537,19 @@ const SettingsPage: React.FC = () => {
                 );
               })}
             </Grid>
+
+
           </CustomTabPanel>
 
           <CustomTabPanel value={currentTab} index={2}>
+            {/* Queue Priority Configuration */}
+            <QueuePrioritySettings control={control} setValue={setValue} watch={watch} />
+          </CustomTabPanel>
+
+          <CustomTabPanel value={currentTab} index={3}>
             {/* DCA Grid Settings */}
             <Typography variant="h6" gutterBottom>DCA Grid Configuration</Typography>
-            
+
             <Box sx={{ mb: 4 }}>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
@@ -627,13 +665,13 @@ const SettingsPage: React.FC = () => {
               Add DCA Level
             </Button>
             {errors.dcaGridConfig?.levels && (
-                <Alert severity="error" sx={{ mt: 2 }}>
-                    {(errors.dcaGridConfig.levels as any).root?.message}
-                </Alert>
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {(errors.dcaGridConfig.levels as any).root?.message}
+              </Alert>
             )}
           </CustomTabPanel>
 
-          <CustomTabPanel value={currentTab} index={3}>
+          <CustomTabPanel value={currentTab} index={4}>
             {/* App Settings (User Account) */}
             <Typography variant="h6" gutterBottom>Account Settings</Typography>
             <Controller
@@ -692,78 +730,78 @@ const SettingsPage: React.FC = () => {
             />
           </CustomTabPanel>
 
-          <CustomTabPanel value={currentTab} index={4}>
+          <CustomTabPanel value={currentTab} index={5}>
             <Typography variant="h6" gutterBottom>System Maintenance</Typography>
             <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle1">Backup Configuration</Typography>
-                <Typography variant="body2" color="text.secondary" paragraph>
-                    Download a copy of your current configuration settings (excluding API keys).
-                </Typography>
-                <Button variant="outlined" onClick={() => {
-                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(settings, null, 2));
-                    const downloadAnchorNode = document.createElement('a');
-                    downloadAnchorNode.setAttribute("href",     dataStr);
-                    downloadAnchorNode.setAttribute("download", "gemini_config_backup.json");
-                    document.body.appendChild(downloadAnchorNode);
-                    downloadAnchorNode.click();
-                    downloadAnchorNode.remove();
-                }}>
-                    Download Backup
-                </Button>
+              <Typography variant="subtitle1">Backup Configuration</Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Download a copy of your current configuration settings (excluding API keys).
+              </Typography>
+              <Button variant="outlined" onClick={() => {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(settings, null, 2));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "gemini_config_backup.json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+              }}>
+                Download Backup
+              </Button>
             </Box>
-            
+
             <Divider sx={{ my: 3 }} />
-            
+
             <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle1">Restore Configuration</Typography>
-                <Typography variant="body2" color="text.secondary" paragraph>
-                    Restore settings from a backup file. This will overwrite current Risk and DCA configurations.
-                </Typography>
-                <Button
-                    variant="contained"
-                    component="label"
-                >
-                    Upload Backup File
-                    <input
-                        type="file"
-                        hidden
-                        accept=".json"
-                        onChange={(event) => {
-                            const fileReader = new FileReader();
-                            if (event.target.files && event.target.files.length > 0) {
-                                fileReader.readAsText(event.target.files[0], "UTF-8");
-                                fileReader.onload = async (e) => {
-                                    if (e.target?.result) {
-                                        try {
-                                            const parsed = JSON.parse(e.target.result as string);
-                                            const payload: any = {
-                                                username: parsed.username,
-                                                email: parsed.email,
-                                                exchange: parsed.exchange,
-                                                risk_config: parsed.risk_config,
-                                                dca_grid_config: parsed.dca_grid_config,
-                                            };
-                                            await updateSettings(payload);
-                                            useNotificationStore.getState().showNotification("Configuration restored successfully.", "success");
-                                        } catch (err) {
-                                            console.error("Restore failed", err);
-                                            useNotificationStore.getState().showNotification("Failed to parse configuration file.", "error");
-                                        }
-                                    }
-                                };
-                            }
-                        }}
-                    />
-                </Button>
+              <Typography variant="subtitle1">Restore Configuration</Typography>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Restore settings from a backup file. This will overwrite current Risk and DCA configurations.
+              </Typography>
+              <Button
+                variant="contained"
+                component="label"
+              >
+                Upload Backup File
+                <input
+                  type="file"
+                  hidden
+                  accept=".json"
+                  onChange={(event) => {
+                    const fileReader = new FileReader();
+                    if (event.target.files && event.target.files.length > 0) {
+                      fileReader.readAsText(event.target.files[0], "UTF-8");
+                      fileReader.onload = async (e) => {
+                        if (e.target?.result) {
+                          try {
+                            const parsed = JSON.parse(e.target.result as string);
+                            const payload: any = {
+                              username: parsed.username,
+                              email: parsed.email,
+                              exchange: parsed.exchange,
+                              risk_config: parsed.risk_config,
+                              dca_grid_config: parsed.dca_grid_config,
+                            };
+                            await updateSettings(payload);
+                            useNotificationStore.getState().showNotification("Configuration restored successfully.", "success");
+                          } catch (err) {
+                            console.error("Restore failed", err);
+                            useNotificationStore.getState().showNotification("Failed to parse configuration file.", "error");
+                          }
+                        }
+                      };
+                    }
+                  }}
+                />
+              </Button>
             </Box>
           </CustomTabPanel>
-          
+
           <Button type="submit" variant="contained" color="success" sx={{ mt: 3 }} size="large">
             Save Settings
           </Button>
         </form>
       </Paper>
-    </Box>
+    </Box >
   );
 };
 

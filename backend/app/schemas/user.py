@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional, Dict, Any, List
 
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel, EmailStr, model_validator, field_validator
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Import config schemas
 
 class UserBase(BaseModel):
@@ -91,3 +91,10 @@ class UserRead(UserBase):
                 data["configured_exchanges"] = []
 
         return data
+
+    @field_validator('risk_config', mode='before')
+    @classmethod
+    def set_risk_defaults(cls, v):
+        if isinstance(v, dict):
+            return RiskEngineConfig.model_validate(v)
+        return v

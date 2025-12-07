@@ -15,6 +15,16 @@ export interface DCAGridConfig {
   tp_aggregate_percent: number;
 }
 
+export interface PriorityRulesConfig {
+  priority_rules_enabled: {
+    same_pair_timeframe: boolean;
+    deepest_loss_percent: boolean;
+    highest_replacement: boolean;
+    fifo_fallback: boolean;
+  };
+  priority_order: string[];
+}
+
 export interface RiskEngineConfig {
   max_open_positions_global: number;
   max_open_positions_per_symbol: number;
@@ -30,6 +40,7 @@ export interface RiskEngineConfig {
   reset_timer_on_replacement: boolean;
   partial_close_enabled: boolean;
   min_close_notional: number;
+  priority_rules: PriorityRulesConfig;
 }
 
 export interface UserSettings {
@@ -89,15 +100,15 @@ const useConfigStore = create<ConfigState>((set) => ({
       console.error("Failed to update settings", err);
       let errorMessage = 'Failed to update settings';
       if (err.response?.data?.detail) {
-          if (Array.isArray(err.response.data.detail)) {
-              errorMessage = err.response.data.detail.map((e: any) => e.msg).join(', ');
-          } else if (typeof err.response.data.detail === 'string') {
-              errorMessage = err.response.data.detail;
-          } else {
-              errorMessage = JSON.stringify(err.response.data.detail);
-          }
+        if (Array.isArray(err.response.data.detail)) {
+          errorMessage = err.response.data.detail.map((e: any) => e.msg).join(', ');
+        } else if (typeof err.response.data.detail === 'string') {
+          errorMessage = err.response.data.detail;
+        } else {
+          errorMessage = JSON.stringify(err.response.data.detail);
+        }
       } else if (err.message) {
-          errorMessage = err.message;
+        errorMessage = err.message;
       }
       set({ error: errorMessage, loading: false });
       useNotificationStore.getState().showNotification(`Failed to update settings: ${errorMessage}`, 'error');

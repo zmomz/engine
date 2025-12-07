@@ -8,15 +8,15 @@ const RiskPage: React.FC = () => {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 5000); // Poll every 5 seconds
+    const interval = setInterval(() => fetchStatus(true), 5000); // Poll every 5 seconds
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
   const handleRunEvaluation = async () => {
     const confirmed = await useConfirmStore.getState().requestConfirm({
-        title: 'Run Evaluation',
-        message: 'Are you sure you want to run a manual risk evaluation?',
-        confirmText: 'Run',
+      title: 'Run Evaluation',
+      message: 'Are you sure you want to run a manual risk evaluation?',
+      confirmText: 'Run',
     });
     if (confirmed) {
       runEvaluation();
@@ -25,9 +25,9 @@ const RiskPage: React.FC = () => {
 
   const handleBlock = async (groupId: string) => {
     const confirmed = await useConfirmStore.getState().requestConfirm({
-        title: 'Block Position',
-        message: 'Are you sure you want to block this position from risk evaluation?',
-        confirmText: 'Block',
+      title: 'Block Position',
+      message: 'Are you sure you want to block this position from risk evaluation?',
+      confirmText: 'Block',
     });
     if (confirmed) {
       blockGroup(groupId);
@@ -36,9 +36,9 @@ const RiskPage: React.FC = () => {
 
   const handleUnblock = async (groupId: string) => {
     const confirmed = await useConfirmStore.getState().requestConfirm({
-        title: 'Unblock Position',
-        message: 'Are you sure you want to unblock this position?',
-        confirmText: 'Unblock',
+      title: 'Unblock Position',
+      message: 'Are you sure you want to unblock this position?',
+      confirmText: 'Unblock',
     });
     if (confirmed) {
       unblockGroup(groupId);
@@ -47,9 +47,9 @@ const RiskPage: React.FC = () => {
 
   const handleSkip = async (groupId: string) => {
     const confirmed = await useConfirmStore.getState().requestConfirm({
-        title: 'Skip Next Evaluation',
-        message: 'Are you sure you want to skip the next risk evaluation for this position?',
-        confirmText: 'Skip',
+      title: 'Skip Next Evaluation',
+      message: 'Are you sure you want to skip the next risk evaluation for this position?',
+      confirmText: 'Skip',
     });
     if (confirmed) {
       skipGroup(groupId);

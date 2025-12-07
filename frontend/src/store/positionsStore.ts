@@ -49,7 +49,7 @@ interface PositionsState {
   positions: PositionGroup[];
   loading: boolean;
   error: string | null;
-  fetchPositions: () => Promise<void>;
+  fetchPositions: (isBackground?: boolean) => Promise<void>;
   closePosition: (groupId: string) => Promise<void>;
   setPositions: (positions: PositionGroup[]) => void;
 }
@@ -61,14 +61,15 @@ const usePositionsStore = create<PositionsState>((set, get) => ({
 
   setPositions: (positions) => set({ positions }),
 
-  fetchPositions: async () => {
-    set({ loading: true, error: null });
+  fetchPositions: async (isBackground = false) => {
+    if (!isBackground) set({ loading: true, error: null });
     try {
       const response = await api.get<PositionGroup[]>('/positions/active');
       set({ positions: response.data, loading: false });
     } catch (err: any) {
       console.error("Failed to fetch positions", err);
-      set({ error: err.response?.data?.detail || 'Failed to fetch positions', loading: false });
+      // Only set error if not background, or handle silently
+      if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch positions', loading: false });
     }
   },
 
@@ -78,8 +79,8 @@ const usePositionsStore = create<PositionsState>((set, get) => ({
       useNotificationStore.getState().showNotification('Position close initiated.', 'success');
       await get().fetchPositions();
     } catch (err: any) {
-       console.error("Failed to close position", err);
-       useNotificationStore.getState().showNotification(err.response?.data?.detail || 'Failed to force close position', 'error');
+      console.error("Failed to close position", err);
+      useNotificationStore.getState().showNotification(err.response?.data?.detail || 'Failed to force close position', 'error');
     }
   }
 }));

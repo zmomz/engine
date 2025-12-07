@@ -18,10 +18,22 @@ async def get_all_queued_signals(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Retrieves all queued signals.
+    Retrieves all queued signals with dynamic priority calculation.
     """
     queued_signals = await queue_manager_service.get_all_queued_signals(user_id=current_user.id)
-    return [QueuedSignalSchema.from_orm(signal) for signal in queued_signals]
+    return [QueuedSignalSchema.model_validate(signal) for signal in queued_signals]
+
+@router.get("/history", response_model=List[QueuedSignalSchema])
+async def get_queue_history(
+    queue_manager_service: QueueManagerService = Depends(get_queue_manager_service),
+    current_user: User = Depends(get_current_active_user),
+    limit: int = 50
+):
+    """
+    Retrieves historical (processed/removed) signals.
+    """
+    history_signals = await queue_manager_service.get_queue_history(user_id=current_user.id, limit=limit)
+    return [QueuedSignalSchema.model_validate(signal) for signal in history_signals]
 
 @router.post("/{signal_id}/promote", response_model=QueuedSignalSchema)
 async def promote_queued_signal(

@@ -21,50 +21,12 @@ from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.services.position_manager import PositionManagerService
 from app.services.order_management import OrderService
 from app.services.grid_calculator import GridCalculatorService
+from app.services.queue_priority import calculate_queue_priority, explain_priority
+from app.schemas.grid_config import PriorityRulesConfig
 
 logger = logging.getLogger(__name__)
 
-def calculate_queue_priority(signal: QueuedSignal, active_groups: List[PositionGroup]) -> Decimal:
-    score = Decimal("0.0")
 
-    # Calculate sub-components that can be used across tiers for tie-breaking
-    time_in_queue_score = Decimal("0.0")
-    if signal.queued_at:
-        time_in_queue = (datetime.utcnow() - signal.queued_at).total_seconds()
-        time_in_queue_score = Decimal(time_in_queue) * Decimal("0.001")
-
-    replacement_count_score = Decimal(signal.replacement_count) * Decimal("100.0")
-
-    loss_percent_score = Decimal("0.0")
-    if signal.current_loss_percent is not None and signal.current_loss_percent < Decimal("0"):
-        loss_percent_score = abs(signal.current_loss_percent) * Decimal("10000.0") # Multiplier chosen to ensure its range is above replacement/FIFO, but below pyramid
-
-    # Apply tiers strictly
-    # 1. Pyramid Continuation (Highest Priority)
-    is_pyramid = any(
-        g.symbol == signal.symbol and
-        g.exchange == signal.exchange and
-        g.timeframe == signal.timeframe and
-        g.side == signal.side and
-        g.user_id == signal.user_id
-        for g in active_groups
-    )
-    if is_pyramid:
-        # Base + tie-breakers for pyramid continuation
-        return Decimal("10000000.0") + loss_percent_score + replacement_count_score + time_in_queue_score
-
-    # 2. Deepest Current Loss Percentage
-    # Base + tie-breakers (replacement, FIFO) for deepest loss
-    if signal.current_loss_percent is not None and signal.current_loss_percent < Decimal("0"):
-        return Decimal("1000000.0") + loss_percent_score + replacement_count_score + time_in_queue_score
-
-    # 3. Highest Replacement Count
-    # Base + tie-breaker (FIFO) for replacement count
-    if signal.replacement_count > 0:
-        return Decimal("10000.0") + replacement_count_score + time_in_queue_score
-
-    # 4. FIFO (Lowest Priority)
-    return Decimal("1000.0") + time_in_queue_score
 
 class QueueManagerService:
     def __init__(
@@ -162,8 +124,47 @@ class QueueManagerService:
          async with self.session_factory() as session:
             repo = self.queued_signal_repository_class(session)
             if user_id:
-                return await repo.get_all_queued_signals_for_user(user_id)
-            return await repo.get_all_queued_signals()
+                signals = await repo.get_all_queued_signals_for_user(user_id)
+            else:
+                signals = await repo.get_all_queued_signals()
+
+            # Dynamic Priority Calculation
+            if signals and user_id:
+                # We need user context to calculate priority (rules + active positions)
+                # If user_id is provided, we can do it efficiently.
+                # If not (admin view), we might need to do it per-user or just show raw queue.
+                # For now, assuming this is primarily consumed by the specific user.
+                
+                user = await session.get(User, user_id)
+                if user:
+                    # Load Config
+                    try:
+                        risk_config = RiskEngineConfig(**user.risk_config)
+                        priority_config = risk_config.priority_rules
+                    except Exception:
+                        from app.schemas.grid_config import PriorityRulesConfig
+                        priority_config = PriorityRulesConfig()
+
+                    # Load Active Groups (for Pyramid check)
+                    pos_group_repo = self.position_group_repository_class(session)
+                    active_groups = await pos_group_repo.get_active_position_groups_for_user(user_id)
+
+                    # Calculate and attach dynamic fields
+                    for signal in signals:
+                        signal.priority_score = calculate_queue_priority(signal, active_groups, priority_config)
+                        signal.priority_explanation = explain_priority(signal, active_groups, priority_config)
+            
+            # Sort by priority score desc for display
+            signals.sort(key=lambda s: s.priority_score if hasattr(s, 'priority_score') else Decimal(0), reverse=True)
+            
+            return signals
+
+    async def get_queue_history(self, user_id: Optional[uuid.UUID] = None, limit: int = 50) -> List[QueuedSignal]:
+        async with self.session_factory() as session:
+            repo = self.queued_signal_repository_class(session)
+            if user_id:
+                return await repo.get_history_for_user(user_id, limit)
+            return await repo.get_history(limit)
 
     async def force_add_specific_signal_to_pool(self, signal_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> Optional[QueuedSignal]:
         # This method effectively "Promotes" it but bypasses checks?
@@ -227,6 +228,12 @@ class QueueManagerService:
                 if not slot_granted:
                     return None
             
+            # Snap-shot the priority metrics for history
+            priority_config = PriorityRulesConfig(**user.risk_config.get("priority_rules", {}))
+            
+            signal.priority_score = calculate_queue_priority(signal, active_groups, priority_config)
+            signal.priority_explanation = explain_priority(signal, active_groups, priority_config)
+
             signal.status = QueueStatus.PROMOTED
             signal.promoted_at = datetime.utcnow()
             await repo.update(signal)
@@ -303,28 +310,49 @@ class QueueManagerService:
                         for signal in signals:
                             try:
                                 current_price = await exchange.get_current_price(signal.symbol)
+                                current_price_dec = Decimal(str(current_price))
                                 if signal.side == "long":
-                                    pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
+                                    pnl_pct = (current_price_dec - signal.entry_price) / signal.entry_price * Decimal("100")
                                 else:
-                                    pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
+                                    pnl_pct = (signal.entry_price - current_price_dec) / signal.entry_price * Decimal("100")
                                 
                                 signal.current_loss_percent = pnl_pct
                                 await queue_repo.update(signal)
                             except Exception as e:
-                                # logger.warning(f"Failed to update price for {signal.symbol}: {e}")
+                                logger.warning(f"Failed to update price for {signal.symbol}: {e}")
                                 pass
                 except Exception as e:
                     logger.error(f"Failed to process signals for exchange {ex_name}: {e}")
 
             # Commit updates to signal priorities/loss percent
             await session.commit()
+            
+            # Load user's priority configuration
+            try:
+                risk_config = RiskEngineConfig(**user.risk_config)
+                priority_config = risk_config.priority_rules
+            except Exception as e:
+                logger.error(f"Failed to load priority config for user {user.id}: {e}")
+                from app.schemas.grid_config import PriorityRulesConfig
+                priority_config = PriorityRulesConfig()  # Use default
+            
+            # Log active priority rules
+            enabled_rules = [r for r, enabled in priority_config.priority_rules_enabled.items() if enabled]
+            logger.info(f"Queue processing for user {user.username}")
+            logger.info(f"Active priority rules: {enabled_rules}")
+            logger.info(f"Rule execution order: {priority_config.priority_order}")
 
-            # Calculate Priorities
+            # Calculate Priorities with configuration
             sorted_signals = sorted(
                 user_signals,
-                key=lambda s: calculate_queue_priority(s, active_groups),
+                key=lambda s: calculate_queue_priority(s, active_groups, priority_config),
                 reverse=True
             )
+            
+            # Log top candidates with priority explanations
+            for idx, signal in enumerate(sorted_signals[:3]):  # Log top 3
+                priority_explanation = explain_priority(signal, active_groups, priority_config)
+                logger.info(f"  #{idx+1} candidate: {priority_explanation}")
 
             if not sorted_signals:
                 continue
@@ -366,7 +394,11 @@ class QueueManagerService:
             )
             
             if slot_granted:
-                logger.info(f"Promoting signal {best_signal.symbol} (Score: {best_signal.priority_score})")
+                # Ensure priority metrics are saved to history
+                best_signal.priority_score = calculate_queue_priority(best_signal, active_groups, priority_config)
+                best_signal.priority_explanation = explain_priority(best_signal, active_groups, priority_config)
+                
+                logger.info(f"Slot granted. Promoting signal: {best_signal.priority_explanation}")
                 best_signal.status = QueueStatus.PROMOTED
                 best_signal.promoted_at = datetime.utcnow()
                 await queue_repo.update(best_signal)

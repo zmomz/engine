@@ -46,6 +46,7 @@ class QueuedSignal(Base):
     queued_at = Column(DateTime, default=datetime.utcnow)
     replacement_count = Column(Integer, default=0)
     priority_score = Column(Numeric(20, 4), default=0.0)
+    priority_explanation = Column(String, nullable=True)
 
     is_pyramid_continuation = Column(Boolean, default=False)
     current_loss_percent = Column(Numeric(10, 4))

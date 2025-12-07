@@ -8,14 +8,15 @@ import FreeUsdtCard from '../components/FreeUsdtCard';
 import EquityCurveChart from '../components/EquityCurveChart';
 import WinLossWidget from '../components/WinLossWidget';
 
+
 const DashboardPage: React.FC = () => {
-  const { 
-    tvl, 
-    pnl, 
-    realized_pnl, 
-    unrealized_pnl, 
-    activeGroupsCount, 
-    free_usdt, 
+  const {
+    tvl,
+    pnl,
+    realized_pnl,
+    unrealized_pnl,
+    activeGroupsCount,
+    free_usdt,
     fetchEngineData,
     total_trades,
     total_winning_trades,
@@ -24,17 +25,18 @@ const DashboardPage: React.FC = () => {
   } = useEngineStore();
 
   useEffect(() => {
-    // Fetch data immediately on mount
     fetchEngineData();
-    // Start polling
     startEngineDataPolling();
-
-    // Stop polling on unmount
-    return () => {
-      stopEngineDataPolling();
-    };
+    return () => stopEngineDataPolling();
   }, [fetchEngineData]);
 
+  if (useEngineStore.getState().loading && !tvl) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Typography>Loading Dashboard...</Typography>
+      </Box>
+    );
+  }
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
       <Typography variant="h4" gutterBottom>
@@ -42,7 +44,7 @@ const DashboardPage: React.FC = () => {
       </Typography>
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <TvlGauge tvl={tvl} />
+          <TvlGauge tvl={tvl} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
           <FreeUsdtCard freeUsdt={free_usdt} />
@@ -54,12 +56,12 @@ const DashboardPage: React.FC = () => {
           <ActiveGroupsWidget count={activeGroupsCount} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-           <WinLossWidget 
-              totalTrades={total_trades} 
-              wins={total_winning_trades} 
-              losses={total_losing_trades} 
-              winRate={win_rate} 
-           />
+          <WinLossWidget
+            totalTrades={total_trades}
+            wins={total_winning_trades}
+            losses={total_losing_trades}
+            winRate={win_rate}
+          />
         </Grid>
         <Grid size={{ xs: 12 }}>
           <EquityCurveChart />

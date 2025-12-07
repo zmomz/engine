@@ -41,3 +41,24 @@ class QueuedSignalRepository(BaseRepository[QueuedSignal]):
             query = query.with_for_update()
         result = await self.session.execute(query)
         return result.scalars().all()
+
+    async def get_history_for_user(self, user_id: str, limit: int = 50) -> List[QueuedSignal]:
+        result = await self.session.execute(
+            select(self.model)
+            .where(
+                self.model.user_id == user_id,
+                self.model.status != QueueStatus.QUEUED.value
+            )
+            .order_by(self.model.promoted_at.desc(), self.model.queued_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def get_history(self, limit: int = 50) -> List[QueuedSignal]:
+        result = await self.session.execute(
+            select(self.model)
+            .where(self.model.status != QueueStatus.QUEUED.value)
+            .order_by(self.model.promoted_at.desc(), self.model.queued_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()

@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Set CI environment variable to true to treat warnings as non-fatal
 ENV CI=true

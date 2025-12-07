@@ -12,7 +12,9 @@ interface EngineState {
   total_winning_trades: number | null;
   total_losing_trades: number | null;
   win_rate: number | null;
-  fetchEngineData: () => Promise<void>;
+  loading: boolean;
+  error: string | null;
+  fetchEngineData: (isBackground?: boolean) => Promise<void>;
 }
 
 const useEngineStore = create<EngineState>((set) => ({
@@ -26,13 +28,23 @@ const useEngineStore = create<EngineState>((set) => ({
   total_winning_trades: null,
   total_losing_trades: null,
   win_rate: null,
+  loading: false,
+  error: null,
 
-  fetchEngineData: async () => {
+  fetchEngineData: async (isBackground = false) => {
+    if (!isBackground) set({ loading: true, error: null });
     try {
-      const accountSummaryResponse = await api.get('/dashboard/account-summary');
-      const pnlResponse = await api.get('/dashboard/pnl');
-      const activeGroupsResponse = await api.get('/dashboard/active-groups-count');
-      const statsResponse = await api.get('/dashboard/stats');
+      const [
+        accountSummaryResponse,
+        pnlResponse,
+        activeGroupsResponse,
+        statsResponse
+      ] = await Promise.all([
+        api.get('/dashboard/account-summary'),
+        api.get('/dashboard/pnl'),
+        api.get('/dashboard/active-groups-count'),
+        api.get('/dashboard/stats')
+      ]);
 
       set({
         tvl: accountSummaryResponse.data.tvl,
@@ -45,10 +57,11 @@ const useEngineStore = create<EngineState>((set) => ({
         total_winning_trades: statsResponse.data.total_winning_trades,
         total_losing_trades: statsResponse.data.total_losing_trades,
         win_rate: statsResponse.data.win_rate,
+        loading: false
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch engine data", error);
-      // Handle error, maybe set state to indicate loading failure
+      if (!isBackground) set({ error: error.response?.data?.detail || 'Failed to fetch engine data', loading: false });
     }
   },
 }));
@@ -60,7 +73,7 @@ let intervalId: NodeJS.Timeout | null = null;
 export const startEngineDataPolling = () => {
   if (intervalId) return; // Already running
   intervalId = setInterval(() => {
-    useEngineStore.getState().fetchEngineData();
+    useEngineStore.getState().fetchEngineData(true);
   }, pollingInterval);
 };
 

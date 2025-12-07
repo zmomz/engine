@@ -12,19 +12,25 @@ const PositionsPage: React.FC = () => {
 
   useEffect(() => {
     fetchPositions();
-    // WebSocket updates will handle real-time data, no need for polling interval
+
+    // Set up polling for active positions
+    const interval = setInterval(() => {
+      fetchPositions(true);
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [fetchPositions]);
 
   const handleForceClose = async (groupId: string) => {
     const confirmed = await useConfirmStore.getState().requestConfirm({
-        title: 'Force Close Position',
-        message: 'Are you sure you want to force close this position group?',
-        confirmText: 'Force Close',
-        cancelText: 'Cancel'
+      title: 'Force Close Position',
+      message: 'Are you sure you want to force close this position group?',
+      confirmText: 'Force Close',
+      cancelText: 'Cancel'
     });
 
     if (confirmed) {
-        await closePosition(groupId);
+      await closePosition(groupId);
     }
   };
 

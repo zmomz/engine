@@ -25,7 +25,7 @@ interface RiskStore {
   status: RiskStatus | null;
   loading: boolean;
   error: string | null;
-  fetchStatus: () => Promise<void>;
+  fetchStatus: (isBackground?: boolean) => Promise<void>;
   runEvaluation: () => Promise<void>;
   blockGroup: (groupId: string) => Promise<void>;
   unblockGroup: (groupId: string) => Promise<void>;
@@ -37,18 +37,18 @@ const useRiskStore = create<RiskStore>((set) => ({
   loading: false,
   error: null,
 
-  fetchStatus: async () => {
-    set({ loading: true, error: null });
+  fetchStatus: async (isBackground = false) => {
+    if (!isBackground) set({ loading: true, error: null });
     try {
       const response = await api.get('/risk/status');
-      
+
       if (response.data.status === 'not_configured' || response.data.status === 'error') {
         set({ status: null, error: response.data.message, loading: false });
       } else {
         set({ status: response.data, loading: false });
       }
     } catch (error: any) {
-      set({ error: error.response?.data?.detail || 'Failed to fetch risk status', loading: false });
+      if (!isBackground) set({ error: error.response?.data?.detail || 'Failed to fetch risk status', loading: false });
     }
   },
 
@@ -68,7 +68,7 @@ const useRiskStore = create<RiskStore>((set) => ({
       await api.post(`/risk/${groupId}/block`);
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
-        set({ error: error.response?.data?.detail || 'Failed to block group' });
+      set({ error: error.response?.data?.detail || 'Failed to block group' });
     }
   },
 
@@ -77,7 +77,7 @@ const useRiskStore = create<RiskStore>((set) => ({
       await api.post(`/risk/${groupId}/unblock`);
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
-        set({ error: error.response?.data?.detail || 'Failed to unblock group' });
+      set({ error: error.response?.data?.detail || 'Failed to unblock group' });
     }
   },
 
@@ -86,7 +86,7 @@ const useRiskStore = create<RiskStore>((set) => ({
       await api.post(`/risk/${groupId}/skip`);
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
-        set({ error: error.response?.data?.detail || 'Failed to skip group' });
+      set({ error: error.response?.data?.detail || 'Failed to skip group' });
     }
   },
 }));

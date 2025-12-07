@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Dict
 from pydantic import BaseModel, Field, RootModel, model_validator
 
 class DCALevelConfig(BaseModel):
@@ -29,6 +29,47 @@ class DCAGridConfig(BaseModel):
                 raise ValueError(f"Total weight_percent must sum to 100, but got {total_weight}")
         return self
 
+class PriorityRulesConfig(BaseModel):
+    """Configuration for queue priority rules"""
+    priority_rules_enabled: Dict[str, bool] = Field(
+        default={
+            "same_pair_timeframe": True,
+            "deepest_loss_percent": True,
+            "highest_replacement": True,
+            "fifo_fallback": True
+        },
+        description="Toggle switches for each priority rule"
+    )
+    priority_order: List[str] = Field(
+        default=[
+            "same_pair_timeframe",
+            "deepest_loss_percent",
+            "highest_replacement",
+            "fifo_fallback"
+        ],
+        description="Execution order of priority rules (top to bottom)"
+    )
+
+    @model_validator(mode='after')
+    def validate_priority_rules(self):
+        """Ensure at least one rule is enabled and all rules in order are valid"""
+        # Check at least one rule is enabled
+        enabled_count = sum(1 for enabled in self.priority_rules_enabled.values() if enabled)
+        if enabled_count == 0:
+            raise ValueError("At least one priority rule must be enabled")
+        
+        # Validate that all rules in priority_order are valid
+        valid_rules = {"same_pair_timeframe", "deepest_loss_percent", "highest_replacement", "fifo_fallback"}
+        for rule in self.priority_order:
+            if rule not in valid_rules:
+                raise ValueError(f"Invalid rule in priority_order: {rule}")
+        
+        # Ensure all valid rules are in priority_order (no missing rules)
+        if set(self.priority_order) != valid_rules:
+            raise ValueError(f"priority_order must contain all four rules: {valid_rules}")
+        
+        return self
+
 class RiskEngineConfig(BaseModel):
     # Pre-trade Risk Checks
     max_open_positions_global: int = 10
@@ -51,6 +92,12 @@ class RiskEngineConfig(BaseModel):
     reset_timer_on_replacement: bool = False
     partial_close_enabled: bool = True
     min_close_notional: Decimal = Decimal("10")
+
+    # Queue Priority Rules Configuration
+    priority_rules: PriorityRulesConfig = Field(
+        default_factory=PriorityRulesConfig,
+        description="Configuration for queue priority rules (enabled/disabled and execution order)"
+    )
 
     @model_validator(mode='before')
     @classmethod
