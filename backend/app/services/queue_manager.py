@@ -71,7 +71,8 @@ class QueueManagerService:
             existing_signal = await repo.get_by_symbol_timeframe_side(
                 symbol=payload.tv.symbol,
                 timeframe=payload.tv.timeframe,
-                side=payload.tv.action # Assuming action maps to side
+                side=payload.tv.action, # Assuming action maps to side
+                exchange=payload.tv.exchange.lower()
             )
             
             if existing_signal:
@@ -204,12 +205,21 @@ class QueueManagerService:
                     return None
 
                 try:
-                    risk_config = RiskEngineConfig(**user.risk_config)
+                    # Ensure config is loaded from JSON string if coming from DB
+                    risk_config_data = user.risk_config
+                    if isinstance(risk_config_data, str):
+                        risk_config_data = json.loads(risk_config_data)
+                    risk_config = RiskEngineConfig(**risk_config_data)
+                    
                     user_max_groups = risk_config.max_open_positions_global
                 except Exception as e:
                     logger.error(f"Failed to load user config for user {user.id}: {e}")
                     # Fallback to global default if user config is invalid
                     user_max_groups = None
+
+                # Load Priority Config to check if Pyramiding allows bypass
+                priority_config = risk_config.priority_rules
+                pyramid_rule_enabled = priority_config.priority_rules_enabled.get("same_pair_timeframe", False)
 
                 pos_group_repo = self.position_group_repository_class(session)
                 active_groups = await pos_group_repo.get_active_position_groups_for_user(signal.user_id)
@@ -220,6 +230,14 @@ class QueueManagerService:
                     g.side == signal.side
                     for g in active_groups
                 )
+                
+                # Only treat as pyramid (bypass max groups) if the rule is ENABLED
+                if is_pyramid:
+                    if not pyramid_rule_enabled:
+                        logger.info(f"Signal {signal.symbol} matches active group, but 'Same Pair & Timeframe' rule is DISABLED. Evaluating as normal signal.")
+                        is_pyramid = False
+                    else:
+                        logger.info(f"Signal {signal.symbol} matches active group and rule is ENABLED. Treating as Pyramid (bypass limits).")
                 
                 slot_granted = await self.execution_pool_manager.request_slot(
                     is_pyramid_continuation=is_pyramid,
@@ -386,6 +404,14 @@ class QueueManagerService:
                 g.side == best_signal.side
                 for g in active_groups
             )
+            
+            # Retrieve already loaded config (or default)
+            pyramid_rule_enabled = priority_config.priority_rules_enabled.get("same_pair_timeframe", False)
+            
+            # Only treat as pyramid (bypass max groups) if the rule is ENABLED
+            if is_pyramid and not pyramid_rule_enabled:
+                 logger.info(f"Signal {best_signal.symbol} matches active group, but 'Same Pair & Timeframe' rule is DISABLED. Evaluating as normal signal.")
+                 is_pyramid = False
 
             user_max_groups = risk_config.max_open_positions_global
             slot_granted = await self.execution_pool_manager.request_slot(
@@ -472,19 +498,26 @@ class QueueManagerService:
 
                     logger.info(f"Capital Allocation: Total {total_capital} USD, Allocating {allocated_capital} USD ({alloc_percent}%)")
 
-                    if is_pyramid:
-                        existing_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
-                        if existing_group:
-                            await pos_manager.handle_pyramid_continuation(
+                    # RE-EVALUATE PYRAMID STATUS ON EXECUTION
+                    # Even if is_pyramid was False (due to disabled rule), we check again here
+                    # because now that we have a slot, if it matches an active group, we MUST pyramid.
+                    target_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
+
+                    if target_group and target_group.pyramid_count < dca_config.max_pyramids - 1:
+                         logger.info(f"Signal {best_signal.symbol} matches active group {target_group.id}. Executing as Pyramid.")
+                         await pos_manager.handle_pyramid_continuation(
                                 session=session,
                                 user_id=user.id,
                                 signal=best_signal,
-                                existing_position_group=existing_group,
+                                existing_position_group=target_group,
                                 risk_config=risk_config,
                                 dca_grid_config=dca_config,
                                 total_capital_usd=allocated_capital
                             )
                     else:
+                        if target_group:
+                             logger.info(f"Signal {best_signal.symbol} matches active group {target_group.id} but max pyramids reached. Executing as NEW Position if allowed (or will fail/warn).")
+
                         await pos_manager.create_position_group_from_signal(
                             session=session,
                             user_id=user.id,

@@ -14,12 +14,13 @@ class QueuedSignalRepository(BaseRepository[QueuedSignal]):
     async def get_by_id(self, model_id: str) -> QueuedSignal | None:
         return await self.get(model_id)
 
-    async def get_by_symbol_timeframe_side(self, symbol: str, timeframe: int, side: str) -> QueuedSignal | None:
+    async def get_by_symbol_timeframe_side(self, symbol: str, timeframe: int, side: str, exchange: str) -> QueuedSignal | None:
         result = await self.session.execute(
             select(self.model).where(
                 self.model.symbol == symbol,
                 self.model.timeframe == timeframe,
                 self.model.side == side,
+                self.model.exchange == exchange,
                 self.model.status == QueueStatus.QUEUED.value
             )
         )

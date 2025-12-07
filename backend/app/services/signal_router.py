@@ -194,38 +194,96 @@ class SignalRouterService:
                         logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
                         total_capital = max_exposure
 
-                logger.debug(f"DEBUG: Final total_capital_usd: {total_capital}")
+                # Define Helper for New Position Execution
+                async def execute_new_position():
+                    try:
+                        qs = QueuedSignal(
+                            user_id=self.user.id,
+                            exchange=signal.tv.exchange.lower(),
+                            symbol=signal.tv.symbol,
+                            timeframe=signal.tv.timeframe,
+                            side=signal_side,
+                            entry_price=Decimal(str(signal.tv.entry_price)),
+                            signal_payload=signal.model_dump(mode='json')
+                        )
+                        
+                        new_position_group = await pos_manager.create_position_group_from_signal(
+                            session=db_session,
+                            user_id=self.user.id,
+                            signal=qs,
+                            risk_config=risk_config,
+                            dca_grid_config=dca_config,
+                            total_capital_usd=total_capital
+                        )
+                        await db_session.commit()
+                        
+                        if new_position_group.status == PositionGroupStatus.FAILED:
+                            logger.warning(f"New position created for {signal.tv.symbol}, but order submission failed. Status: FAILED.")
+                            return f"New position created for {signal.tv.symbol}, but order submission failed."
+                        else:
+                            logger.info(f"New position created for {signal.tv.symbol}. Status: {new_position_group.status.value}")
+                            return f"New position created for {signal.tv.symbol}"
+                    except Exception as e:
+                        logger.error(f"New position execution failed: {e}")
+                        return f"New position execution failed: {e}"
+
+                # Define Helper for Pyramid Execution
+                async def execute_pyramid(group):
+                    try:
+                        qs = QueuedSignal(
+                            user_id=self.user.id,
+                            exchange=signal.tv.exchange.lower(),
+                            symbol=signal.tv.symbol,
+                            timeframe=signal.tv.timeframe,
+                            side=signal_side,
+                            entry_price=Decimal(str(signal.tv.entry_price)),
+                            signal_payload=signal.model_dump(mode='json')
+                        )
+                        
+                        await pos_manager.handle_pyramid_continuation(
+                            session=db_session,
+                            user_id=self.user.id,
+                            signal=qs,
+                            existing_position_group=group,
+                            risk_config=risk_config,
+                            dca_grid_config=dca_config,
+                            total_capital_usd=total_capital
+                        )
+                        await db_session.commit()
+                        logger.info(f"Pyramid executed for {signal.tv.symbol}")
+                        return f"Pyramid executed for {signal.tv.symbol}"
+                    except Exception as e:
+                        logger.error(f"Pyramid execution failed: {e}")
+                        return f"Pyramid execution failed: {e}"
+
+                # Define Helper for Queuing
+                async def queue_signal(msg_prefix="Pool full."):
+                    signal.tv.action = signal_side 
+                    await queue_service.add_signal_to_queue(signal)
+                    logger.info(f"{msg_prefix} Signal queued for {signal.tv.symbol}")
+                    return f"{msg_prefix} Signal queued for {signal.tv.symbol}"
 
                 if existing_group:
-                    # Pyramid Logic
+                    # Pyramid Logic Check
                     if existing_group.pyramid_count < dca_config.max_pyramids - 1:
-                        try:
-                            # Create transient QueuedSignal
-                            qs = QueuedSignal(
-                                user_id=self.user.id,
-                                exchange=signal.tv.exchange.lower(),
-                                symbol=signal.tv.symbol,
-                                timeframe=signal.tv.timeframe,
-                                side=signal_side,
-                                entry_price=Decimal(str(signal.tv.entry_price)),
-                                signal_payload=signal.model_dump(mode='json')
-                            )
-                            
-                            await pos_manager.handle_pyramid_continuation(
-                                session=db_session,
-                                user_id=self.user.id,
-                                signal=qs,
-                                existing_position_group=existing_group,
-                                risk_config=risk_config,
-                                dca_grid_config=dca_config,
-                                total_capital_usd=total_capital
-                            )
-                            await db_session.commit()
-                            logger.info(f"Pyramid executed for {signal.tv.symbol}")
-                            response_message = f"Pyramid executed for {signal.tv.symbol}"
-                        except Exception as e:
-                            logger.error(f"Pyramid execution failed: {e}")
-                            response_message = f"Pyramid execution failed: {e}"
+                        # Check Priority Rules for Bypass
+                        priority_rules = risk_config.priority_rules
+                        bypass_enabled = priority_rules.priority_rules_enabled.get("same_pair_timeframe", False)
+                        
+                        slot_available = False
+                        
+                        if bypass_enabled:
+                            logger.info(f"Pyramid bypass rule ENABLED. Granting implicit slot for {signal.tv.symbol}")
+                            slot_available = True
+                        else:
+                            # Rule DISABLED: Must compete for a standard slot
+                            logger.info(f"Pyramid bypass rule DISABLED. Requesting standard slot for {signal.tv.symbol}")
+                            slot_available = await exec_pool.request_slot()
+                        
+                        if slot_available:
+                            response_message = await execute_pyramid(existing_group)
+                        else:
+                            response_message = await queue_signal("Pool full (Rule Disabled).")
                     else:
                         response_message = "Max pyramids reached. Signal ignored."
 
@@ -233,42 +291,9 @@ class SignalRouterService:
                     # New Position Logic
                     slot_available = await exec_pool.request_slot()
                     if slot_available:
-                        try:
-                            qs = QueuedSignal(
-                                user_id=self.user.id,
-                                exchange=signal.tv.exchange.lower(),
-                                symbol=signal.tv.symbol,
-                                timeframe=signal.tv.timeframe,
-                                side=signal_side,
-                                entry_price=Decimal(str(signal.tv.entry_price)),
-                                signal_payload=signal.model_dump(mode='json')
-                            )
-                            
-                            new_position_group = await pos_manager.create_position_group_from_signal(
-                                session=db_session,
-                                user_id=self.user.id,
-                                signal=qs,
-                                risk_config=risk_config,
-                                dca_grid_config=dca_config,
-                                total_capital_usd=total_capital
-                            )
-                            await db_session.commit() # Commit the new position group and its final status
-                            
-                            if new_position_group.status == PositionGroupStatus.FAILED:
-                                logger.warning(f"New position created for {signal.tv.symbol}, but order submission failed. Status: FAILED.")
-                                response_message = f"New position created for {signal.tv.symbol}, but order submission failed."
-                            else:
-                                logger.info(f"New position created for {signal.tv.symbol}. Status: {new_position_group.status.value}")
-                                response_message = f"New position created for {signal.tv.symbol}"
-                        except Exception as e:
-                            logger.error(f"New position execution failed in SignalRouter: {e}")
-                            response_message = f"New position execution failed: {e}"
+                        response_message = await execute_new_position()
                     else:
-                        # Add to Queue
-                        signal.tv.action = signal_side 
-                        await queue_service.add_signal_to_queue(signal)
-                        logger.info(f"Pool full. Signal queued for {signal.tv.symbol}")
-                        response_message = f"Pool full. Signal queued for {signal.tv.symbol}"
+                        response_message = await queue_signal("Pool full.")
         finally:
             if exchange:
                 await exchange.close()
