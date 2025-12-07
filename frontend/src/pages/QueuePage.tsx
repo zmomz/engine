@@ -229,11 +229,12 @@ const QueuePage: React.FC = () => {
         }
       }
     },
-    { field: 'priority_score', headerName: 'Final Score', width: 120, type: 'number' },
     {
       field: 'priority_explanation',
       headerName: 'Reason',
       flex: 1,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
         <Tooltip title={params.value || ''} arrow>
           <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
