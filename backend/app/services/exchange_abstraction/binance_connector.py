@@ -11,6 +11,7 @@ class BinanceConnector(ExchangeInterface):
             'apiKey': api_key,
             'secret': secret_key,
             'timeout': 60000,  # 60 seconds timeout
+            'enableRateLimit': True,
             'options': {
                 'defaultType': default_type,
             },

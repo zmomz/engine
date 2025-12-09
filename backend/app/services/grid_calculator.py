@@ -51,19 +51,11 @@ class GridCalculatorService:
             
             # Determine Effective TP Percent based on Mode
             tp_percent = layer.tp_percent # Default to per-leg
-            
-            if dca_config.tp_mode == "pyramid":
-                # In Pyramid mode, use the unified pyramid_tp_percent if available
-                # Schema might strictly define this field, ensure we access it safely
-                # Check if alias exists or direct access
-                if hasattr(dca_config, "tp_pyramid_percent") and dca_config.tp_pyramid_percent > 0:
-                     tp_percent = dca_config.tp_pyramid_percent
-            
-            elif dca_config.tp_mode == "hybrid":
+
+            if dca_config.tp_mode == "hybrid":
                 # In Hybrid, "First Trigger Wins". We place the Limit Order at the closest target.
-                # Usually Per Leg, but if Pyramid is set and tighter, we could use that?
                 # For simplicity and typical use, Hybrid uses Per Leg for the Limit Order,
-                # and Aggregate/Pyramid monitors run in background.
+                # and Aggregate monitors run in background.
                 # If both act as Limit Orders, we'd need OCO. We assume Per Leg takes precedence for the Limit Order.
                 tp_percent = layer.tp_percent
                 pass

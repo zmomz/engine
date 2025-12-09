@@ -4,7 +4,7 @@ import axios from 'axios';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
 export type EntryOrderType = 'limit' | 'market';
-export type TPMode = 'per_leg' | 'pyramid' | 'aggregate' | 'hybrid';
+export type TPMode = 'per_leg' | 'aggregate' | 'hybrid';
 
 export interface DCALevelConfig {
     gap_percent: number;
@@ -16,7 +16,7 @@ export interface DCAConfiguration {
     id: string;
     user_id: string;
     pair: string;
-    timeframe: string;
+    timeframe: number;
     exchange: string;
     entry_order_type: EntryOrderType;
     dca_levels: DCALevelConfig[];
@@ -30,7 +30,7 @@ export interface DCAConfiguration {
 
 export interface DCAConfigurationCreate {
     pair: string;
-    timeframe: string;
+    timeframe: number;
     exchange: string;
     entry_order_type: EntryOrderType;
     dca_levels: DCALevelConfig[];

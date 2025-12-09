@@ -153,7 +153,6 @@ class PositionManagerService:
             weighted_avg_entry=signal.entry_price,
             tp_mode=dca_grid_config.tp_mode, # Get from user config
             tp_aggregate_percent=dca_grid_config.tp_aggregate_percent,
-            tp_pyramid_percent=dca_grid_config.tp_pyramid_percent, # New field support
             pyramid_count=0,
             max_pyramids=dca_grid_config.max_pyramids, # Updated to use config
             risk_timer_start=None,

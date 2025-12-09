@@ -92,7 +92,6 @@ class SignalRouterService:
                 levels=specific_config.dca_levels,
                 tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
                 tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
-                tp_pyramid_percent=Decimal(str(specific_config.tp_settings.get("tp_pyramid_percent", 0))),
                 max_pyramids=specific_config.max_pyramids,
                 entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
                 pyramid_specific_levels=specific_config.pyramid_specific_levels or {}

@@ -11,6 +11,7 @@ from app.models.position_group import PositionGroup
 from app.models.user import User
 from app.models.dca_order import DCAOrder
 from app.models.pyramid import Pyramid
+from app.models.dca_configuration import DCAConfiguration
 
 async def clean_positions_for_user(username: str, confirm: bool):
     if not confirm:

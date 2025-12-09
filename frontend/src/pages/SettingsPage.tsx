@@ -587,14 +587,41 @@ const SettingsPage: React.FC = () => {
               <Typography variant="body2" color="text.secondary" paragraph>
                 Download a copy of your current configuration settings (excluding API keys).
               </Typography>
-              <Button variant="outlined" onClick={() => {
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(settings, null, 2));
-                const downloadAnchorNode = document.createElement('a');
-                downloadAnchorNode.setAttribute("href", dataStr);
-                downloadAnchorNode.setAttribute("download", "gemini_config_backup.json");
-                document.body.appendChild(downloadAnchorNode);
-                downloadAnchorNode.click();
-                downloadAnchorNode.remove();
+              <Button variant="outlined" onClick={async () => {
+                try {
+                  // Fetch DCA configurations
+                  const { dcaConfigApi } = await import('../api/dcaConfig');
+                  const dcaConfigs = await dcaConfigApi.getAll();
+
+                  // Create backup object excluding sensitive data
+                  const backupData = {
+                    exchange: settings?.exchange,
+                    risk_config: settings?.risk_config,
+                    dca_configurations: dcaConfigs.map(config => ({
+                      pair: config.pair,
+                      timeframe: config.timeframe,
+                      exchange: config.exchange,
+                      entry_order_type: config.entry_order_type,
+                      dca_levels: config.dca_levels,
+                      pyramid_specific_levels: config.pyramid_specific_levels,
+                      tp_mode: config.tp_mode,
+                      tp_settings: config.tp_settings,
+                      max_pyramids: config.max_pyramids
+                    }))
+                  };
+
+                  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+                  const downloadAnchorNode = document.createElement('a');
+                  downloadAnchorNode.setAttribute("href", dataStr);
+                  downloadAnchorNode.setAttribute("download", "gemini_config_backup.json");
+                  document.body.appendChild(downloadAnchorNode);
+                  downloadAnchorNode.click();
+                  downloadAnchorNode.remove();
+                  useNotificationStore.getState().showNotification("Backup downloaded successfully with DCA configurations.", "success");
+                } catch (err) {
+                  console.error("Backup failed", err);
+                  useNotificationStore.getState().showNotification("Failed to create backup: " + (err as Error).message, "error");
+                }
               }}>
                 Download Backup
               </Button>
@@ -624,14 +651,69 @@ const SettingsPage: React.FC = () => {
                         if (e.target?.result) {
                           try {
                             const parsed = JSON.parse(e.target.result as string);
+
+                            // Only restore exchange and risk_config (no username, email, API keys, etc.)
                             const payload: any = {
-                              username: parsed.username,
-                              email: parsed.email,
                               exchange: parsed.exchange,
                               risk_config: parsed.risk_config,
                             };
+
+                            // Update general settings first
                             await updateSettings(payload);
-                            useNotificationStore.getState().showNotification("Configuration restored successfully.", "success");
+
+                            // Restore DCA configurations if present
+                            if (parsed.dca_configurations && Array.isArray(parsed.dca_configurations)) {
+                              const { dcaConfigApi } = await import('../api/dcaConfig');
+
+                              // Get existing DCA configs to avoid duplicates
+                              const existingConfigs = await dcaConfigApi.getAll();
+
+                              let createdCount = 0;
+                              let updatedCount = 0;
+
+                              for (const dcaConfig of parsed.dca_configurations) {
+                                // Check if config already exists for this pair/exchange/timeframe
+                                const existing = existingConfigs.find(
+                                  c => c.pair === dcaConfig.pair &&
+                                       c.exchange === dcaConfig.exchange &&
+                                       c.timeframe === dcaConfig.timeframe
+                                );
+
+                                if (existing) {
+                                  // Update existing config
+                                  await dcaConfigApi.update(existing.id, {
+                                    entry_order_type: dcaConfig.entry_order_type,
+                                    dca_levels: dcaConfig.dca_levels,
+                                    pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
+                                    tp_mode: dcaConfig.tp_mode,
+                                    tp_settings: dcaConfig.tp_settings,
+                                    max_pyramids: dcaConfig.max_pyramids
+                                  });
+                                  updatedCount++;
+                                } else {
+                                  // Create new config
+                                  await dcaConfigApi.create({
+                                    pair: dcaConfig.pair,
+                                    timeframe: dcaConfig.timeframe,
+                                    exchange: dcaConfig.exchange,
+                                    entry_order_type: dcaConfig.entry_order_type,
+                                    dca_levels: dcaConfig.dca_levels,
+                                    pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
+                                    tp_mode: dcaConfig.tp_mode,
+                                    tp_settings: dcaConfig.tp_settings,
+                                    max_pyramids: dcaConfig.max_pyramids
+                                  });
+                                  createdCount++;
+                                }
+                              }
+
+                              useNotificationStore.getState().showNotification(
+                                `Configuration restored successfully. DCA configs: ${createdCount} created, ${updatedCount} updated.`,
+                                "success"
+                              );
+                            } else {
+                              useNotificationStore.getState().showNotification("Configuration restored successfully (no DCA configs found in backup).", "success");
+                            }
                           } catch (err) {
                             console.error("Restore failed", err);
                             useNotificationStore.getState().showNotification("Failed to parse configuration file.", "error");

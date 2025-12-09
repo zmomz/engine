@@ -34,7 +34,7 @@ const dcaLevelSchema = z.object({
 
 const formSchema = z.object({
     pair: z.string().min(1, "Pair is required"),
-    timeframe: z.string().min(1, "Timeframe is required"),
+    timeframe: z.coerce.number().min(1, "Timeframe must be at least 1 minute"),
     exchange: z.string().min(1, "Exchange is required"),
     entry_order_type: z.enum(["limit", "market"]),
     dca_levels: z.array(dcaLevelSchema).superRefine((data, ctx) => {
@@ -48,10 +48,9 @@ const formSchema = z.object({
         }
     }),
     pyramid_specific_levels: z.record(z.string(), z.array(dcaLevelSchema)).optional(),
-    tp_mode: z.enum(["per_leg", "pyramid", "aggregate", "hybrid"]),
+    tp_mode: z.enum(["per_leg", "aggregate", "hybrid"]),
     tp_settings: z.object({
-        tp_aggregate_percent: z.coerce.number().optional(),
-        tp_pyramid_percent: z.coerce.number().optional()
+        tp_aggregate_percent: z.coerce.number().optional()
     }),
     max_pyramids: z.coerce.number().min(1)
 });
@@ -129,13 +128,13 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
         resolver: zodResolver(formSchema),
         defaultValues: {
             pair: '',
-            timeframe: '15m',
+            timeframe: 60,
             exchange: 'binance',
             entry_order_type: 'limit',
             dca_levels: [],
             pyramid_specific_levels: {},
             tp_mode: 'per_leg',
-            tp_settings: { tp_aggregate_percent: 0, tp_pyramid_percent: 0 },
+            tp_settings: { tp_aggregate_percent: 0 },
             max_pyramids: 5
         }
     });
@@ -158,21 +157,20 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                     pyramid_specific_levels: initialData.pyramid_specific_levels || {},
                     tp_mode: initialData.tp_mode,
                     tp_settings: {
-                        tp_aggregate_percent: initialData.tp_settings?.tp_aggregate_percent || 0,
-                        tp_pyramid_percent: initialData.tp_settings?.tp_pyramid_percent || 0
+                        tp_aggregate_percent: initialData.tp_settings?.tp_aggregate_percent || 0
                     },
                     max_pyramids: initialData.max_pyramids
                 });
             } else {
                 reset({
                     pair: '',
-                    timeframe: '15m',
+                    timeframe: 60,
                     exchange: 'binance',
                     entry_order_type: 'limit',
                     dca_levels: [],
                     pyramid_specific_levels: {},
                     tp_mode: 'per_leg',
-                    tp_settings: { tp_aggregate_percent: 0, tp_pyramid_percent: 0 },
+                    tp_settings: { tp_aggregate_percent: 0 },
                     max_pyramids: 5
                 });
             }
@@ -222,11 +220,16 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                 name="timeframe"
                                 control={control}
                                 render={({ field }) => (
-                                    <TextField {...field} select label="Timeframe" fullWidth error={!!errors.timeframe} disabled={isEdit}>
-                                        {['1m', '5m', '15m', '1h', '4h', '1d'].map(tf => (
-                                            <MenuItem key={tf} value={tf}>{tf}</MenuItem>
-                                        ))}
-                                    </TextField>
+                                    <TextField
+                                        {...field}
+                                        label="Timeframe (minutes)"
+                                        type="number"
+                                        fullWidth
+                                        error={!!errors.timeframe}
+                                        helperText={errors.timeframe?.message}
+                                        disabled={isEdit}
+                                        inputProps={{ min: 1, step: 1 }}
+                                    />
                                 )}
                             />
                         </Grid>
@@ -273,7 +276,6 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                 render={({ field }) => (
                                     <TextField {...field} select label="TP Mode" fullWidth>
                                         <MenuItem value="per_leg">Per Leg</MenuItem>
-                                        <MenuItem value="pyramid">Per Pyramid</MenuItem>
                                         <MenuItem value="aggregate">Aggregate</MenuItem>
                                         <MenuItem value="hybrid">Hybrid</MenuItem>
                                     </TextField>
@@ -293,17 +295,6 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                             </Grid>
                         )}
 
-                        {(tpMode === 'pyramid' || tpMode === 'hybrid') && (
-                            <Grid size={{ xs: 12, md: 6 }}>
-                                <Controller
-                                    name="tp_settings.tp_pyramid_percent"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <TextField {...field} type="number" label="Pyramid TP %" fullWidth inputProps={{ step: "0.01" }} />
-                                    )}
-                                />
-                            </Grid>
-                        )}
 
                         {/* Levels Tabs */}
                         <Grid size={{ xs: 12 }}>

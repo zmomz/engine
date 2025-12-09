@@ -28,15 +28,18 @@ class BybitConnector(ExchangeInterface):
             'defaultType': default_type,
             'accountType': account_type,
         }
-        
+
         # Add testnet option to ccxt options
         if testnet:
             options['testnet'] = True
-        
+
         self.exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': secret_key,
             'options': options,
+            'timeout': 60000,  # 60 seconds timeout
+            'enableRateLimit': True,
+            'asyncio_loop': None,  # Let ccxt manage its own event loop
             'verbose': False, # Disable verbose output to reduce log noise
         })
 
@@ -100,10 +103,10 @@ class BybitConnector(ExchangeInterface):
         """
         Places an order on the exchange.
         """
-        
+
         try:
             logger.info(f"Placing order: symbol={symbol}, type={order_type}, side={side}, quantity={quantity}, price={price}, kwargs={kwargs}")
-            
+
             params = kwargs.copy()
             if 'reduce_only' in kwargs:
                 params['reduceOnly'] = kwargs['reduce_only']
@@ -117,7 +120,7 @@ class BybitConnector(ExchangeInterface):
                 price=price,
                 params=params
             )
-            
+
             # Extract native Bybit orderId from info field (CCXT returns composite ID)
             if 'info' in result and 'orderId' in result['info']:
                 native_order_id = str(result['info']['orderId'])
@@ -126,7 +129,9 @@ class BybitConnector(ExchangeInterface):
                 result['id'] = native_order_id
             else:
                 logger.info(f"Order placed successfully: {result.get('id', 'unknown')}")
-                
+
+            # Small delay to allow background tasks to complete cleanly
+            await asyncio.sleep(0.05)
             return result
         except ccxt.ExchangeError as e:
             # Check for error code 10005 (Invalid permissions/key) or 170131 (Insufficient balance)

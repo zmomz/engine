@@ -23,11 +23,10 @@ class DCAGridConfig(BaseModel):
     pyramid_specific_levels: Dict[str, List[DCALevelConfig]] = Field(default_factory=dict, description="Specific DCA levels for each pyramid step.")
 
     # Enhanced TP Mode Selection
-    tp_mode: Literal["per_leg", "pyramid", "aggregate", "hybrid"] = Field("per_leg", description="Take-profit mode for the position group.")
-    
+    tp_mode: Literal["per_leg", "aggregate", "hybrid"] = Field("per_leg", description="Take-profit mode for the position group.")
+
     # settings for specific TP modes
     tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage (used in 'aggregate' or 'hybrid' mode).")
-    tp_pyramid_percent: Decimal = Field(Decimal("0"), description="Unified pyramid take-profit percentage (used in 'pyramid' or 'hybrid' mode).")
     
     max_pyramids: int = Field(5, description="Maximum number of pyramids allowed for this position group.")
     
@@ -83,7 +82,7 @@ class DCAConfigurationSchema(BaseModel):
     entry_order_type: Literal["limit", "market"]
     dca_levels: List[DCALevelConfig]
     pyramid_specific_levels: Dict[str, List[DCALevelConfig]] = Field(default_factory=dict)
-    tp_mode: Literal["per_leg", "pyramid", "aggregate", "hybrid"]
+    tp_mode: Literal["per_leg", "aggregate", "hybrid"]
     tp_settings: Dict[str, Any] = Field(default_factory=dict)
     max_pyramids: int = 5
     
@@ -100,7 +99,7 @@ class DCAConfigurationUpdate(BaseModel):
     entry_order_type: Optional[Literal["limit", "market"]] = None
     dca_levels: Optional[List[DCALevelConfig]] = None
     pyramid_specific_levels: Optional[Dict[str, List[DCALevelConfig]]] = None
-    tp_mode: Optional[Literal["per_leg", "pyramid", "aggregate", "hybrid"]] = None
+    tp_mode: Optional[Literal["per_leg", "aggregate", "hybrid"]] = None
     tp_settings: Optional[Dict[str, Any]] = None
     max_pyramids: Optional[int] = None
 

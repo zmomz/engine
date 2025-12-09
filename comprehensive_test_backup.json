@@ -1,0 +1,562 @@
+{
+  "exchange": "binance",
+  "risk_config": {
+    "max_open_positions_global": 10,
+    "max_open_positions_per_symbol": 1,
+    "max_total_exposure_usd": "999",
+    "max_daily_loss_usd": "500",
+    "risk_per_position_percent": "10.0",
+    "risk_per_position_cap_usd": null,
+    "loss_threshold_percent": "-1.5",
+    "timer_start_condition": "after_all_dca_filled",
+    "post_full_wait_minutes": 15,
+    "max_winners_to_combine": 3,
+    "use_trade_age_filter": false,
+    "age_threshold_minutes": 120,
+    "require_full_pyramids": true,
+    "reset_timer_on_replacement": false,
+    "partial_close_enabled": true,
+    "min_close_notional": "10",
+    "priority_rules": {
+      "priority_rules_enabled": {
+        "same_pair_timeframe": true,
+        "deepest_loss_percent": true,
+        "highest_replacement": true,
+        "fifo_fallback": true
+      },
+      "priority_order": [
+        "same_pair_timeframe",
+        "deepest_loss_percent",
+        "highest_replacement",
+        "fifo_fallback"
+      ]
+    }
+  },
+  "dca_configurations": [
+    {
+      "pair": "BTC/USDT",
+      "timeframe": 60,
+      "exchange": "binance",
+      "entry_order_type": "limit",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "25",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-1",
+          "weight_percent": "25",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-2",
+          "weight_percent": "25",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-3",
+          "weight_percent": "25",
+          "tp_percent": "1"
+        }
+      ],
+      "pyramid_specific_levels": {
+        "1": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "50",
+            "tp_percent": "1.5"
+          },
+          {
+            "gap_percent": "-1",
+            "weight_percent": "50",
+            "tp_percent": "1.5"
+          }
+        ],
+        "2": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "100",
+            "tp_percent": "2"
+          }
+        ]
+      },
+      "tp_mode": "per_leg",
+      "tp_settings": {
+        "tp_aggregate_percent": 0,
+        "tp_pyramid_percent": 0
+      },
+      "max_pyramids": 2
+    },
+    {
+      "pair": "ETH/USDT",
+      "timeframe": 60,
+      "exchange": "binance",
+      "entry_order_type": "market",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "33",
+          "tp_percent": "0.5"
+        },
+        {
+          "gap_percent": "-0.5",
+          "weight_percent": "33",
+          "tp_percent": "0.5"
+        },
+        {
+          "gap_percent": "-1",
+          "weight_percent": "34",
+          "tp_percent": "0.5"
+        }
+      ],
+      "pyramid_specific_levels": {},
+      "tp_mode": "aggregate",
+      "tp_settings": {
+        "tp_aggregate_percent": 5,
+        "tp_pyramid_percent": 0
+      },
+      "max_pyramids": 3
+    },
+    {
+      "pair": "SOL/USDT",
+      "timeframe": 60,
+      "exchange": "bybit",
+      "entry_order_type": "limit",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "20",
+          "tp_percent": "2"
+        },
+        {
+          "gap_percent": "-1",
+          "weight_percent": "20",
+          "tp_percent": "2"
+        },
+        {
+          "gap_percent": "-2",
+          "weight_percent": "20",
+          "tp_percent": "2"
+        },
+        {
+          "gap_percent": "-3",
+          "weight_percent": "20",
+          "tp_percent": "2"
+        },
+        {
+          "gap_percent": "-4",
+          "weight_percent": "20",
+          "tp_percent": "2"
+        }
+      ],
+      "pyramid_specific_levels": {
+        "1": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "25",
+            "tp_percent": "1"
+          },
+          {
+            "gap_percent": "-1",
+            "weight_percent": "25",
+            "tp_percent": "1"
+          },
+          {
+            "gap_percent": "-2",
+            "weight_percent": "25",
+            "tp_percent": "1"
+          },
+          {
+            "gap_percent": "-3",
+            "weight_percent": "25",
+            "tp_percent": "1"
+          }
+        ]
+      },
+      "tp_mode": "pyramid",
+      "tp_settings": {
+        "tp_aggregate_percent": 0,
+        "tp_pyramid_percent": 3
+      },
+      "max_pyramids": 1
+    },
+    {
+      "pair": "XRP/USDT",
+      "timeframe": 60,
+      "exchange": "binance",
+      "entry_order_type": "market",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "50",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-2",
+          "weight_percent": "50",
+          "tp_percent": "1"
+        }
+      ],
+      "pyramid_specific_levels": {},
+      "tp_mode": "hybrid",
+      "tp_settings": {
+        "tp_aggregate_percent": 2,
+        "tp_pyramid_percent": 1.5
+      },
+      "max_pyramids": 5
+    },
+    {
+      "pair": "DOGE/USDT",
+      "timeframe": 60,
+      "exchange": "bybit",
+      "entry_order_type": "limit",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "10",
+          "tp_percent": "3"
+        },
+        {
+          "gap_percent": "-0.5",
+          "weight_percent": "15",
+          "tp_percent": "3"
+        },
+        {
+          "gap_percent": "-1",
+          "weight_percent": "20",
+          "tp_percent": "3"
+        },
+        {
+          "gap_percent": "-1.5",
+          "weight_percent": "25",
+          "tp_percent": "3"
+        },
+        {
+          "gap_percent": "-2",
+          "weight_percent": "30",
+          "tp_percent": "3"
+        }
+      ],
+      "pyramid_specific_levels": {
+        "1": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "30",
+            "tp_percent": "2.5"
+          },
+          {
+            "gap_percent": "-1",
+            "weight_percent": "70",
+            "tp_percent": "2.5"
+          }
+        ],
+        "2": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "40",
+            "tp_percent": "2"
+          },
+          {
+            "gap_percent": "-0.5",
+            "weight_percent": "60",
+            "tp_percent": "2"
+          }
+        ],
+        "3": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "100",
+            "tp_percent": "1.5"
+          }
+        ]
+      },
+      "tp_mode": "per_leg",
+      "tp_settings": {
+        "tp_aggregate_percent": 0,
+        "tp_pyramid_percent": 0
+      },
+      "max_pyramids": 3
+    },
+    {
+      "pair": "ADA/USDT",
+      "timeframe": 60,
+      "exchange": "binance",
+      "entry_order_type": "market",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "100",
+          "tp_percent": "0.5"
+        }
+      ],
+      "pyramid_specific_levels": {},
+      "tp_mode": "aggregate",
+      "tp_settings": {
+        "tp_aggregate_percent": 10,
+        "tp_pyramid_percent": 0
+      },
+      "max_pyramids": 1
+    },
+    {
+      "pair": "DOT/USDT",
+      "timeframe": 60,
+      "exchange": "bybit",
+      "entry_order_type": "limit",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "15",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-0.3",
+          "weight_percent": "15",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-0.6",
+          "weight_percent": "20",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-1",
+          "weight_percent": "20",
+          "tp_percent": "1"
+        },
+        {
+          "gap_percent": "-1.5",
+          "weight_percent": "30",
+          "tp_percent": "1"
+        }
+      ],
+      "pyramid_specific_levels": {
+        "1": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "35",
+            "tp_percent": "0.8"
+          },
+          {
+            "gap_percent": "-0.5",
+            "weight_percent": "35",
+            "tp_percent": "0.8"
+          },
+          {
+            "gap_percent": "-1",
+            "weight_percent": "30",
+            "tp_percent": "0.8"
+          }
+        ],
+        "2": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "50",
+            "tp_percent": "0.6"
+          },
+          {
+            "gap_percent": "-1.5",
+            "weight_percent": "50",
+            "tp_percent": "0.6"
+          }
+        ]
+      },
+      "tp_mode": "hybrid",
+      "tp_settings": {
+        "tp_aggregate_percent": 3,
+        "tp_pyramid_percent": 2
+      },
+      "max_pyramids": 2
+    },
+    {
+      "pair": "TRX/USDT",
+      "timeframe": 60,
+      "exchange": "binance",
+      "entry_order_type": "market",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "16.67",
+          "tp_percent": "1.5"
+        },
+        {
+          "gap_percent": "-0.5",
+          "weight_percent": "16.67",
+          "tp_percent": "1.5"
+        },
+        {
+          "gap_percent": "-1",
+          "weight_percent": "16.66",
+          "tp_percent": "1.5"
+        },
+        {
+          "gap_percent": "-1.5",
+          "weight_percent": "16.67",
+          "tp_percent": "1.5"
+        },
+        {
+          "gap_percent": "-2",
+          "weight_percent": "16.67",
+          "tp_percent": "1.5"
+        },
+        {
+          "gap_percent": "-2.5",
+          "weight_percent": "16.66",
+          "tp_percent": "1.5"
+        }
+      ],
+      "pyramid_specific_levels": {},
+      "tp_mode": "pyramid",
+      "tp_settings": {
+        "tp_aggregate_percent": 0,
+        "tp_pyramid_percent": 4
+      },
+      "max_pyramids": 4
+    },
+    {
+      "pair": "MATIC/USDT",
+      "timeframe": 60,
+      "exchange": "bybit",
+      "entry_order_type": "limit",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "40",
+          "tp_percent": "0.8"
+        },
+        {
+          "gap_percent": "-1.5",
+          "weight_percent": "60",
+          "tp_percent": "0.8"
+        }
+      ],
+      "pyramid_specific_levels": {
+        "1": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "100",
+            "tp_percent": "1.2"
+          }
+        ]
+      },
+      "tp_mode": "per_leg",
+      "tp_settings": {
+        "tp_aggregate_percent": 0,
+        "tp_pyramid_percent": 0
+      },
+      "max_pyramids": 1
+    },
+    {
+      "pair": "LINK/USDT",
+      "timeframe": 60,
+      "exchange": "binance",
+      "entry_order_type": "market",
+      "dca_levels": [
+        {
+          "gap_percent": "0",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-0.4",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-0.8",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-1.2",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-1.6",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-2",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-2.5",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        },
+        {
+          "gap_percent": "-3",
+          "weight_percent": "12.5",
+          "tp_percent": "2.5"
+        }
+      ],
+      "pyramid_specific_levels": {
+        "1": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "20",
+            "tp_percent": "2"
+          },
+          {
+            "gap_percent": "-0.5",
+            "weight_percent": "20",
+            "tp_percent": "2"
+          },
+          {
+            "gap_percent": "-1",
+            "weight_percent": "20",
+            "tp_percent": "2"
+          },
+          {
+            "gap_percent": "-1.5",
+            "weight_percent": "20",
+            "tp_percent": "2"
+          },
+          {
+            "gap_percent": "-2",
+            "weight_percent": "20",
+            "tp_percent": "2"
+          }
+        ],
+        "2": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "33.33",
+            "tp_percent": "1.5"
+          },
+          {
+            "gap_percent": "-1",
+            "weight_percent": "33.33",
+            "tp_percent": "1.5"
+          },
+          {
+            "gap_percent": "-2",
+            "weight_percent": "33.34",
+            "tp_percent": "1.5"
+          }
+        ],
+        "3": [
+          {
+            "gap_percent": "0",
+            "weight_percent": "50",
+            "tp_percent": "1"
+          },
+          {
+            "gap_percent": "-1.5",
+            "weight_percent": "50",
+            "tp_percent": "1"
+          }
+        ]
+      },
+      "tp_mode": "aggregate",
+      "tp_settings": {
+        "tp_aggregate_percent": 7,
+        "tp_pyramid_percent": 0
+      },
+      "max_pyramids": 3
+    }
+  ]
+}

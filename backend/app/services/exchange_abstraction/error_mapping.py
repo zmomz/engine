@@ -1,5 +1,8 @@
 import ccxt
+import ssl
+import asyncio
 from functools import wraps
+from aiohttp.client_exceptions import ClientConnectionError
 
 from app.exceptions import (
     InvalidCredentialsError,

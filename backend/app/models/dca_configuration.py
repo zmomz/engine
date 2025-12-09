@@ -25,7 +25,6 @@ class EntryOrderType(str, PyEnum):
 
 class TakeProfitMode(str, PyEnum):
     PER_LEG = "per_leg"
-    PYRAMID = "pyramid"
     AGGREGATE = "aggregate"
     HYBRID = "hybrid"
 
@@ -62,8 +61,8 @@ class DCAConfiguration(Base):
         nullable=False
     )
     
-    # Flexible storage for mode-specific TP settings (pyramid_tp, aggregate_tp)
-    # Example: {"pyramid_tp_percent": 5.0, "aggregate_tp_percent": 10.0}
+    # Flexible storage for mode-specific TP settings (aggregate_tp)
+    # Example: {"aggregate_tp_percent": 10.0}
     tp_settings = Column(JSON, nullable=False, default=dict)
     
     max_pyramids = Column(Integer, default=5, nullable=False)
