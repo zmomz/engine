@@ -1,0 +1,200 @@
+﻿2025-12-07 15:10:20,132 - app.api.dashboard - DEBUG - Processing asset: IOST, amount: 0.0, current total_tvl: 526320.1141106801
+2025-12-07 15:10:20,133 - app.api.dashboard - DEBUG - Processing asset: CELR, amount: 0.0, current total_tvl: 526320.1141106801
+2025-12-07 15:10:20,134 - app.api.dashboard - DEBUG - Processing asset: ATOM, amount: 405.29, current total_tvl: 526320.1141106801
+2025-12-07 15:10:20,135 - app.api.dashboard - DEBUG - Price for ATOM/USDT: 2.171
+2025-12-07 15:10:20,136 - app.api.dashboard - DEBUG - Value for ATOM: 879.88459
+2025-12-07 15:10:20,137 - app.api.dashboard - DEBUG - Added 879.88459 (ATOM) to TVL. New total_tvl: 527199.9987006801
+2025-12-07 15:10:20,138 - app.api.dashboard - DEBUG - Processing asset: PHB, amount: 0.0, current total_tvl: 527199.9987006801
+2025-12-07 15:10:20,139 - app.api.dashboard - DEBUG - Processing asset: TFUEL, amount: 0.0, current total_tvl: 527199.9987006801
+2025-12-07 15:10:20,140 - app.api.dashboard - DEBUG - Processing asset: ONE, amount: 0.0, current total_tvl: 527199.9987006801
+2025-12-07 15:10:20,141 - app.api.dashboard - DEBUG - Processing asset: ALGO, amount: 0.0, current total_tvl: 527199.9987006801
+2025-12-07 15:10:20,142 - app.api.dashboard - DEBUG - Processing asset: DOGE, amount: 36770.0, current total_tvl: 527199.9987006801
+2025-12-07 15:10:20,142 - app.api.dashboard - DEBUG - Price for DOGE/USDT: 0.1366
+2025-12-07 15:10:20,144 - app.api.dashboard - DEBUG - Value for DOGE: 5022.782
+2025-12-07 15:10:20,144 - app.api.dashboard - DEBUG - Added 5022.782 (DOGE) to TVL. New total_tvl: 532222.7807006801
+2025-12-07 15:10:20,146 - app.api.dashboard - DEBUG - Processing asset: DUSK, amount: 0.0, current total_tvl: 532222.7807006801
+2025-12-07 15:10:20,146 - app.api.dashboard - DEBUG - Processing asset: ANKR, amount: 0.0, current total_tvl: 532222.7807006801
+2025-12-07 15:10:20,147 - app.api.dashboard - DEBUG - Processing asset: WIN, amount: 18446.0, current total_tvl: 532222.7807006801
+2025-12-07 15:10:20,148 - app.api.dashboard - DEBUG - Price for WIN/USDT: 4.553e-05
+2025-12-07 15:10:20,149 - app.api.dashboard - DEBUG - Value for WIN: 0.83984638
+2025-12-07 15:10:20,150 - app.api.dashboard - DEBUG - Added 0.83984638 (WIN) to TVL. New total_tvl: 532223.6205470602
+2025-12-07 15:10:20,151 - app.api.dashboard - DEBUG - Processing asset: COS, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,152 - app.api.dashboard - DEBUG - Processing asset: FUN, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,154 - app.api.dashboard - DEBUG - Processing asset: CVC, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,154 - app.api.dashboard - DEBUG - Processing asset: CHZ, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,156 - app.api.dashboard - DEBUG - Processing asset: BAND, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,157 - app.api.dashboard - DEBUG - Processing asset: XTZ, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,158 - app.api.dashboard - DEBUG - Processing asset: RVN, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,159 - app.api.dashboard - DEBUG - Processing asset: HBAR, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,160 - app.api.dashboard - DEBUG - Processing asset: NKN, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,160 - app.api.dashboard - DEBUG - Processing asset: STX, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,161 - app.api.dashboard - DEBUG - Processing asset: KAVA, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,162 - app.api.dashboard - DEBUG - Processing asset: ARPA, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,163 - app.api.dashboard - DEBUG - Processing asset: BCH, amount: 0.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,164 - app.api.dashboard - DEBUG - Processing asset: FTT, amount: 1.0, current total_tvl: 532223.6205470602
+2025-12-07 15:10:20,165 - app.api.dashboard - DEBUG - Price for FTT/USDT: 0.623
+2025-12-07 15:10:20,166 - app.api.dashboard - DEBUG - Value for FTT: 0.623
+2025-12-07 15:10:20,167 - app.api.dashboard - DEBUG - Added 0.623 (FTT) to TVL. New total_tvl: 532224.2435470602
+2025-12-07 15:10:20,168 - app.api.dashboard - DEBUG - Processing asset: TRY, amount: 18466.0, current total_tvl: 532224.2435470602
+2025-12-07 15:10:20,170 - app.api.dashboard - ERROR - Error processing account summary for binance: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+2025-12-07 15:10:20,174 - app.api.dashboard - INFO - Processing exchange: bybit, Exchange config keys: dict_keys(['encrypted_data', 'testnet'])
+2025-12-07 15:10:20,191 - app.services.exchange_abstraction.bybit_connector - INFO - BybitConnector __init__ called:
+2025-12-07 15:10:20,193 - app.services.exchange_abstraction.bybit_connector - INFO -   - API Key: yJIGPFqy
+2025-12-07 15:10:20,195 - app.services.exchange_abstraction.bybit_connector - INFO -   - Secret Key: Fvucd6ZK
+2025-12-07 15:10:20,196 - app.services.exchange_abstraction.bybit_connector - INFO -   - Testnet: True
+2025-12-07 15:10:20,197 - app.services.exchange_abstraction.bybit_connector - INFO -   - Default Type: spot
+2025-12-07 15:10:20,198 - app.services.exchange_abstraction.bybit_connector - INFO -   - Account Type: UNIFIED
+2025-12-07 15:10:20,207 - app.services.exchange_abstraction.bybit_connector - INFO - BybitConnector initialized: testnet=True, account_type=UNIFIED, ccxt_testnet_mode=True, ccxt_default_type=spot
+2025-12-07 15:10:20,209 - app.services.exchange_abstraction.bybit_connector - INFO - CCXT Exchange Options: {'defaultNetworkCodeReplacements': {'ETH': {'ERC20': 'ETH'}, 'TRX': {'TRC20': 'TRX'}, 'CRO': {'CRC20': 'CRONOS'}}, 'enableUnifiedMargin': None, 'enableUnifiedAccount': None, 'createMarketBuyOrderRequiresPrice': True, 'createUnifiedMarginAccount': False, 'defaultType': 'spot', 'defaultSubType': 'linear', 'defaultSettle': 'USDT', 'code': 'BTC', 'recvWindow': 5000, 'timeDifference': 0, 'adjustForTimeDifference': False, 'loadAllOptions': False, 'loadExpiredOptions': False, 'brokerId': 'CCXT', 'accountsByType': {'spot': 'SPOT', 'margin': 'SPOT', 'future': 'CONTRACT', 'swap': 'CONTRACT', 'option': 'OPTION', 'investment': 'INVESTMENT', 'unified': 'UNIFIED', 'funding': 'FUND', 'fund': 'FUND', 'contract': 'CONTRACT'}, 'accountsById': {'SPOT': 'spot', 'MARGIN': 'spot', 'CONTRACT': 'contract', 'OPTION': 'option', 'INVESTMENT': 'investment', 'UNIFIED': 'unified', 'FUND': 'fund'}, 'networks': {'ERC20': 'ETH', 'TRC20': 'TRX', 'BEP20': 'BSC', 'OMNI': 'OMNI', 'SPL': 'SOL'}, 'networksById': {'ETH': 'ERC20', 'TRX': 'TRC20', 'BSC': 'BEP20', 'OMNI': 'OMNI', 'SOL': 'SPL', 'SPL': 'SOL'}, 'defaultNetwork': 'ERC20', 'defaultNetworks': {'USDT': 'TRC20'}, 'intervals': {'5m': '5min', '15m': '15min', '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1d'}, 'accountType': 'UNIFIED', 'testnet': True}
+2025-12-07 15:10:20,211 - app.services.exchange_abstraction.bybit_connector - INFO - CCXT Exchange URLs: {'test': {'spot': 'https://api-testnet.{hostname}', 'futures': 'https://api-testnet.{hostname}', 'v2': 'https://api-testnet.{hostname}', 'public': 'https://api-testnet.{hostname}', 'private': 'https://api-testnet.{hostname}'}, 'logo': 'https://user-images.githubusercontent.com/51840849/76547799-daff5b80-649e-11ea-87fb-3be9bac08954.jpg', 'api': {'spot': 'https://api-testnet.{hostname}', 'futures': 'https://api-testnet.{hostname}', 'v2': 'https://api-testnet.{hostname}', 'public': 'https://api-testnet.{hostname}', 'private': 'https://api-testnet.{hostname}'}, 'www': 'https://www.bybit.com', 'doc': ['https://bybit-exchange.github.io/docs/inverse/', 'https://bybit-exchange.github.io/docs/linear/', 'https://github.com/bybit-exchange'], 'fees': 'https://help.bybit.com/hc/en-us/articles/360039261154', 'referral': 'https://www.bybit.com/register?affiliate_id=35953', 'apiBackup': {'spot': 'https://api.{hostname}', 'futures': 'https://api.{hostname}', 'v2': 'https://api.{hostname}', 'public': 'https://api.{hostname}', 'private': 'https://api.{hostname}'}}
+2025-12-07 15:10:26,978 - app.api.dashboard - WARNING - Could not fetch all tickers from bybit: An unknown exchange error occurred. Original error: bybit does not have market symbol BTC3LUSDT. Falling back to individual fetches.
+2025-12-07 15:10:26,980 - app.api.dashboard - DEBUG - Processing asset: BTC, amount: 0.13890679, current total_tvl: 532224.2435470602
+2025-12-07 15:10:27,358 - app.api.dashboard - DEBUG - Price for BTC/USDT: 97611.92
+2025-12-07 15:10:27,359 - app.api.dashboard - DEBUG - Value for BTC: 13558.9584729368
+2025-12-07 15:10:27,360 - app.api.dashboard - DEBUG - Added 13558.9584729368 (BTC) to TVL. New total_tvl: 545783.2020199969
+2025-12-07 15:10:27,361 - app.api.dashboard - DEBUG - Processing asset: ETH, amount: 1.79743369, current total_tvl: 545783.2020199969
+2025-12-07 15:10:27,738 - app.api.dashboard - DEBUG - Price for ETH/USDT: 3091.48
+2025-12-07 15:10:27,740 - app.api.dashboard - DEBUG - Value for ETH: 5556.730303961201
+2025-12-07 15:10:27,741 - app.api.dashboard - DEBUG - Added 5556.730303961201 (ETH) to TVL. New total_tvl: 551339.9323239581
+2025-12-07 15:10:27,742 - app.api.dashboard - DEBUG - Processing asset: SOL, amount: 1.31461048, current total_tvl: 551339.9323239581
+2025-12-07 15:10:28,128 - app.api.dashboard - DEBUG - Price for SOL/USDT: 129.82
+2025-12-07 15:10:28,129 - app.api.dashboard - DEBUG - Value for SOL: 170.6627325136
+2025-12-07 15:10:28,130 - app.api.dashboard - DEBUG - Added 170.6627325136 (SOL) to TVL. New total_tvl: 551510.5950564718
+2025-12-07 15:10:28,131 - app.api.dashboard - DEBUG - Processing asset: USDT, amount: 83768.85750441, current total_tvl: 551510.5950564718
+2025-12-07 15:10:28,132 - app.api.dashboard - DEBUG - Added USDT to TVL. New total_tvl: 635279.4525608817
+2025-12-07 15:10:28,133 - app.api.dashboard - DEBUG - Processing asset: TRX, amount: 6e-06, current total_tvl: 635279.4525608817
+2025-12-07 15:10:28,521 - app.api.dashboard - DEBUG - Price for TRX/USDT: 0.28439
+2025-12-07 15:10:28,522 - app.api.dashboard - DEBUG - Value for TRX: 1.70634e-06
+2025-12-07 15:11:13,308 - app.api.dashboard - INFO - API Keys to process: {'binance': {'encrypted_data': 'gAAAAABpNJml1YjW7FjAhNBbBn-e-LWjXfj6wNdN7QopnrNfrwYNWYwDtIdmKIpMQNivNuR2LtQlVHx4LOWpAPkwIFECheAgK2VkKL6VkKFHR-zUFAZ49BerJiAo7wKerB3GNeVrjJW--f-IDa8g5O10IEMItbwuwuE9W1wS5_I6hCTBRgxws3OvXaloaaJjBGIqq4EJr1deo9yVHNAwEIgiWDlSF7dnMVttvQbxiW4grgFo-0IhUuJU8TkeL-K_H3hUysxSEhN2LFyuqxD_Ftrf5pPU9fVYdu-CueTs4mz8gAcMinXDwSY=', 'testnet': True}, 'bybit': {'encrypted_data': 'gAAAAABpNJm3sJglcSWys35gA8KE8Dsp3t2B3rr3EdgYdHjCEFqif2h_DLuMQGL_vG42aIvI_ET2lnkwDdu84rztakvBlra-OPivTwGkHCj3WtF6R_BVTDxt9lcXHsnOzHCERWUWf_hA_ZmMQTkNMqwwC5JsFyUWOSfwqPwQQGRVXo5tuo5SlqhEdXiEg8OtCThbuMCI6jMC', 'testnet': True}}
+2025-12-07 15:11:13,310 - app.api.dashboard - INFO - Processing exchange: binance, Exchange config keys: dict_keys(['encrypted_data', 'testnet'])
+2025-12-07 15:11:19,359 - app.api.dashboard - INFO - Fetched 1606 tickers from binance
+2025-12-07 15:11:19,360 - app.api.dashboard - DEBUG - Processing asset: ETH, amount: 0.0, current total_tvl: 0.0
+2025-12-07 15:11:19,361 - app.api.dashboard - DEBUG - Processing asset: BTC, amount: 0.01268, current total_tvl: 0.0
+2025-12-07 15:11:19,362 - app.api.dashboard - DEBUG - Price for BTC/USDT: 88829.13
+2025-12-07 15:11:19,363 - app.api.dashboard - DEBUG - Value for BTC: 1126.3533684000001
+2025-12-07 15:11:19,364 - app.api.dashboard - DEBUG - Added 1126.3533684000001 (BTC) to TVL. New total_tvl: 1126.3533684000001
+2025-12-07 15:11:19,365 - app.api.dashboard - DEBUG - Processing asset: LTC, amount: 0.0, current total_tvl: 1126.3533684000001
+2025-12-07 15:11:19,366 - app.api.dashboard - DEBUG - Processing asset: BNB, amount: 0.0, current total_tvl: 1126.3533684000001
+2025-12-07 15:11:19,366 - app.api.dashboard - DEBUG - Processing asset: USDT, amount: 519234.26834388, current total_tvl: 1126.3533684000001
+2025-12-07 15:11:19,367 - app.api.dashboard - DEBUG - Added USDT to TVL. New total_tvl: 520360.62171228003
+2025-12-07 15:11:19,368 - app.api.dashboard - DEBUG - Processing asset: TRX, amount: 0.0, current total_tvl: 520360.62171228003
+2025-12-07 15:11:19,369 - app.api.dashboard - DEBUG - Processing asset: XRP, amount: 1492.7, current total_tvl: 520360.62171228003
+2025-12-07 15:11:19,370 - app.api.dashboard - DEBUG - Price for XRP/USDT: 2.0208
+2025-12-07 15:11:19,370 - app.api.dashboard - DEBUG - Value for XRP: 3016.44816
+2025-12-07 15:11:19,372 - app.api.dashboard - DEBUG - Added 3016.44816 (XRP) to TVL. New total_tvl: 523377.06987228
+2025-12-07 15:11:19,373 - app.api.dashboard - DEBUG - Processing asset: NEO, amount: 1.0, current total_tvl: 523377.06987228
+2025-12-07 15:11:19,374 - app.api.dashboard - DEBUG - Price for NEO/USDT: 4.151
+2025-12-07 15:11:19,374 - app.api.dashboard - DEBUG - Value for NEO: 4.151
+2025-12-07 15:11:19,375 - app.api.dashboard - DEBUG - Added 4.151 (NEO) to TVL. New total_tvl: 523381.22087228
+2025-12-07 15:11:19,376 - app.api.dashboard - DEBUG - Processing asset: QTUM, amount: 0.0, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,377 - app.api.dashboard - DEBUG - Processing asset: GAS, amount: 0.0, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,377 - app.api.dashboard - DEBUG - Processing asset: LRC, amount: 0.0, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,378 - app.api.dashboard - DEBUG - Processing asset: ZRX, amount: 0.0, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,378 - app.api.dashboard - DEBUG - Processing asset: KNC, amount: 0.0, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,379 - app.api.dashboard - DEBUG - Processing asset: IOTA, amount: 0.0, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,380 - app.api.dashboard - DEBUG - Processing asset: LINK, amount: 219.98, current total_tvl: 523381.22087228
+2025-12-07 15:11:19,381 - app.api.dashboard - DEBUG - Price for LINK/USDT: 13.36
+2025-12-07 15:11:19,381 - app.api.dashboard - DEBUG - Value for LINK: 2938.9327999999996
+2025-12-07 15:11:19,382 - app.api.dashboard - DEBUG - Added 2938.9327999999996 (LINK) to TVL. New total_tvl: 526320.15367228
+2025-12-07 15:11:19,383 - app.api.dashboard - DEBUG - Processing asset: XVG, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,383 - app.api.dashboard - DEBUG - Processing asset: MTL, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,384 - app.api.dashboard - DEBUG - Processing asset: ETC, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,385 - app.api.dashboard - DEBUG - Processing asset: ZEC, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,385 - app.api.dashboard - DEBUG - Processing asset: DASH, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,386 - app.api.dashboard - DEBUG - Processing asset: REQ, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,387 - app.api.dashboard - DEBUG - Processing asset: POWR, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,387 - app.api.dashboard - DEBUG - Processing asset: ENJ, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,388 - app.api.dashboard - DEBUG - Processing asset: STORJ, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,389 - app.api.dashboard - DEBUG - Processing asset: BAT, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,390 - app.api.dashboard - DEBUG - Processing asset: LSK, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,391 - app.api.dashboard - DEBUG - Processing asset: MANA, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,392 - app.api.dashboard - DEBUG - Processing asset: ADX, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,392 - app.api.dashboard - DEBUG - Processing asset: ADA, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,393 - app.api.dashboard - DEBUG - Processing asset: XLM, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,394 - app.api.dashboard - DEBUG - Processing asset: ICX, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,394 - app.api.dashboard - DEBUG - Processing asset: RLC, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,395 - app.api.dashboard - DEBUG - Processing asset: PIVX, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,396 - app.api.dashboard - DEBUG - Processing asset: STEEM, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,396 - app.api.dashboard - DEBUG - Processing asset: ZIL, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,397 - app.api.dashboard - DEBUG - Processing asset: ONT, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,398 - app.api.dashboard - DEBUG - Processing asset: WAN, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,399 - app.api.dashboard - DEBUG - Processing asset: SYS, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,400 - app.api.dashboard - DEBUG - Processing asset: TUSD, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,400 - app.api.dashboard - DEBUG - Processing asset: ZEN, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,401 - app.api.dashboard - DEBUG - Processing asset: THETA, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,402 - app.api.dashboard - DEBUG - Processing asset: IOTX, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,403 - app.api.dashboard - DEBUG - Processing asset: SC, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,404 - app.api.dashboard - DEBUG - Processing asset: DENT, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,405 - app.api.dashboard - DEBUG - Processing asset: ARDR, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,405 - app.api.dashboard - DEBUG - Processing asset: HOT, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,406 - app.api.dashboard - DEBUG - Processing asset: VET, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,407 - app.api.dashboard - DEBUG - Processing asset: USDC, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,408 - app.api.dashboard - DEBUG - Processing asset: ONG, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,409 - app.api.dashboard - DEBUG - Processing asset: FET, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,410 - app.api.dashboard - DEBUG - Processing asset: IOST, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,411 - app.api.dashboard - DEBUG - Processing asset: CELR, amount: 0.0, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,411 - app.api.dashboard - DEBUG - Processing asset: ATOM, amount: 405.29, current total_tvl: 526320.15367228
+2025-12-07 15:11:19,412 - app.api.dashboard - DEBUG - Price for ATOM/USDT: 2.171
+2025-12-07 15:11:19,413 - app.api.dashboard - DEBUG - Value for ATOM: 879.88459
+2025-12-07 15:11:19,414 - app.api.dashboard - DEBUG - Added 879.88459 (ATOM) to TVL. New total_tvl: 527200.03826228
+2025-12-07 15:11:19,415 - app.api.dashboard - DEBUG - Processing asset: PHB, amount: 0.0, current total_tvl: 527200.03826228
+2025-12-07 15:11:19,416 - app.api.dashboard - DEBUG - Processing asset: TFUEL, amount: 0.0, current total_tvl: 527200.03826228
+2025-12-07 15:11:19,417 - app.api.dashboard - DEBUG - Processing asset: ONE, amount: 0.0, current total_tvl: 527200.03826228
+2025-12-07 15:11:19,417 - app.api.dashboard - DEBUG - Processing asset: ALGO, amount: 0.0, current total_tvl: 527200.03826228
+2025-12-07 15:11:19,418 - app.api.dashboard - DEBUG - Processing asset: DOGE, amount: 36770.0, current total_tvl: 527200.03826228
+2025-12-07 15:11:19,419 - app.api.dashboard - DEBUG - Price for DOGE/USDT: 0.13658
+2025-12-07 15:11:19,420 - app.api.dashboard - DEBUG - Value for DOGE: 5022.046600000001
+2025-12-07 15:11:19,421 - app.api.dashboard - DEBUG - Added 5022.046600000001 (DOGE) to TVL. New total_tvl: 532222.08486228
+2025-12-07 15:11:19,422 - app.api.dashboard - DEBUG - Processing asset: DUSK, amount: 0.0, current total_tvl: 532222.08486228
+2025-12-07 15:11:19,423 - app.api.dashboard - DEBUG - Processing asset: ANKR, amount: 0.0, current total_tvl: 532222.08486228
+2025-12-07 15:11:19,423 - app.api.dashboard - DEBUG - Processing asset: WIN, amount: 18446.0, current total_tvl: 532222.08486228
+2025-12-07 15:11:19,424 - app.api.dashboard - DEBUG - Price for WIN/USDT: 4.601e-05
+2025-12-07 15:11:19,425 - app.api.dashboard - DEBUG - Value for WIN: 0.84870046
+2025-12-07 15:11:19,426 - app.api.dashboard - DEBUG - Added 0.84870046 (WIN) to TVL. New total_tvl: 532222.9335627401
+2025-12-07 15:11:19,427 - app.api.dashboard - DEBUG - Processing asset: COS, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,427 - app.api.dashboard - DEBUG - Processing asset: FUN, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,428 - app.api.dashboard - DEBUG - Processing asset: CVC, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,429 - app.api.dashboard - DEBUG - Processing asset: CHZ, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,430 - app.api.dashboard - DEBUG - Processing asset: BAND, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,431 - app.api.dashboard - DEBUG - Processing asset: XTZ, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,432 - app.api.dashboard - DEBUG - Processing asset: RVN, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,433 - app.api.dashboard - DEBUG - Processing asset: HBAR, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,433 - app.api.dashboard - DEBUG - Processing asset: NKN, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,434 - app.api.dashboard - DEBUG - Processing asset: STX, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,435 - app.api.dashboard - DEBUG - Processing asset: KAVA, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,437 - app.api.dashboard - DEBUG - Processing asset: ARPA, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,437 - app.api.dashboard - DEBUG - Processing asset: BCH, amount: 0.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,439 - app.api.dashboard - DEBUG - Processing asset: FTT, amount: 1.0, current total_tvl: 532222.9335627401
+2025-12-07 15:11:19,440 - app.api.dashboard - DEBUG - Price for FTT/USDT: 0.623
+2025-12-07 15:11:19,441 - app.api.dashboard - DEBUG - Value for FTT: 0.623
+2025-12-07 15:11:19,441 - app.api.dashboard - DEBUG - Added 0.623 (FTT) to TVL. New total_tvl: 532223.5565627401
+2025-12-07 15:11:19,442 - app.api.dashboard - DEBUG - Processing asset: TRY, amount: 18466.0, current total_tvl: 532223.5565627401
+2025-12-07 15:11:19,444 - app.api.dashboard - ERROR - Error processing account summary for binance: An unknown exchange error occurred. Original error: binance does not have market symbol TRY/USDT
+2025-12-07 15:11:19,450 - app.api.dashboard - INFO - Processing exchange: bybit, Exchange config keys: dict_keys(['encrypted_data', 'testnet'])
+2025-12-07 15:11:19,475 - app.services.exchange_abstraction.bybit_connector - INFO - BybitConnector __init__ called:
+2025-12-07 15:11:19,477 - app.services.exchange_abstraction.bybit_connector - INFO -   - API Key: yJIGPFqy
+2025-12-07 15:11:19,478 - app.services.exchange_abstraction.bybit_connector - INFO -   - Secret Key: Fvucd6ZK
+2025-12-07 15:11:19,480 - app.services.exchange_abstraction.bybit_connector - INFO -   - Testnet: True
+2025-12-07 15:11:19,481 - app.services.exchange_abstraction.bybit_connector - INFO -   - Default Type: spot
+2025-12-07 15:11:19,482 - app.services.exchange_abstraction.bybit_connector - INFO -   - Account Type: UNIFIED
+2025-12-07 15:11:19,491 - app.services.exchange_abstraction.bybit_connector - INFO - BybitConnector initialized: testnet=True, account_type=UNIFIED, ccxt_testnet_mode=True, ccxt_default_type=spot
+2025-12-07 15:11:19,492 - app.services.exchange_abstraction.bybit_connector - INFO - CCXT Exchange Options: {'defaultNetworkCodeReplacements': {'ETH': {'ERC20': 'ETH'}, 'TRX': {'TRC20': 'TRX'}, 'CRO': {'CRC20': 'CRONOS'}}, 'enableUnifiedMargin': None, 'enableUnifiedAccount': None, 'createMarketBuyOrderRequiresPrice': True, 'createUnifiedMarginAccount': False, 'defaultType': 'spot', 'defaultSubType': 'linear', 'defaultSettle': 'USDT', 'code': 'BTC', 'recvWindow': 5000, 'timeDifference': 0, 'adjustForTimeDifference': False, 'loadAllOptions': False, 'loadExpiredOptions': False, 'brokerId': 'CCXT', 'accountsByType': {'spot': 'SPOT', 'margin': 'SPOT', 'future': 'CONTRACT', 'swap': 'CONTRACT', 'option': 'OPTION', 'investment': 'INVESTMENT', 'unified': 'UNIFIED', 'funding': 'FUND', 'fund': 'FUND', 'contract': 'CONTRACT'}, 'accountsById': {'SPOT': 'spot', 'MARGIN': 'spot', 'CONTRACT': 'contract', 'OPTION': 'option', 'INVESTMENT': 'investment', 'UNIFIED': 'unified', 'FUND': 'fund'}, 'networks': {'ERC20': 'ETH', 'TRC20': 'TRX', 'BEP20': 'BSC', 'OMNI': 'OMNI', 'SPL': 'SOL'}, 'networksById': {'ETH': 'ERC20', 'TRX': 'TRC20', 'BSC': 'BEP20', 'OMNI': 'OMNI', 'SOL': 'SPL', 'SPL': 'SOL'}, 'defaultNetwork': 'ERC20', 'defaultNetworks': {'USDT': 'TRC20'}, 'intervals': {'5m': '5min', '15m': '15min', '30m': '30min', '1h': '1h', '4h': '4h', '1d': '1d'}, 'accountType': 'UNIFIED', 'testnet': True}
+2025-12-07 15:11:19,493 - app.services.exchange_abstraction.bybit_connector - INFO - CCXT Exchange URLs: {'test': {'spot': 'https://api-testnet.{hostname}', 'futures': 'https://api-testnet.{hostname}', 'v2': 'https://api-testnet.{hostname}', 'public': 'https://api-testnet.{hostname}', 'private': 'https://api-testnet.{hostname}'}, 'logo': 'https://user-images.githubusercontent.com/51840849/76547799-daff5b80-649e-11ea-87fb-3be9bac08954.jpg', 'api': {'spot': 'https://api-testnet.{hostname}', 'futures': 'https://api-testnet.{hostname}', 'v2': 'https://api-testnet.{hostname}', 'public': 'https://api-testnet.{hostname}', 'private': 'https://api-testnet.{hostname}'}, 'www': 'https://www.bybit.com', 'doc': ['https://bybit-exchange.github.io/docs/inverse/', 'https://bybit-exchange.github.io/docs/linear/', 'https://github.com/bybit-exchange'], 'fees': 'https://help.bybit.com/hc/en-us/articles/360039261154', 'referral': 'https://www.bybit.com/register?affiliate_id=35953', 'apiBackup': {'spot': 'https://api.{hostname}', 'futures': 'https://api.{hostname}', 'v2': 'https://api.{hostname}', 'public': 'https://api.{hostname}', 'private': 'https://api.{hostname}'}}
+2025-12-07 15:11:27,081 - app.api.dashboard - WARNING - Could not fetch all tickers from bybit: An unknown exchange error occurred. Original error: bybit does not have market symbol SOL3SUSDT. Falling back to individual fetches.
+2025-12-07 15:11:27,082 - app.api.dashboard - DEBUG - Processing asset: BTC, amount: 0.13890679, current total_tvl: 532223.5565627401
+2025-12-07 15:11:27,700 - app.api.dashboard - DEBUG - Price for BTC/USDT: 97611.92
+2025-12-07 15:11:27,701 - app.api.dashboard - DEBUG - Value for BTC: 13558.9584729368
+2025-12-07 15:11:27,702 - app.api.dashboard - DEBUG - Added 13558.9584729368 (BTC) to TVL. New total_tvl: 545782.5150356769
+2025-12-07 15:11:27,702 - app.api.dashboard - DEBUG - Processing asset: ETH, amount: 1.79743369, current total_tvl: 545782.5150356769
+2025-12-07 15:11:28,080 - app.api.dashboard - DEBUG - Price for ETH/USDT: 3091.45
+2025-12-07 15:11:28,081 - app.api.dashboard - DEBUG - Value for ETH: 5556.6763809505
+2025-12-07 15:11:28,082 - app.api.dashboard - DEBUG - Added 5556.6763809505 (ETH) to TVL. New total_tvl: 551339.1914166274
+2025-12-07 15:11:28,083 - app.api.dashboard - DEBUG - Processing asset: SOL, amount: 1.31461048, current total_tvl: 551339.1914166274
+2025-12-07 15:11:28,467 - app.api.dashboard - DEBUG - Price for SOL/USDT: 129.74
+2025-12-07 15:11:28,468 - app.api.dashboard - DEBUG - Value for SOL: 170.55756367520002
+2025-12-07 15:11:28,468 - app.api.dashboard - DEBUG - Added 170.55756367520002 (SOL) to TVL. New total_tvl: 551509.7489803026
+2025-12-07 15:11:28,469 - app.api.dashboard - DEBUG - Processing asset: USDT, amount: 83768.85750441, current total_tvl: 551509.7489803026
+2025-12-07 15:11:28,470 - app.api.dashboard - DEBUG - Added USDT to TVL. New total_tvl: 635278.6064847126
+2025-12-07 15:11:28,470 - app.api.dashboard - DEBUG - Processing asset: TRX, amount: 6e-06, current total_tvl: 635278.6064847126
+2025-12-07 15:11:28,847 - app.api.dashboard - DEBUG - Price for TRX/USDT: 0.28442
+2025-12-07 15:11:28,848 - app.api.dashboard - DEBUG - Value for TRX: 1.70652e-06

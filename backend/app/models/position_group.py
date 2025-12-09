@@ -75,11 +75,13 @@ class PositionGroup(Base):
     realized_pnl_usd = Column(Numeric(20, 10), default=Decimal("0"))
 
     # Take-profit configuration
+    # Take-profit configuration
     tp_mode = Column(
-        SQLAlchemyEnum("per_leg", "aggregate", "hybrid", name="tp_mode_enum"),
+        SQLAlchemyEnum("per_leg", "pyramid", "aggregate", "hybrid", name="tp_mode_enum"),
         nullable=False,
     )
     tp_aggregate_percent = Column(Numeric(10, 4))
+    tp_pyramid_percent = Column(Numeric(10, 4)) # Unified TP % for pyramid mode
 
     # Risk engine tracking
     risk_timer_start = Column(DateTime)

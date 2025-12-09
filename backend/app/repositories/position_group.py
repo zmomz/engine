@@ -5,7 +5,7 @@ from datetime import datetime, date
 import uuid
 from decimal import Decimal
 
-from app.models import PositionGroup
+from app.models import PositionGroup, Pyramid
 from app.repositories.base import BaseRepository
 
 
@@ -31,7 +31,7 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
             .where(self.model.id == group_id)
             .options(
                 selectinload(self.model.dca_orders),
-                selectinload(self.model.pyramids).selectinload(self.model.pyramids.property.mapper.class_.dca_orders)
+                selectinload(self.model.pyramids).selectinload(Pyramid.dca_orders)
             )
         )
         if refresh:
@@ -54,7 +54,7 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
             self.model.user_id == user_id,
             self.model.status.in_(["live", "partially_filled", "active", "closing"])
         ).options(
-            selectinload(self.model.pyramids).selectinload(self.model.pyramids.property.mapper.class_.dca_orders)
+            selectinload(self.model.pyramids).selectinload(Pyramid.dca_orders)
         )
         if for_update:
             query = query.with_for_update()

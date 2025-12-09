@@ -20,7 +20,7 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
             .join(PositionGroup, self.model.group_id == PositionGroup.id)
             .where(
                 or_(
-                    self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]),
+                    self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value, OrderStatus.TRIGGER_PENDING.value]),
                     and_(
                         self.model.status == OrderStatus.FILLED.value,
                         self.model.tp_order_id.isnot(None),

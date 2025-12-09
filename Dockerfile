@@ -14,19 +14,20 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y postgresql-client docker.io && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
 # Create logs directory and set ownership
 RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
 
-# Install poetry
-RUN pip install poetry
+# Install poetry with increased timeout and retries
+RUN pip install --timeout=1000 --retries=10 poetry
 
 # Copy only the files necessary for dependency installation to leverage Docker cache
 COPY pyproject.toml poetry.lock* /app/
 
-# Install dependencies (Production only)
+# Install dependencies (Production only) with increased timeout
 RUN poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi --no-root || \
     poetry install --no-interaction --no-ansi --no-root
 
 

@@ -7,7 +7,7 @@ import os
 import logging
 import sys
 
-from app.api import health, webhooks, risk, positions, queue, users, settings as api_settings, dashboard, logs
+from app.api import health, webhooks, risk, positions, queue, users, settings as api_settings, dashboard, logs, dca_configs
 from app.rate_limiter import limiter
 from app.services.order_fill_monitor import OrderFillMonitorService
 from app.services.order_management import OrderService
@@ -111,6 +111,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(api_settings.router, prefix="/api/v1/settings", tags=["Settings"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["Logs"])
+app.include_router(dca_configs.router, prefix="/api/v1/dca-configs", tags=["DCA Configuration"])
 
 # Serve Frontend Static Files
 frontend_build_path = os.path.join(os.getcwd(), "frontend/build")

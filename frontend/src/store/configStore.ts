@@ -3,17 +3,7 @@ import api from '../services/api';
 import useAuthStore from './authStore';
 import useNotificationStore from './notificationStore';
 
-export interface DCALevelConfig {
-  gap_percent: number;
-  weight_percent: number;
-  tp_percent: number;
-}
 
-export interface DCAGridConfig {
-  levels: DCALevelConfig[];
-  tp_mode: "per_leg" | "aggregate" | "hybrid";
-  tp_aggregate_percent: number;
-}
 
 export interface PriorityRulesConfig {
   priority_rules_enabled: {
@@ -51,7 +41,6 @@ export interface UserSettings {
   webhook_secret: string;
   configured_exchanges: string[];
   risk_config: RiskEngineConfig;
-  dca_grid_config: DCAGridConfig;
   configured_exchange_details?: Record<string, { testnet?: boolean; account_type?: string; encrypted_data?: string; }>;
 }
 

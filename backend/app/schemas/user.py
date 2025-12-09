@@ -12,7 +12,6 @@ class UserBase(BaseModel):
     webhook_secret: Optional[str] = None
     exchange: Optional[str] = None # Added exchange to UserBase for update
     risk_config: Optional[RiskEngineConfig] = None
-    dca_grid_config: Optional[Dict[str, Any]] = None # Stored as JSON dict
 
 class UserCreate(UserBase):
     password: str
@@ -31,7 +30,6 @@ class UserUpdate(BaseModel):
     testnet: Optional[bool] = None # Added for input
     account_type: Optional[str] = None # Added for input
     risk_config: Optional[RiskEngineConfig] = None
-    dca_grid_config: Optional[Dict[str, Any]] = None # Expects JSON dict
 
 class UserInDB(UserBase):
     id: uuid.UUID
@@ -46,15 +44,13 @@ class UserInDB(UserBase):
     @classmethod
     def validate_configs(cls, data: Any):
         if isinstance(data, dict):
-            if "dca_grid_config" in data and isinstance(data["dca_grid_config"], dict):
-                data["dca_grid_config"] = DCAGridConfig.model_validate(data["dca_grid_config"])
+            pass
         return data
 
 class UserRead(UserBase):
     id: uuid.UUID
     exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
-    dca_grid_config: Optional[DCAGridConfig] = None # Now a pydantic model after validation
     encrypted_api_keys: Optional[Dict[str, Any]] = None # Explicitly include to pass to validator
     configured_exchange_details: Optional[Dict[str, Dict[str, Any]]] = None # Detailed exchange configs
     configured_exchanges: List[str] = [] # List of configured exchange names
@@ -67,8 +63,6 @@ class UserRead(UserBase):
     @classmethod
     def validate_configs(cls, data: Any):
         if isinstance(data, dict):
-            if "dca_grid_config" in data and isinstance(data["dca_grid_config"], dict):
-                data["dca_grid_config"] = DCAGridConfig.model_validate(data["dca_grid_config"])
             if "risk_config" in data and isinstance(data["risk_config"], dict):
                 data["risk_config"] = RiskEngineConfig.model_validate(data["risk_config"])
             

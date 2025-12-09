@@ -7,7 +7,7 @@ from sqlalchemy.orm import relationship
 
 from app.db.types import GUID
 from app.models.base import Base
-from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Import config schemas
+from app.schemas.grid_config import RiskEngineConfig # Import config schemas
 
 def generate_webhook_secret():
     return secrets.token_hex(16)
@@ -27,7 +27,7 @@ class User(Base):
     
     # User-specific risk and grid configurations
     risk_config = Column(JSON, nullable=False, default=RiskEngineConfig().model_dump(mode='json')) # Store as JSON
-    dca_grid_config = Column(JSON, nullable=False, default=DCAGridConfig(levels=[]).model_dump(mode='json')) # Store as JSON
+    risk_config = Column(JSON, nullable=False, default=RiskEngineConfig().model_dump(mode='json')) # Store as JSON
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -36,8 +36,12 @@ class User(Base):
     position_groups = relationship("PositionGroup", backref="user", lazy="noload")
     queued_signals = relationship("QueuedSignal", backref="user", lazy="noload")
 
+
     @property
     def configured_exchanges(self) -> list[str]:
         if self.encrypted_api_keys and isinstance(self.encrypted_api_keys, dict):
             return list(self.encrypted_api_keys.keys())
         return []
+
+    # New Relationship
+    dca_configurations = relationship("DCAConfiguration", back_populates="user", cascade="all, delete-orphan")

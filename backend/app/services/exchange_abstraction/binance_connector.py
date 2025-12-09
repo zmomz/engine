@@ -10,6 +10,7 @@ class BinanceConnector(ExchangeInterface):
         self.exchange = ccxt.binance({
             'apiKey': api_key,
             'secret': secret_key,
+            'timeout': 60000,  # 60 seconds timeout
             'options': {
                 'defaultType': default_type,
             },

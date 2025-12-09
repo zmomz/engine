@@ -31,7 +31,8 @@ class GridCalculatorService:
         base_price: Decimal,
         dca_config: DCAGridConfig, # Expect DCAGridConfig object
         side: Literal["long", "short"],
-        precision_rules: Dict
+        precision_rules: Dict,
+        pyramid_index: int = 0
     ) -> List[Dict]:
         """
         Calculate DCA price levels with per-layer configuration.
@@ -40,12 +41,33 @@ class GridCalculatorService:
         
         dca_levels = []
         
-        for idx, layer in enumerate(dca_config.levels): # Iterate over dca_config.levels
+        # Resolve specific levels for this pyramid index
+        levels_config = dca_config.get_levels_for_pyramid(pyramid_index)
+        
+        for idx, layer in enumerate(levels_config): # Iterate over resolved levels
             # Directly access attributes from DCALevelConfig objects
             gap_percent = layer.gap_percent
             weight_percent = layer.weight_percent
-            tp_percent = layer.tp_percent
             
+            # Determine Effective TP Percent based on Mode
+            tp_percent = layer.tp_percent # Default to per-leg
+            
+            if dca_config.tp_mode == "pyramid":
+                # In Pyramid mode, use the unified pyramid_tp_percent if available
+                # Schema might strictly define this field, ensure we access it safely
+                # Check if alias exists or direct access
+                if hasattr(dca_config, "tp_pyramid_percent") and dca_config.tp_pyramid_percent > 0:
+                     tp_percent = dca_config.tp_pyramid_percent
+            
+            elif dca_config.tp_mode == "hybrid":
+                # In Hybrid, "First Trigger Wins". We place the Limit Order at the closest target.
+                # Usually Per Leg, but if Pyramid is set and tighter, we could use that?
+                # For simplicity and typical use, Hybrid uses Per Leg for the Limit Order,
+                # and Aggregate/Pyramid monitors run in background.
+                # If both act as Limit Orders, we'd need OCO. We assume Per Leg takes precedence for the Limit Order.
+                tp_percent = layer.tp_percent
+                pass
+
             # Calculate DCA entry price
             if side == "long":
                 dca_price = base_price * (Decimal("1") + gap_percent / Decimal("100"))

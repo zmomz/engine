@@ -53,33 +53,55 @@ class SignalRouterService:
         response_message = ""
 
         # Load Configs First
+        # Load Configs
         user_risk_config = self.user.risk_config
         if isinstance(user_risk_config, list):
-            # Handle legacy list format if necessary, convert to expected dict format
-            # For now, assume a simple structure or set a default if list is not convertible.
             logger.warning("User risk_config found as list. Using default RiskEngineConfig.")
             risk_config = RiskEngineConfig()
         else:
-            # Ensure proper handling of JSON string if coming from DB
             if isinstance(user_risk_config, str):
                 risk_config = RiskEngineConfig(**json.loads(user_risk_config))
             else:
                 risk_config = RiskEngineConfig(**user_risk_config)
 
+        # DCA Config Loading Strategy: Specific > Global Legacy
+        from app.repositories.dca_configuration import DCAConfigurationRepository
+        dca_config_repo = DCAConfigurationRepository(db_session)
 
-        user_dca_grid_config = self.user.dca_grid_config
-        if isinstance(user_dca_grid_config, list):
-            # Convert old list format to new dictionary format expected by DCAGridConfig.model_validate
-            logger.warning("User dca_grid_config found as list. Converting to new format.")
-            dca_config_dict = {"levels": user_dca_grid_config, "tp_mode": "per_leg", "tp_aggregate_percent": Decimal("0")}
-            dca_config = DCAGridConfig.model_validate(dca_config_dict)
+        # Normalize pair format: BTCUSDT -> BTC/USDT
+        normalized_pair = signal.tv.symbol
+        if '/' not in normalized_pair and len(normalized_pair) > 3:
+            # Assume last 4 chars are quote currency (USDT) or 3 chars (USD, BTC, ETH)
+            if normalized_pair.endswith('USDT'):
+                normalized_pair = normalized_pair[:-4] + '/' + normalized_pair[-4:]
+            elif normalized_pair.endswith(('USD', 'BTC', 'ETH', 'BNB')):
+                normalized_pair = normalized_pair[:-3] + '/' + normalized_pair[-3:]
+
+        specific_config = await dca_config_repo.get_specific_config(
+            user_id=self.user.id,
+            pair=normalized_pair,
+            timeframe=signal.tv.timeframe,
+            exchange=signal.tv.exchange.lower()
+        )
+        
+        if specific_config:
+            logger.info(f"Using specific DCA configuration for {signal.tv.symbol} {signal.tv.timeframe}")
+            # Map DB model to Pydantic Schema
+            from enum import Enum as PyEnum
+            dca_config = DCAGridConfig(
+                levels=specific_config.dca_levels,
+                tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
+                tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
+                tp_pyramid_percent=Decimal(str(specific_config.tp_settings.get("tp_pyramid_percent", 0))),
+                max_pyramids=specific_config.max_pyramids,
+                entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
+                pyramid_specific_levels=specific_config.pyramid_specific_levels or {}
+            )
         else:
-            # Ensure proper handling of JSON string if coming from DB
-            if isinstance(user_dca_grid_config, str):
-                dca_config = DCAGridConfig.model_validate(json.loads(user_dca_grid_config))
-            else:
-                dca_config = DCAGridConfig.model_validate(user_dca_grid_config) # Use model_validate for V2
-        logger.debug(f"DEBUG: dca_config after validation type: {type(dca_config)}, content: {dca_config}")
+            logger.error(f"No DCA configuration found for {signal.tv.symbol} {signal.tv.timeframe} (Exchange: {signal.tv.exchange})")
+            return f"Configuration Error: No active DCA configuration for {signal.tv.symbol} on {signal.tv.timeframe}."
+            
+        logger.debug(f"Resolved DCA Config: {dca_config}")
 
         # Initialize Dependencies
         pg_repo = PositionGroupRepository(db_session)
@@ -125,7 +147,9 @@ class SignalRouterService:
                     response_message = f"Validation Error: Metadata missing or incomplete for symbol {signal.tv.symbol}"
                     return response_message
             except Exception as e:
+                import traceback
                 logger.error(f"Signal Router: Precision validation failed: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 response_message = f"Validation Error: Failed to fetch precision rules: {e}"
                 return response_message
 

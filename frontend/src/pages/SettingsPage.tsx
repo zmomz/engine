@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Box, Button, TextField, Typography, CircularProgress, Alert, FormControlLabel, IconButton, Divider, Paper, Tabs, Tab, List, ListItem, ListItemText, ListItemSecondaryAction, Grid, Checkbox } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { useForm, useFieldArray, Controller, Resolver, FieldError, FieldErrors } from 'react-hook-form';
+import { useForm, Controller, Resolver, FieldError, FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import useConfigStore from '../store/configStore';
 import useConfirmStore from '../store/confirmStore';
 import useNotificationStore from '../store/notificationStore';
 import QueuePrioritySettings from '../components/QueuePrioritySettings';
+import DCAConfigList from '../components/dca_config/DCAConfigList'; // Import the new component
 
 // Define Zod schemas for validation
 const exchangeSettingsSchema = z.object({
@@ -48,29 +49,6 @@ const riskEngineConfigSchema = z.object({
   }),
 });
 
-const dcaLevelConfigSchema = z.object({
-  gap_percent: z.coerce.number(),
-  weight_percent: z.coerce.number().gt(0, "Weight must be greater than 0"),
-  tp_percent: z.coerce.number().gt(0, "Take Profit must be greater than 0"),
-});
-
-const dcaGridConfigSchema = z.object({
-  levels: z.array(dcaLevelConfigSchema).superRefine((data, ctx) => {
-    if (data.length === 0) return;
-    const totalWeight = data.reduce((sum, item) => sum + item.weight_percent, 0);
-    // Allow for small floating point discrepancies
-    if (Math.abs(totalWeight - 100) > 0.01) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Total weight percent must sum to 100 (current: ${totalWeight.toFixed(2)})`,
-        path: [] // Attach error to the array root
-      });
-    }
-  }),
-  tp_mode: z.enum(["per_leg", "aggregate", "hybrid"]),
-  tp_aggregate_percent: z.coerce.number().min(0),
-});
-
 const appSettingsSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   email: z.string().email('Invalid email address'),
@@ -80,14 +58,12 @@ const appSettingsSchema = z.object({
 const formSchema = z.object({
   exchangeSettings: exchangeSettingsSchema,
   riskEngineConfig: riskEngineConfigSchema,
-  dcaGridConfig: dcaGridConfigSchema,
   appSettings: appSettingsSchema,
 });
 
 type FormValues = {
   exchangeSettings: z.infer<typeof exchangeSettingsSchema>;
   riskEngineConfig: z.infer<typeof riskEngineConfigSchema>;
-  dcaGridConfig: z.infer<typeof dcaGridConfigSchema>;
   appSettings: z.infer<typeof appSettingsSchema>;
 };
 
@@ -172,7 +148,6 @@ const SettingsPage: React.FC = () => {
           ]
         }
       },
-      dcaGridConfig: settings?.dca_grid_config || { levels: [], tp_mode: "per_leg", tp_aggregate_percent: 0 },
       appSettings: {
         username: settings?.username || '',
         email: settings?.email || '',
@@ -197,7 +172,6 @@ const SettingsPage: React.FC = () => {
           account_type: currentExchangeDetails.account_type || '', // Initialize account_type
         },
         riskEngineConfig: settings.risk_config,
-        dcaGridConfig: settings.dca_grid_config,
         appSettings: {
           username: settings.username,
           email: settings.email,
@@ -211,17 +185,12 @@ const SettingsPage: React.FC = () => {
     setCurrentTab(newValue);
   };
 
-  const { fields: dcaFields, append: appendDca, remove: removeDca } = useFieldArray({
-    control,
-    name: "dcaGridConfig.levels"
-  });
 
   const onSubmit = async (data: FormValues) => {
     // Transform data to match backend UserUpdate schema
     const payload: any = {
       exchange: data.exchangeSettings.exchange, // This sets the ACTIVE exchange
       risk_config: data.riskEngineConfig,
-      dca_grid_config: data.dcaGridConfig,
       username: data.appSettings.username,
       email: data.appSettings.email,
       webhook_secret: data.appSettings.webhook_secret,
@@ -249,8 +218,6 @@ const SettingsPage: React.FC = () => {
       } else {
         setCurrentTab(1);
       }
-    } else if (errors.dcaGridConfig) {
-      setCurrentTab(3);
     } else if (errors.appSettings) {
       setCurrentTab(4);
     }
@@ -547,128 +514,11 @@ const SettingsPage: React.FC = () => {
           </CustomTabPanel>
 
           <CustomTabPanel value={currentTab} index={3}>
-            {/* DCA Grid Settings */}
+            {/* DCA Grid Settings - Specific Configs Only */}
             <Typography variant="h6" gutterBottom>DCA Grid Configuration</Typography>
-
-            <Box sx={{ mb: 4 }}>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Controller
-                    name="dcaGridConfig.tp_mode"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        select
-                        label="Take Profit Mode"
-                        fullWidth
-                        margin="normal"
-                        error={!!errors.dcaGridConfig?.tp_mode}
-                        helperText={errors.dcaGridConfig?.tp_mode?.message}
-                        SelectProps={{ native: true }}
-                      >
-                        <option value="per_leg">Per Leg</option>
-                        <option value="aggregate">Aggregate</option>
-                        <option value="hybrid">Hybrid</option>
-                      </TextField>
-                    )}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Controller
-                    name="dcaGridConfig.tp_aggregate_percent"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        label="Aggregate TP %"
-                        fullWidth
-                        margin="normal"
-                        type="number"
-                        inputProps={{ step: '0.01' }}
-                        error={!!errors.dcaGridConfig?.tp_aggregate_percent}
-                        helperText={errors.dcaGridConfig?.tp_aggregate_percent?.message}
-                      />
-                    )}
-                  />
-                </Grid>
-              </Grid>
+            <Box sx={{ mb: 2 }}>
+              <DCAConfigList />
             </Box>
-
-            {dcaFields.map((field, index) => (
-              <Paper elevation={1} sx={{ p: 2, mb: 2 }} key={field.id}>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid size={{ xs: 12, sm: 3 }}>
-                    <Controller
-                      name={`dcaGridConfig.levels.${index}.gap_percent`}
-                      control={control}
-                      render={({ field }) => (
-                        <TextField
-                          {...field}
-                          label="Gap %"
-                          fullWidth
-                          margin="normal"
-                          type="number"
-                          inputProps={{ step: 'any' }}
-                          onChange={(e) => field.onChange(e.target.value)}
-                          error={!!errors.dcaGridConfig?.levels?.[index]?.gap_percent}
-                          helperText={errors.dcaGridConfig?.levels?.[index]?.gap_percent?.message}
-                        />
-                      )}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 3 }}>
-                    <Controller
-                      name={`dcaGridConfig.levels.${index}.weight_percent`}
-                      control={control}
-                      render={({ field }) => (
-                        <TextField
-                          {...field}
-                          label="Weight %"
-                          fullWidth
-                          margin="normal"
-                          type="number"
-                          inputProps={{ step: 'any' }}
-                          onChange={(e) => field.onChange(e.target.value)}
-                          error={!!errors.dcaGridConfig?.levels?.[index]?.weight_percent}
-                          helperText={errors.dcaGridConfig?.levels?.[index]?.weight_percent?.message}
-                        />
-                      )}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 3 }}>
-                    <Controller
-                      name={`dcaGridConfig.levels.${index}.tp_percent`}
-                      control={control}
-                      render={({ field }) => (
-                        <TextField
-                          {...field}
-                          label="TP %"
-                          fullWidth
-                          margin="normal"
-                          type="number"
-                          inputProps={{ step: 'any' }}
-                          onChange={(e) => field.onChange(e.target.value)}
-                          error={!!errors.dcaGridConfig?.levels?.[index]?.tp_percent}
-                          helperText={errors.dcaGridConfig?.levels?.[index]?.tp_percent?.message}
-                        />
-                      )}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 3 }}>
-                    <Button color="error" onClick={() => removeDca(index)}>Remove</Button>
-                  </Grid>
-                </Grid>
-              </Paper>
-            ))}
-            <Button variant="outlined" onClick={() => appendDca({ gap_percent: 0, weight_percent: 0, tp_percent: 0 })} sx={{ mt: 2 }}>
-              Add DCA Level
-            </Button>
-            {errors.dcaGridConfig?.levels && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {(errors.dcaGridConfig.levels as any).root?.message}
-              </Alert>
-            )}
           </CustomTabPanel>
 
           <CustomTabPanel value={currentTab} index={4}>
@@ -779,7 +629,6 @@ const SettingsPage: React.FC = () => {
                               email: parsed.email,
                               exchange: parsed.exchange,
                               risk_config: parsed.risk_config,
-                              dca_grid_config: parsed.dca_grid_config,
                             };
                             await updateSettings(payload);
                             useNotificationStore.getState().showNotification("Configuration restored successfully.", "success");

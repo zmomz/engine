@@ -126,7 +126,8 @@ class PositionManagerService:
             base_price=signal.entry_price,
             dca_config=dca_grid_config, 
             side=signal.side,
-            precision_rules=symbol_precision
+            precision_rules=symbol_precision,
+            pyramid_index=0 # Initial entry is index 0
         )
         logger.debug(f"Calculated {len(dca_levels)} levels")
         
@@ -152,6 +153,7 @@ class PositionManagerService:
             weighted_avg_entry=signal.entry_price,
             tp_mode=dca_grid_config.tp_mode, # Get from user config
             tp_aggregate_percent=dca_grid_config.tp_aggregate_percent,
+            tp_pyramid_percent=dca_grid_config.tp_pyramid_percent, # New field support
             pyramid_count=0,
             max_pyramids=dca_grid_config.max_pyramids, # Updated to use config
             risk_timer_start=None,
@@ -183,27 +185,49 @@ class PositionManagerService:
         orders_to_submit = []
         order_side = "buy" if signal.side == "long" else "sell"
         
+        # Determine entry order type from config
+        entry_type = dca_grid_config.entry_order_type # "limit" or "market"
+
         for i, level in enumerate(dca_levels):
+            # Only the first leg (Leg 0) respects the entry_type. Subsequent DCA legs are always LIMIT (usually).
+            # The requirement: "This applies to the initial entry order for this configuration"
+            
+            # Default to limit
+            current_order_type = "limit"
+            current_status = OrderStatus.PENDING
+            
+            if i == 0:
+                if entry_type == "market":
+                    current_order_type = "market"
+                    current_status = OrderStatus.TRIGGER_PENDING
+            
             dca_order = DCAOrder(
                 group_id=new_position_group.id,
                 pyramid_id=new_pyramid.id,
                 leg_index=i,
                 symbol=signal.symbol,
                 side=order_side,
-                order_type="limit",
+                order_type=current_order_type,
                 price=level['price'],
                 quantity=level['quantity'],
-                status=OrderStatus.PENDING,
+                status=current_status,
                 gap_percent=level.get('gap_percent', Decimal("0")),
                 weight_percent=level.get('weight_percent', Decimal("0")),
                 tp_percent=level.get('tp_percent', Decimal("0")),
                 tp_price=level.get('tp_price', Decimal("0")),
             )
             session.add(dca_order)
-            orders_to_submit.append(dca_order)
+            
+            # Only submit if it's NOT a trigger pending order
+            # If it's PENDING (Limit), we submit.
+            # If it's TRIGGER_PENDING (Market), we WAIT.
+            if current_status == OrderStatus.PENDING:
+                orders_to_submit.append(dca_order)
+            else:
+                 logger.info(f"Order leg {i} set to {current_status} (Market Watch). Not submitting yet.")
         
         logger.debug(f"About to submit {len(orders_to_submit)} orders")
-        # 9. Asynchronously submit all orders
+        # 9. Asynchronously submit orders (only limit ones for now)
         try:
             for order in orders_to_submit:
                 logger.debug(f"Submitting order {order.leg_index}")
@@ -211,9 +235,6 @@ class PositionManagerService:
         except Exception as e:
             logger.error(f"Failed to submit orders for PositionGroup {new_position_group.id}: {e}")
             new_position_group.status = PositionGroupStatus.FAILED
-            # We don't raise here to allow the transaction to commit the FAILED status
-            # But the caller might need to know. 
-            # However, if we suppress, the PG is saved as FAILED.
             pass
         
         # Update pyramid status after orders are submitted
@@ -251,11 +272,14 @@ class PositionManagerService:
         symbol_precision = precision_rules.get(signal.symbol, {})
 
         # 3. Calculate DCA levels for this NEW pyramid
+        # The new pyramid will have index = current_count + 1 (since current_count is not yet incremented)
+        next_pyramid_index = existing_position_group.pyramid_count + 1
         dca_levels = self.grid_calculator_service.calculate_dca_levels(
             base_price=signal.entry_price,
             dca_config=dca_grid_config,
             side=signal.side,
-            precision_rules=symbol_precision
+            precision_rules=symbol_precision,
+            pyramid_index=next_pyramid_index
         )
         dca_levels = self.grid_calculator_service.calculate_order_quantities(
             dca_levels=dca_levels,

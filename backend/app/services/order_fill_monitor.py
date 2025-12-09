@@ -136,6 +136,46 @@ class OrderFillMonitorService:
                                                 await session.flush()
                                                 await position_manager.update_position_stats(updated_order.group_id, session=session)
                                             continue
+                                        
+                                        # --- NEW TRIGGER LOGIC ---
+                                        if order.status == OrderStatus.TRIGGER_PENDING.value:
+                                            # Watch price
+                                            current_price = Decimal(str(await connector.get_current_price(order.symbol)))
+                                            should_trigger = False
+                                            
+                                            logger.debug(f"Checking Trigger for Order {order.id} ({order.side}): Target {order.price}, Current {current_price}")
+                                            
+                                            if order.side == "buy":
+                                                if current_price <= order.price:
+                                                    should_trigger = True
+                                            else: # sell
+                                                if current_price >= order.price:
+                                                    should_trigger = True
+                                            
+                                            if should_trigger:
+                                                logger.info(f"Trigger condition met for Order {order.id}. Submitting Market Order.")
+                                                # Submit now. OrderService handles placing market order.
+                                                await order_service.submit_order(order)
+                                                # After submit, status should be FILLED (market) or OPEN.
+                                                await session.refresh(order)
+                                                logger.info(f"Triggered Order {order.id} status is now {order.status}")
+                                                
+                                                if order.status == OrderStatus.FILLED.value:
+                                                    await position_manager.update_position_stats(order.group_id, session=session)
+                                                    # Market orders usually fill immediately, TPs are placed by position manager if needed?
+                                                    # Actually PositionManager creates TP Objects? No, OrderService places TP logic?
+                                                    # Wait, `submit_order` places entry. TP monitoring is separate?
+                                                    # In this system, TPs are separate Limit orders created in `create_position_group`.
+                                                    # If this was entry (Leg 0), we don't have a TP order for it yet?
+                                                    # Actually `create_position_group` created all DCA orders.
+                                                    # Does it create TP orders?
+                                                    # `dca_order` model has `tp_percent`.
+                                                    # The system seems to place TP "when a leg fills" (User Request: "When a leg fills, place limit TP order")
+                                                    
+                                                    # So we need to call `place_tp_order` if filled.
+                                                    await order_service.place_tp_order(order)
+                                            continue
+                                        # -------------------------
 
                                         # Attempt to get order status from the exchange
                                         # This may trigger the Bybit workaround which marks order as FILLED

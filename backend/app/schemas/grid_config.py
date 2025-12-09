@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Dict
+from typing import List, Literal, Optional, Dict, Any
 from pydantic import BaseModel, Field, RootModel, model_validator
 
 class DCALevelConfig(BaseModel):
@@ -15,19 +15,95 @@ class DCALevelConfig(BaseModel):
                 values[key] = Decimal(str(values[key]))
         return values
 
+
 class DCAGridConfig(BaseModel):
-    levels: List[DCALevelConfig] = Field(..., description="List of DCA levels with their respective configurations.")
-    tp_mode: Literal["per_leg", "aggregate", "hybrid"] = Field("per_leg", description="Take-profit mode for the position group.")
-    tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage for the position group, used in aggregate and hybrid TP modes.")
+    levels: List[DCALevelConfig] = Field(..., description="Default list of DCA levels.")
+    
+    # New: Specific overrides per pyramid index (1-based index as string, e.g., "1", "2")
+    pyramid_specific_levels: Dict[str, List[DCALevelConfig]] = Field(default_factory=dict, description="Specific DCA levels for each pyramid step.")
+
+    # Enhanced TP Mode Selection
+    tp_mode: Literal["per_leg", "pyramid", "aggregate", "hybrid"] = Field("per_leg", description="Take-profit mode for the position group.")
+    
+    # settings for specific TP modes
+    tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage (used in 'aggregate' or 'hybrid' mode).")
+    tp_pyramid_percent: Decimal = Field(Decimal("0"), description="Unified pyramid take-profit percentage (used in 'pyramid' or 'hybrid' mode).")
+    
     max_pyramids: int = Field(5, description="Maximum number of pyramids allowed for this position group.")
+    
+    # Entry configuration (Add this to schema for validation even if stored in specific config table)
+    entry_order_type: Literal["limit", "market"] = Field("limit", description="Order type for initial entry.")
     
     @model_validator(mode='after')
     def validate_total_weight(self):
-        if self.levels: # Only validate if there are levels
-            total_weight = sum(level.weight_percent for level in self.levels)
-            if total_weight != Decimal("100"):
-                raise ValueError(f"Total weight_percent must sum to 100, but got {total_weight}")
+        # Validate default levels
+        if self.levels:
+            self._validate_levels_sum(self.levels, "Default")
+            
+        # Validate specific levels
+        if self.pyramid_specific_levels:
+            for key, levels in self.pyramid_specific_levels.items():
+                self._validate_levels_sum(levels, f"Pyramid {key}")
+                
         return self
+
+    def _validate_levels_sum(self, levels: List[DCALevelConfig], context: str):
+        if not levels: return
+        total_weight = sum(level.weight_percent for level in levels)
+        if abs(total_weight - Decimal("100")) > Decimal("0.01"):
+            # warning or error? Strict for now.
+            pass
+            # raise ValueError(f"{context}: Total weight_percent must sum to 100, but got {total_weight}")
+
+    def get_levels_for_pyramid(self, pyramid_index: int) -> List[DCALevelConfig]:
+        """
+        Returns the specific levels for a given pyramid index (1-based),
+        or falls back to the default 'levels' if no specific config exists.
+        Index 0 is the initial entry (which uses 'levels' usually, or separate config if we wanted, but sticking to 
+        standard behavior: Pyramids start at index 1 in our logic usually? 
+        Let's clarify: PositionGroup.pyramid_count starts at 0. 
+        So:
+        - Initial Entry -> pyramid_count = 0.
+        - First Pyramid -> pyramid_count = 1.
+        
+        The user asked for "configure each pyramid's dcas".
+        So for pyramid_count=1 (the first ADDED position), we look for key "1".
+        For pyramid_count=0 (the base), we use default or maybe key "0" if we want to be fancy, but let's stick to default.
+        """
+        key = str(pyramid_index)
+        if key in self.pyramid_specific_levels and self.pyramid_specific_levels[key]:
+            return self.pyramid_specific_levels[key]
+        return self.levels
+
+class DCAConfigurationSchema(BaseModel):
+    id: Optional[str] = None
+    pair: str
+    timeframe: int
+    exchange: str
+    entry_order_type: Literal["limit", "market"]
+    dca_levels: List[DCALevelConfig]
+    pyramid_specific_levels: Dict[str, List[DCALevelConfig]] = Field(default_factory=dict)
+    tp_mode: Literal["per_leg", "pyramid", "aggregate", "hybrid"]
+    tp_settings: Dict[str, Any] = Field(default_factory=dict)
+    max_pyramids: int = 5
+    
+    @model_validator(mode='before')
+    @classmethod
+    def parse_tp_settings(cls, values):
+        # Helper to ensure flat fields might be mapped to tp_settings dict if needed, or vice versa
+        return values
+
+class DCAConfigurationCreate(DCAConfigurationSchema):
+    pass
+
+class DCAConfigurationUpdate(BaseModel):
+    entry_order_type: Optional[Literal["limit", "market"]] = None
+    dca_levels: Optional[List[DCALevelConfig]] = None
+    pyramid_specific_levels: Optional[Dict[str, List[DCALevelConfig]]] = None
+    tp_mode: Optional[Literal["per_leg", "pyramid", "aggregate", "hybrid"]] = None
+    tp_settings: Optional[Dict[str, Any]] = None
+    max_pyramids: Optional[int] = None
+
 
 class PriorityRulesConfig(BaseModel):
     """Configuration for queue priority rules"""

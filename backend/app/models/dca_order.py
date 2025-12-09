@@ -22,6 +22,7 @@ from .base import Base
 
 class OrderStatus(str, Enum):
     PENDING = "pending"
+    TRIGGER_PENDING = "trigger_pending" # New status for Market Entry Watch
     OPEN = "open"
     PARTIALLY_FILLED = "partially_filled"
     FILLED = "filled"
