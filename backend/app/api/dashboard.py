@@ -282,3 +282,18 @@ async def get_active_groups_count(
     repo = PositionGroupRepository(db)
     groups = await repo.get_active_position_groups_for_user(current_user.id)
     return {"count": len(groups)}
+
+@router.get("/analytics")
+async def get_comprehensive_analytics(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Single optimized endpoint for all dashboard data.
+    Returns both live dashboard and performance dashboard metrics.
+    """
+    from app.services.analytics_service import AnalyticsService
+
+    analytics = AnalyticsService(db, current_user)
+    data = await analytics.get_comprehensive_dashboard_data()
+    return data

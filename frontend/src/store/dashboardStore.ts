@@ -1,0 +1,117 @@
+import { create } from 'zustand';
+import api from '../services/api';
+
+interface LiveDashboard {
+  total_active_position_groups: number;
+  queued_signals_count: number;
+  total_pnl_usd: number;
+  tvl: number;
+  free_usdt: number;
+  last_webhook_timestamp: string | null;
+  engine_status: string;
+  risk_engine_status: string;
+}
+
+interface PnLMetrics {
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+  pnl_today: number;
+  pnl_week: number;
+  pnl_month: number;
+  pnl_all_time: number;
+  pnl_by_pair: Record<string, number>;
+  pnl_by_timeframe: Record<string, number>;
+}
+
+interface EquityCurvePoint {
+  timestamp: string | null;
+  equity: number;
+}
+
+interface WinLossStats {
+  total_trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  avg_win: number;
+  avg_loss: number;
+  rr_ratio: number;
+}
+
+interface TradeDistribution {
+  returns: number[];
+  best_trades: [string, number][];
+  worst_trades: [string, number][];
+}
+
+interface RiskMetrics {
+  max_drawdown: number;
+  current_drawdown: number;
+  sharpe_ratio: number;
+  sortino_ratio: number;
+  profit_factor: number;
+}
+
+interface PerformanceDashboard {
+  pnl_metrics: PnLMetrics;
+  equity_curve: EquityCurvePoint[];
+  win_loss_stats: WinLossStats;
+  trade_distribution: TradeDistribution;
+  risk_metrics: RiskMetrics;
+}
+
+interface DashboardData {
+  live_dashboard: LiveDashboard;
+  performance_dashboard: PerformanceDashboard;
+  timestamp: string;
+}
+
+interface DashboardStore {
+  data: DashboardData | null;
+  loading: boolean;
+  error: string | null;
+  fetchDashboardData: (isBackground?: boolean) => Promise<void>;
+}
+
+const useDashboardStore = create<DashboardStore>((set) => ({
+  data: null,
+  loading: false,
+  error: null,
+
+  fetchDashboardData: async (isBackground = false) => {
+    if (!isBackground) set({ loading: true, error: null });
+    try {
+      const response = await api.get('/dashboard/analytics');
+      set({ data: response.data, loading: false });
+    } catch (error: any) {
+      console.error('Failed to fetch dashboard data', error);
+      if (!isBackground) {
+        set({
+          error: error.response?.data?.detail || 'Failed to fetch dashboard data',
+          loading: false
+        });
+      }
+    }
+  },
+}));
+
+// Polling logic (every 5 seconds)
+const pollingInterval = 5000;
+let intervalId: NodeJS.Timeout | null = null;
+
+export const startDashboardPolling = () => {
+  if (intervalId) return;
+  intervalId = setInterval(() => {
+    useDashboardStore.getState().fetchDashboardData(true);
+  }, pollingInterval);
+};
+
+export const stopDashboardPolling = () => {
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+};
+
+export default useDashboardStore;
