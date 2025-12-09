@@ -10,6 +10,13 @@ interface RiskStatus {
     risk_blocked: boolean;
     risk_skip_once: boolean;
     risk_timer_expires: string | null;
+    timer_remaining_minutes: number | null;
+    timer_status: string;
+    pyramids_reached: boolean;
+    pyramid_count: number;
+    max_pyramids: number;
+    age_minutes: number;
+    age_filter_passed: boolean;
   } | null;
   identified_winners: Array<{
     id: string;
@@ -17,6 +24,32 @@ interface RiskStatus {
     unrealized_pnl_usd: number;
   }>;
   required_offset_usd: number;
+  total_available_profit: number;
+  projected_plan: Array<{
+    symbol: string;
+    profit_available: number;
+    amount_to_close: number;
+    partial: boolean;
+  }>;
+  at_risk_positions: Array<{
+    id: string;
+    symbol: string;
+    unrealized_pnl_percent: number;
+    unrealized_pnl_usd: number;
+    timer_status: string;
+    timer_remaining_minutes: number | null;
+    is_eligible: boolean;
+    is_selected: boolean;
+    risk_blocked: boolean;
+  }>;
+  recent_actions: Array<{
+    id: string;
+    timestamp: string | null;
+    loser_symbol: string;
+    loser_pnl_usd: number;
+    winners_count: number;
+    action_type: string;
+  }>;
   risk_engine_running: boolean;
   config: any;
 }

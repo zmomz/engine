@@ -497,9 +497,15 @@ class PositionManagerService:
         timer_started = False
         if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
             timer_started = True
-        elif risk_config.timer_start_condition == "after_all_dca_submitted" and position_group.pyramid_count >= 5:
-            # Assuming 5 pyramids means all DCA submitted for the grid logic usually
-            timer_started = True
+        elif risk_config.timer_start_condition == "after_all_dca_submitted":
+            # Check if all DCA orders have been submitted to the exchange
+            # An order is submitted when it has a submitted_at timestamp (status is no longer PENDING/TRIGGER_PENDING)
+            from app.repositories.dca_order import DCAOrderRepository
+            dca_order_repo = DCAOrderRepository(session)
+            all_orders = await dca_order_repo.get_all_orders_by_group_id(str(position_group.id))
+            submitted_count = sum(1 for order in all_orders if order.submitted_at is not None)
+            if submitted_count >= position_group.total_dca_legs:
+                timer_started = True
         elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
             timer_started = True
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Button, TextField, Typography, CircularProgress, Alert, FormControlLabel, IconButton, Divider, Paper, Tabs, Tab, List, ListItem, ListItemText, ListItemSecondaryAction, Grid, Checkbox } from '@mui/material';
+import { Box, Button, TextField, Typography, CircularProgress, Alert, FormControlLabel, IconButton, Divider, Paper, Tabs, Tab, List, ListItem, ListItemText, ListItemSecondaryAction, Grid, Checkbox, MenuItem } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import { useForm, Controller, Resolver, FieldError, FieldErrors } from 'react-hook-form';
@@ -468,8 +468,7 @@ const SettingsPage: React.FC = () => {
                       control={control}
                       render={({ field }) => {
                         const isBoolean = typeof field.value === 'boolean';
-                        // timer_start_condition is the only string field in this config
-                        const isStringField = key === 'timer_start_condition';
+                        const isTimerStartCondition = key === 'timer_start_condition';
 
                         if (isBoolean) {
                           return (
@@ -485,13 +484,31 @@ const SettingsPage: React.FC = () => {
                           );
                         }
 
+                        if (isTimerStartCondition) {
+                          return (
+                            <TextField
+                              {...field}
+                              select
+                              label="Timer Start Condition"
+                              fullWidth
+                              margin="normal"
+                              error={!!fieldError}
+                              helperText={fieldError?.message}
+                            >
+                              <MenuItem value="after_5_pyramids">After 5 Pyramids</MenuItem>
+                              <MenuItem value="after_all_dca_submitted">After All DCA Submitted</MenuItem>
+                              <MenuItem value="after_all_dca_filled">After All DCA Filled</MenuItem>
+                            </TextField>
+                          );
+                        }
+
                         return (
                           <TextField
                             {...field}
                             label={key.replace(/([A-Z])/g, ' $1').replace(/_([a-z])/g, ' $1').replace(/^./, str => str.toUpperCase())} // Basic label formatting
                             fullWidth
                             margin="normal"
-                            type={isStringField ? 'text' : 'number'}
+                            type='number'
                             inputProps={{ step: 'any' }}
                             onChange={(e) => field.onChange(e.target.value)}
                             error={!!fieldError}

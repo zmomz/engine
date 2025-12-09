@@ -1,5 +1,25 @@
 import React, { useEffect } from 'react';
-import { Box, Typography, Button, Card, CardContent, Grid, Chip } from '@mui/material';
+import {
+  Box,
+  Typography,
+  Button,
+  Card,
+  CardContent,
+  Grid,
+  Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  LinearProgress,
+  Divider
+} from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
+import TimerIcon from '@mui/icons-material/Timer';
 import useRiskStore from '../store/riskStore';
 import useConfirmStore from '../store/confirmStore';
 
@@ -8,7 +28,7 @@ const RiskPage: React.FC = () => {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(() => fetchStatus(true), 5000); // Poll every 5 seconds
+    const interval = setInterval(() => fetchStatus(true), 5000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
@@ -56,82 +76,347 @@ const RiskPage: React.FC = () => {
     }
   };
 
+  const formatTimestamp = (timestamp: string | null) => {
+    if (!timestamp) return 'N/A';
+    return new Date(timestamp).toLocaleString();
+  };
+
   return (
     <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Risk Control Panel
-      </Typography>
-      {loading && <Typography>Loading risk status...</Typography>}
-      {error && <Typography color="error">Error: {error}</Typography>}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">Risk Control Panel</Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleRunEvaluation}
+          disabled={loading}
+        >
+          Run Evaluation Now
+        </Button>
+      </Box>
+
+      {loading && !status && <LinearProgress />}
+      {error && <Typography color="error" sx={{ mb: 2 }}>Error: {error}</Typography>}
 
       {status && (
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 6 }}>
+          {/* Statistics Dashboard */}
+          <Grid size={{ xs: 12 }}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Risk Engine Status
-                </Typography>
-                <Typography variant="body1" component="div">Running: <Chip label={status.risk_engine_running ? 'Yes' : 'No'} color={status.risk_engine_running ? 'success' : 'error'} size="small" /></Typography>
-                <Typography variant="subtitle1" sx={{ mt: 2 }}>Configuration:</Typography>
-                {status.config && Object.entries(status.config).map(([key, value]) => (
-                  <Typography variant="body2" key={key}><strong>{key}:</strong> {String(value)}</Typography>
-                ))}
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={handleRunEvaluation}
-                  sx={{ mt: 2 }}
-                  disabled={loading}
-                >
-                  Run Risk Evaluation Now
-                </Button>
+                <Typography variant="h6" gutterBottom>Statistics</Typography>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h4" color="primary">
+                        {status.recent_actions?.length || 0}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Recent Offsets
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h4" color="error">
+                        ${status.recent_actions?.reduce((sum, a) => sum + Math.abs(a.loser_pnl_usd), 0).toFixed(2) || '0.00'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Total Loss Offset
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h4" color="success.main">
+                        {status.recent_actions?.length > 0 ? '100%' : '0%'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Success Rate
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
               </CardContent>
             </Card>
           </Grid>
 
+          {/* Current Evaluation */}
           <Grid size={{ xs: 12, md: 6 }}>
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
-                  Identified Positions for Offset
+                  Current Evaluation
                 </Typography>
+
                 {status.identified_loser ? (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle1" color="error.main">Loser:</Typography>
-                    <Typography variant="body1">Symbol: {status.identified_loser.symbol}</Typography>
-                    <Typography variant="body1">PnL %: {status.identified_loser.unrealized_pnl_percent?.toFixed(2)}%</Typography>
-                    <Typography variant="body1">PnL $: ${status.identified_loser.unrealized_pnl_usd?.toFixed(2)}</Typography>
-                    <Typography variant="body1" component="div">Blocked: <Chip label={status.identified_loser.risk_blocked ? 'Yes' : 'No'} color={status.identified_loser.risk_blocked ? 'warning' : 'info'} size="small" /></Typography>
-                    <Typography variant="body1" component="div">Skip Once: <Chip label={status.identified_loser.risk_skip_once ? 'Yes' : 'No'} color={status.identified_loser.risk_skip_once ? 'warning' : 'info'} size="small" /></Typography>
-                    <Box sx={{ mt: 1 }}>
+                  <Box>
+                    <Typography variant="subtitle1" color="error.main" gutterBottom>
+                      Selected Loser: {status.identified_loser.symbol}
+                    </Typography>
+
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2">
+                        <strong>Loss:</strong> {status.identified_loser.unrealized_pnl_percent.toFixed(2)}%
+                        (${status.identified_loser.unrealized_pnl_usd.toFixed(2)})
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Age:</strong> {status.identified_loser.age_minutes} minutes
+                      </Typography>
+                      <Typography variant="body2">
+                        <strong>Pyramids:</strong> {status.identified_loser.pyramid_count}/{status.identified_loser.max_pyramids}
+                      </Typography>
+                      <Typography variant="body2" component="div">
+                        <strong>Timer:</strong>{' '}
+                        {status.identified_loser.timer_status === 'active' ? (
+                          <Chip
+                            icon={<TimerIcon />}
+                            label={`${status.identified_loser.timer_remaining_minutes} min`}
+                            color="warning"
+                            size="small"
+                          />
+                        ) : status.identified_loser.timer_status === 'expired' ? (
+                          <Chip label="Expired" color="error" size="small" />
+                        ) : (
+                          <Chip label="Inactive" color="default" size="small" />
+                        )}
+                      </Typography>
+                      <Typography variant="body2" component="div">
+                        <strong>Eligible:</strong>{' '}
+                        {status.identified_loser.pyramids_reached && status.identified_loser.age_filter_passed ? (
+                          <CheckCircleIcon color="success" fontSize="small" />
+                        ) : (
+                          <CancelIcon color="error" fontSize="small" />
+                        )}
+                        {!status.identified_loser.pyramids_reached && ' (Pyramids not reached)'}
+                        {!status.identified_loser.age_filter_passed && ' (Age filter not passed)'}
+                      </Typography>
+                    </Box>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="subtitle2" gutterBottom>Required Offset: ${status.required_offset_usd.toFixed(2)}</Typography>
+                    <Typography variant="subtitle2" gutterBottom>Available Profit: ${status.total_available_profit.toFixed(2)}</Typography>
+
+                    {status.projected_plan && status.projected_plan.length > 0 && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>Projected Offset Plan:</Typography>
+                        {status.projected_plan.map((plan, idx) => (
+                          <Box key={idx} sx={{ ml: 2, mb: 1 }}>
+                            <Typography variant="body2">
+                              • {plan.symbol}: ${plan.amount_to_close.toFixed(2)}
+                              {plan.partial && ' (partial close)'}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+
+                    <Box sx={{ mt: 2 }}>
                       {!status.identified_loser.risk_blocked ? (
-                        <Button size="small" variant="outlined" color="warning" onClick={() => handleBlock(status.identified_loser!.id)} sx={{ mr: 1 }}>Block</Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="warning"
+                          onClick={() => handleBlock(status.identified_loser!.id)}
+                          sx={{ mr: 1 }}
+                        >
+                          Block
+                        </Button>
                       ) : (
-                        <Button size="small" variant="outlined" color="success" onClick={() => handleUnblock(status.identified_loser!.id)} sx={{ mr: 1 }}>Unblock</Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          onClick={() => handleUnblock(status.identified_loser!.id)}
+                          sx={{ mr: 1 }}
+                        >
+                          Unblock
+                        </Button>
                       )}
                       {!status.identified_loser.risk_skip_once && (
-                        <Button size="small" variant="outlined" color="info" onClick={() => handleSkip(status.identified_loser!.id)}>Skip Next</Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          onClick={() => handleSkip(status.identified_loser!.id)}
+                        >
+                          Skip Next
+                        </Button>
                       )}
                     </Box>
                   </Box>
                 ) : (
-                  <Typography variant="body2">No loser identified.</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    No position currently selected for offset.
+                  </Typography>
                 )}
+              </CardContent>
+            </Card>
+          </Grid>
 
-                <Typography variant="subtitle1" sx={{ mt: 2 }}>Winners (to offset):</Typography>
-                {status.identified_winners && status.identified_winners.length > 0 ? (
-                  status.identified_winners.map((winner) => (
-                    <Box key={winner.id} sx={{ mb: 1, ml: 2, borderLeft: '2px solid grey', pl: 1 }}>
-                      <Typography variant="body2">Symbol: {winner.symbol}</Typography>
-                      <Typography variant="body2">PnL $: ${winner.unrealized_pnl_usd?.toFixed(2)}</Typography>
-                    </Box>
-                  ))
+          {/* Engine Status */}
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Engine Status
+                </Typography>
+                <Typography variant="body1" component="div" sx={{ mb: 2 }}>
+                  Status: <Chip
+                    label={status.risk_engine_running ? 'Running' : 'Stopped'}
+                    color={status.risk_engine_running ? 'success' : 'error'}
+                    size="small"
+                  />
+                </Typography>
+
+                <Typography variant="subtitle2" gutterBottom>Configuration:</Typography>
+                <Box sx={{ ml: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Loss Threshold:</strong> {status.config?.loss_threshold_percent}%
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Age Filter:</strong> {status.config?.use_trade_age_filter ? 'Enabled' : 'Disabled'}
+                  </Typography>
+                  {status.config?.use_trade_age_filter && (
+                    <Typography variant="body2">
+                      <strong>Age Threshold:</strong> {status.config?.age_threshold_minutes} min
+                    </Typography>
+                  )}
+                  <Typography variant="body2">
+                    <strong>Require Full Pyramids:</strong> {status.config?.require_full_pyramids ? 'Yes' : 'No'}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Post-Full Wait:</strong> {status.config?.post_full_wait_minutes} min
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Timer Start:</strong> {status.config?.timer_start_condition}
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* At-Risk Positions */}
+          <Grid size={{ xs: 12 }}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  At-Risk Positions
+                </Typography>
+                {status.at_risk_positions && status.at_risk_positions.length > 0 ? (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Symbol</TableCell>
+                          <TableCell align="right">Loss %</TableCell>
+                          <TableCell align="right">Loss $</TableCell>
+                          <TableCell>Timer</TableCell>
+                          <TableCell>Status</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {status.at_risk_positions.map((pos) => (
+                          <TableRow
+                            key={pos.id}
+                            sx={{
+                              backgroundColor: pos.is_selected ? 'action.selected' : 'inherit',
+                              '&:hover': { backgroundColor: 'action.hover' }
+                            }}
+                          >
+                            <TableCell>
+                              {pos.symbol}
+                              {pos.is_selected && (
+                                <Chip label="Selected" color="primary" size="small" sx={{ ml: 1 }} />
+                              )}
+                            </TableCell>
+                            <TableCell align="right">
+                              {pos.unrealized_pnl_percent.toFixed(2)}%
+                            </TableCell>
+                            <TableCell align="right">
+                              ${pos.unrealized_pnl_usd.toFixed(2)}
+                            </TableCell>
+                            <TableCell>
+                              {pos.timer_status === 'countdown' && pos.timer_remaining_minutes !== null ? (
+                                <Chip
+                                  icon={<TimerIcon />}
+                                  label={`${pos.timer_remaining_minutes} min`}
+                                  color="warning"
+                                  size="small"
+                                />
+                              ) : pos.timer_status === 'expired' ? (
+                                <Chip label="Expired" color="error" size="small" />
+                              ) : (
+                                <Chip label="Inactive" color="default" size="small" />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {pos.risk_blocked ? (
+                                <Chip label="Blocked" color="error" size="small" />
+                              ) : pos.is_eligible ? (
+                                <Chip label="Eligible" color="success" size="small" />
+                              ) : (
+                                <Chip label="Not Eligible" color="default" size="small" />
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 ) : (
-                  <Typography variant="body2">No winners identified for offset.</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    No positions currently at risk.
+                  </Typography>
                 )}
+              </CardContent>
+            </Card>
+          </Grid>
 
-                <Typography variant="body1" sx={{ mt: 2 }}>Required Offset: <strong>${status.required_offset_usd?.toFixed(2)}</strong></Typography>
+          {/* Recent Actions */}
+          <Grid size={{ xs: 12 }}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Recent Actions
+                </Typography>
+                {status.recent_actions && status.recent_actions.length > 0 ? (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Timestamp</TableCell>
+                          <TableCell>Loser</TableCell>
+                          <TableCell align="right">Loss $</TableCell>
+                          <TableCell align="center">Winners Used</TableCell>
+                          <TableCell>Action</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {status.recent_actions.map((action) => (
+                          <TableRow key={action.id}>
+                            <TableCell>{formatTimestamp(action.timestamp)}</TableCell>
+                            <TableCell>{action.loser_symbol}</TableCell>
+                            <TableCell align="right">${Math.abs(action.loser_pnl_usd).toFixed(2)}</TableCell>
+                            <TableCell align="center">{action.winners_count}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={action.action_type}
+                                color="info"
+                                size="small"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No recent actions recorded.
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           </Grid>

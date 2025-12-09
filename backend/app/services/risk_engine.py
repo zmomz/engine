@@ -537,16 +537,36 @@ class RiskEngineService:
         """
         async for session in self.session_factory():
             position_group_repo = self.position_group_repository_class(session)
-            
+            risk_action_repo = self.risk_action_repository_class(session)
+
             if self.user:
                 all_positions = await position_group_repo.get_all_active_by_user(self.user.id)
             else:
                 all_positions = await position_group_repo.get_all()
-            
+
             loser, winners, required_usd = select_loser_and_winners(all_positions, self.config)
-            
+
+            # Enhanced loser info with all spec fields
             loser_info = None
             if loser:
+                # Calculate timer remaining
+                timer_remaining = None
+                timer_status = "inactive"
+                if loser.risk_timer_expires:
+                    now = datetime.utcnow()
+                    if now >= loser.risk_timer_expires:
+                        timer_status = "expired"
+                        timer_remaining = 0
+                    else:
+                        timer_remaining = int((loser.risk_timer_expires - now).total_seconds() / 60)  # minutes
+                        timer_status = "active"
+
+                # Check age
+                age_minutes = int((datetime.utcnow() - loser.created_at).total_seconds() / 60) if loser.created_at else 0
+                age_filter_passed = True
+                if self.config.use_trade_age_filter:
+                    age_filter_passed = age_minutes >= self.config.age_threshold_minutes
+
                 loser_info = {
                     "id": str(loser.id),
                     "symbol": loser.symbol,
@@ -555,20 +575,98 @@ class RiskEngineService:
                     "risk_blocked": loser.risk_blocked,
                     "risk_skip_once": loser.risk_skip_once,
                     "risk_timer_expires": loser.risk_timer_expires.isoformat() if loser.risk_timer_expires else None,
+                    "timer_remaining_minutes": timer_remaining,
+                    "timer_status": timer_status,
+                    "pyramids_reached": loser.pyramid_count >= loser.max_pyramids,
+                    "pyramid_count": loser.pyramid_count,
+                    "max_pyramids": loser.max_pyramids,
+                    "age_minutes": age_minutes,
+                    "age_filter_passed": age_filter_passed,
                 }
-            
+
+            # Enhanced winners info
             winners_info = []
+            total_available_profit = 0
             for winner in winners:
+                profit = float(winner.unrealized_pnl_usd)
                 winners_info.append({
                     "id": str(winner.id),
                     "symbol": winner.symbol,
-                    "unrealized_pnl_usd": float(winner.unrealized_pnl_usd),
+                    "unrealized_pnl_usd": profit,
                 })
-            
+                total_available_profit += profit
+
+            # Calculate projected offset plan
+            projected_plan = []
+            if loser and winners and required_usd > 0:
+                remaining_needed = required_usd
+                for winner in winners:
+                    if remaining_needed <= 0:
+                        break
+                    available = float(winner.unrealized_pnl_usd)
+                    to_close = min(available, remaining_needed)
+                    projected_plan.append({
+                        "symbol": winner.symbol,
+                        "profit_available": available,
+                        "amount_to_close": to_close,
+                        "partial": to_close < available
+                    })
+                    remaining_needed -= to_close
+
+            # Get at-risk positions (eligible or close to eligible)
+            eligible_losers = _filter_eligible_losers(all_positions, self.config)
+            at_risk_positions = []
+            for pos in all_positions:
+                if pos.unrealized_pnl_percent < 0:  # Only losing positions
+                    timer_status = "inactive"
+                    timer_remaining = None
+                    is_eligible = pos in eligible_losers
+
+                    if pos.risk_timer_expires:
+                        now = datetime.utcnow()
+                        if now >= pos.risk_timer_expires:
+                            timer_status = "expired"
+                            timer_remaining = 0
+                        else:
+                            timer_remaining = int((pos.risk_timer_expires - now).total_seconds() / 60)
+                            timer_status = "countdown"
+
+                    at_risk_positions.append({
+                        "id": str(pos.id),
+                        "symbol": pos.symbol,
+                        "unrealized_pnl_percent": float(pos.unrealized_pnl_percent),
+                        "unrealized_pnl_usd": float(pos.unrealized_pnl_usd),
+                        "timer_status": timer_status,
+                        "timer_remaining_minutes": timer_remaining,
+                        "is_eligible": is_eligible,
+                        "is_selected": loser and pos.id == loser.id,
+                        "risk_blocked": pos.risk_blocked,
+                    })
+
+            # Sort by loss percent (worst first)
+            at_risk_positions.sort(key=lambda x: x["unrealized_pnl_percent"])
+
+            # Get recent risk actions
+            recent_actions = await risk_action_repo.get_recent_by_user(self.user.id, limit=10) if self.user else []
+            recent_actions_info = []
+            for action in recent_actions:
+                recent_actions_info.append({
+                    "id": str(action.id),
+                    "timestamp": action.timestamp.isoformat() if action.timestamp else None,
+                    "loser_symbol": action.loser_group.symbol if action.loser_group else "Unknown",
+                    "loser_pnl_usd": float(action.loser_pnl_usd) if action.loser_pnl_usd else 0,
+                    "winners_count": len(action.winner_details) if action.winner_details else 0,
+                    "action_type": action.action_type.value if action.action_type else "unknown",
+                })
+
             return {
                 "identified_loser": loser_info,
                 "identified_winners": winners_info,
                 "required_offset_usd": float(required_usd),
+                "total_available_profit": total_available_profit,
+                "projected_plan": projected_plan,
+                "at_risk_positions": at_risk_positions,
+                "recent_actions": recent_actions_info,
                 "risk_engine_running": self._running,
                 "config": self.config.model_dump()
             }
