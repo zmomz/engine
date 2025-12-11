@@ -24,6 +24,10 @@ async def get_binance_spot_balance():
         'apiKey': API_KEYS['binance']['apiKey'],
         'secret': API_KEYS['binance']['secret'],
         'enableRateLimit': True,
+        'options': {
+        'adjustForTimeDifference': True,
+        'recvWindow': 20000,
+    }
     })
     
     # Enable sandbox/testnet mode
@@ -117,11 +121,17 @@ async def get_bybit_spot_balance():
         'apiKey': API_KEYS['bybit']['apiKey'],
         'secret': API_KEYS['bybit']['secret'],
         'enableRateLimit': True,
+        'options': {
+        'adjustForTimeDifference': True,
+        'recvWindow': 20000,
+    }
     })
     
     # Enable sandbox/testnet mode
     exchange.set_sandbox_mode(True)
     
+    # Suppress the open orders warning
+    exchange.options['warnOnFetchOpenOrdersWithoutSymbol'] = False
     try:
         await exchange.load_markets()
         

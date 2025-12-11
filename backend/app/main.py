@@ -73,7 +73,7 @@ async def startup_event():
         order_service_class=OrderService,
         position_manager_service_class=PositionManagerService
     )
-    # await app.state.order_fill_monitor.start_monitoring_task()
+    await app.state.order_fill_monitor.start_monitoring_task()
 
     # GridCalculatorService is stateless, so it can be initialized at startup
     app.state.grid_calculator_service = GridCalculatorService()
