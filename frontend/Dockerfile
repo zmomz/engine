@@ -13,6 +13,10 @@ RUN npm install
 ENV CI=true
 ENV GENERATE_SOURCEMAP=false
 
+# Add ARG and ENV for the React App API URL
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+
 # Copy the rest of the application source code
 COPY . .
 

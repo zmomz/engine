@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '../services/api';
 
 export interface AuthState {
   token: string | null;
@@ -47,7 +47,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
   register: async (username, email, password) => {
     try {
       // 1. Register
-      const registerResponse = await axios.post('/api/v1/users/register', {
+      const registerResponse = await api.post('/users/register', {
         username,
         email,
         password,
@@ -59,7 +59,7 @@ const useAuthStore = create<AuthState>((set, get) => ({
       params.append('username', username);
       params.append('password', password);
 
-      const loginResponse = await axios.post('/api/v1/users/login', params, {
+      const loginResponse = await api.post('/users/login', params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },

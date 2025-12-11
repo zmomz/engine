@@ -83,8 +83,7 @@
       },
       "tp_mode": "per_leg",
       "tp_settings": {
-        "tp_aggregate_percent": 0,
-        "tp_pyramid_percent": 0
+        "tp_aggregate_percent": 0
       },
       "max_pyramids": 2
     },
@@ -113,8 +112,7 @@
       "pyramid_specific_levels": {},
       "tp_mode": "aggregate",
       "tp_settings": {
-        "tp_aggregate_percent": 5,
-        "tp_pyramid_percent": 0
+        "tp_aggregate_percent": 5
       },
       "max_pyramids": 3
     },
@@ -174,10 +172,9 @@
           }
         ]
       },
-      "tp_mode": "pyramid",
+      "tp_mode": "aggregate",
       "tp_settings": {
-        "tp_aggregate_percent": 0,
-        "tp_pyramid_percent": 3
+        "tp_aggregate_percent": 3
       },
       "max_pyramids": 1
     },
@@ -201,8 +198,7 @@
       "pyramid_specific_levels": {},
       "tp_mode": "hybrid",
       "tp_settings": {
-        "tp_aggregate_percent": 2,
-        "tp_pyramid_percent": 1.5
+        "tp_aggregate_percent": 2
       },
       "max_pyramids": 5
     },
@@ -273,8 +269,7 @@
       },
       "tp_mode": "per_leg",
       "tp_settings": {
-        "tp_aggregate_percent": 0,
-        "tp_pyramid_percent": 0
+        "tp_aggregate_percent": 0
       },
       "max_pyramids": 3
     },
@@ -293,8 +288,7 @@
       "pyramid_specific_levels": {},
       "tp_mode": "aggregate",
       "tp_settings": {
-        "tp_aggregate_percent": 10,
-        "tp_pyramid_percent": 0
+        "tp_aggregate_percent": 10
       },
       "max_pyramids": 1
     },
@@ -363,8 +357,7 @@
       },
       "tp_mode": "hybrid",
       "tp_settings": {
-        "tp_aggregate_percent": 3,
-        "tp_pyramid_percent": 2
+        "tp_aggregate_percent": 3
       },
       "max_pyramids": 2
     },
@@ -406,10 +399,9 @@
         }
       ],
       "pyramid_specific_levels": {},
-      "tp_mode": "pyramid",
+      "tp_mode": "aggregate",
       "tp_settings": {
-        "tp_aggregate_percent": 0,
-        "tp_pyramid_percent": 4
+        "tp_aggregate_percent": 4
       },
       "max_pyramids": 4
     },
@@ -441,8 +433,7 @@
       },
       "tp_mode": "per_leg",
       "tp_settings": {
-        "tp_aggregate_percent": 0,
-        "tp_pyramid_percent": 0
+        "tp_aggregate_percent": 0
       },
       "max_pyramids": 1
     },
@@ -553,8 +544,7 @@
       },
       "tp_mode": "aggregate",
       "tp_settings": {
-        "tp_aggregate_percent": 7,
-        "tp_pyramid_percent": 0
+        "tp_aggregate_percent": 7
       },
       "max_pyramids": 3
     }

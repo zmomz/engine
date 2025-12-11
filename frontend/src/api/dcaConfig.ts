@@ -1,7 +1,4 @@
-
-import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+import api from '../services/api';
 
 export type EntryOrderType = 'limit' | 'market';
 export type TPMode = 'per_leg' | 'aggregate' | 'hybrid';
@@ -49,41 +46,23 @@ export interface DCAConfigurationUpdate {
     max_pyramids?: number;
 }
 
-// Helper to get token (assuming stored in localStorage or handled by interceptor)
-// Since we don't have the auth store context here easily, we rely on the global axios instance if configured, 
-// or simple header injection. For now, assuming standard axios usage with interceptors in App.tsx or similar.
-// If not, we might need to import the store.
-
-const getAuthHeader = () => {
-    const token = localStorage.getItem('token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
 export const dcaConfigApi = {
     getAll: async (): Promise<DCAConfiguration[]> => {
-        const response = await axios.get<DCAConfiguration[]>(`${API_URL}/dca-configs/`, {
-            headers: getAuthHeader()
-        });
+        const response = await api.get<DCAConfiguration[]>('/dca-configs/');
         return response.data;
     },
 
     create: async (data: DCAConfigurationCreate): Promise<DCAConfiguration> => {
-        const response = await axios.post<DCAConfiguration>(`${API_URL}/dca-configs/`, data, {
-            headers: getAuthHeader()
-        });
+        const response = await api.post<DCAConfiguration>('/dca-configs/', data);
         return response.data;
     },
 
     update: async (id: string, data: DCAConfigurationUpdate): Promise<DCAConfiguration> => {
-        const response = await axios.put<DCAConfiguration>(`${API_URL}/dca-configs/${id}`, data, {
-            headers: getAuthHeader()
-        });
+        const response = await api.put<DCAConfiguration>(`/dca-configs/${id}`, data);
         return response.data;
     },
 
     delete: async (id: string): Promise<void> => {
-        await axios.delete(`${API_URL}/dca-configs/${id}`, {
-            headers: getAuthHeader()
-        });
+        await api.delete(`/dca-configs/${id}`);
     }
 };
