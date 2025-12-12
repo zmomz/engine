@@ -340,9 +340,12 @@ class OrderService:
         If record_in_db is True, creates a FILLED DCAOrder to track this trade.
         """
         try:
+            # Extract pyramid_id from kwargs before passing to exchange
+            pyramid_id = kwargs.pop('pyramid_id', None)
+
             # Ensure side is uppercase
             side_value = side.upper()
-            
+
             exchange_order_data = await self.exchange_connector.place_order(
                 symbol=symbol,
                 order_type="MARKET",
@@ -368,7 +371,7 @@ class OrderService:
                 
                 market_order = DCAOrder(
                     group_id=position_group_id,
-                    pyramid_id=None, # Not attached to specific pyramid plan
+                    pyramid_id=pyramid_id, # Use provided pyramid_id or None
                     leg_index=-1, # Ad-hoc order
                     symbol=symbol,
                     side=side_value.lower(),

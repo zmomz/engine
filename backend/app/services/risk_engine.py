@@ -16,6 +16,7 @@ from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.risk_action import RiskAction, RiskActionType
 from app.models.queued_signal import QueuedSignal
 from app.models.user import User # Added import
+from app.models.pyramid import Pyramid # Added import
 from app.repositories.user import UserRepository # Added import
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.risk_action import RiskActionRepository
@@ -176,8 +177,8 @@ async def calculate_partial_close_quantities(
         precision_rules = precision_rules_cache[exchange_name]
 
         # Calculate how much profit this winner can contribute
-        available_profit = winner.unrealized_pnl_usd
-        
+        available_profit = Decimal(str(winner.unrealized_pnl_usd))
+
         # Determine how much of this winner to close
         profit_to_take = min(available_profit, remaining_needed)
         
@@ -189,10 +190,10 @@ async def calculate_partial_close_quantities(
             logger.error(f"Risk Engine: Failed to get price for {winner.symbol}: {e}")
             continue
 
-        profit_per_unit = current_price - winner.weighted_avg_entry
+        profit_per_unit = current_price - Decimal(str(winner.weighted_avg_entry))
         if winner.side == "short":
-            profit_per_unit = winner.weighted_avg_entry - current_price
-        
+            profit_per_unit = Decimal(str(winner.weighted_avg_entry)) - current_price
+
         if profit_per_unit <= 0:
             logger.warning(f"Cannot calculate quantity for {winner.symbol}: profit_per_unit is zero or negative ({profit_per_unit}).")
             continue
@@ -201,12 +202,12 @@ async def calculate_partial_close_quantities(
         
         # Round to step size
         symbol_precision = precision_rules.get(winner.symbol, {})
-        step_size = symbol_precision.get("step_size", Decimal("0.001")) # Default if not found
+        step_size = Decimal(str(symbol_precision.get("step_size", Decimal("0.001")))) # Convert to Decimal
         quantity_to_close = round_to_step_size(quantity_to_close, step_size)
         
         # Check minimum notional
         notional_value = quantity_to_close * current_price
-        min_notional = symbol_precision.get("min_notional", Decimal("10")) # Default if not found
+        min_notional = Decimal(str(symbol_precision.get("min_notional", Decimal("10")))) # Convert to Decimal
         
         if notional_value < min_notional:
             logger.warning(
@@ -216,8 +217,9 @@ async def calculate_partial_close_quantities(
             continue
 
         # Cap at available quantity
-        if quantity_to_close > winner.total_filled_quantity:
-            quantity_to_close = winner.total_filled_quantity
+        total_filled = Decimal(str(winner.total_filled_quantity))
+        if quantity_to_close > total_filled:
+            quantity_to_close = total_filled
         
         close_plan.append((winner, quantity_to_close))
         remaining_needed -= profit_to_take
@@ -412,6 +414,15 @@ class RiskEngineService:
                     return
 
                 # Close the loser
+                # Get pyramid for loser
+                loser_pyramid_result = await session.execute(
+                    select(Pyramid).where(Pyramid.group_id == loser.id).limit(1)
+                )
+                loser_pyramid = loser_pyramid_result.scalar_one_or_none()
+                if not loser_pyramid:
+                    logger.error(f"Risk Engine: No pyramid found for loser {loser.symbol}. Cannot place close order.")
+                    return
+
                 await order_service.place_market_order(
                     user_id=loser.user_id,
                     exchange=loser.exchange,
@@ -419,12 +430,22 @@ class RiskEngineService:
                     side="sell" if loser.side == "long" else "buy",
                     quantity=loser.total_filled_quantity,
                     position_group_id=loser.id,
+                    pyramid_id=loser_pyramid.id,
                     record_in_db=True
                 )
                 logger.info(f"Risk Engine: Closed loser {loser.symbol} (ID: {loser.id}).")
 
                 winner_details = []
                 for winner_pg, quantity_to_close in close_plan:
+                    # Get pyramid for winner
+                    winner_pyramid_result = await session.execute(
+                        select(Pyramid).where(Pyramid.group_id == winner_pg.id).limit(1)
+                    )
+                    winner_pyramid = winner_pyramid_result.scalar_one_or_none()
+                    if not winner_pyramid:
+                        logger.warning(f"Risk Engine: No pyramid found for winner {winner_pg.symbol}. Skipping.")
+                        continue
+
                     await order_service.place_market_order(
                         user_id=winner_pg.user_id,
                         exchange=winner_pg.exchange,
@@ -432,6 +453,7 @@ class RiskEngineService:
                         side="sell" if winner_pg.side == "long" else "buy",
                         quantity=quantity_to_close,
                         position_group_id=winner_pg.id,
+                        pyramid_id=winner_pyramid.id,
                         record_in_db=True
                     )
                     logger.info(f"Risk Engine: Partially closed winner {winner_pg.symbol} (ID: {winner_pg.id}) for {quantity_to_close} units.")
