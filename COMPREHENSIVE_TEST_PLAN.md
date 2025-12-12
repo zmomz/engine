@@ -1,10 +1,13 @@
 # 🧪 COMPREHENSIVE PRACTICAL TEST PLAN
 ## Trading Execution Engine - Full System Validation
 
-**Date:** To be executed tomorrow
-**Duration:** ~4-6 hours
+**Date:** Ready for execution
+**Duration:** ~4-5 hours
 **Environment:** Bybit and Binance Testnet
 **Prerequisites:** Clean database, funded testnet accounts
+
+**Testing Approach:** 100% Practical - All tests executed via scripts with exchange and database verification
+**No Manual Testing:** All tests are command-line based and verified through scripts, exchange state, and database queries
 
 **User Credentials:**
 - USER_ID: `f937c6cb-f9f9-4d25-be19-db9bf596d7e1`
@@ -14,22 +17,22 @@
 - **Binance:** BTC/USDT, ETH/USDT, XRP/USDT, ADA/USDT, TRX/USDT, LINK/USDT
 - **Bybit:** SOL/USDT, DOGE/USDT, DOT/USDT, MATIC/USDT
 
-**Current Market Prices (December 12, 2025):**
-- BTC: ~$92,454 | ETH: ~$3,232 | SOL: ~$136.82
-- XRP: ~$2.03 | DOGE: ~$0.14 | ADA: ~$0.42
-- DOT: ~$2.11 | TRX: ~$0.28 | MATIC: ~$0.21 | LINK: ~$14.09
+**IMPORTANT - Real Price Testing:**
+To test order fills, TP execution, market orders, and risk engine behavior, you MUST use current live prices from the exchanges. See "Fetch Live Prices" section in pre-test setup.
 
 Note: All test commands below use only these configured pairs. Using unconfigured pairs will result in errors.
 
 ---
 
-## 📋 ALLOWED SCRIPTS ONLY
+## 📋 ALLOWED SCRIPTS FOR TESTING
 
-**The following scripts are the ONLY ones allowed for testing:**
+**The following scripts are available for comprehensive testing:**
+
+### Core Testing Scripts
 
 ```bash
 # 1. Clean positions from database
-docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
 
 # 2. Clean positions from exchanges (Binance & Bybit)
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
@@ -53,11 +56,80 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --order-size 0.1
 ```
 
+### Queue Priority Testing Scripts (NEW)
+
+```bash
+# 6. Comprehensive system monitoring (pool, positions, queue, risk, TP modes)
+docker compose exec app python3 scripts/monitor_all_tests.py
+
+# 7. Queue priority calculation and promotion
+docker compose exec app python3 scripts/promote_queue_signal.py
+
+# 8. Interactive queue priority testing
+docker compose exec app python3 scripts/test_queue_priorities.py
+```
+
+### Live Price Fetching Script (NEW) ⭐
+
+```bash
+# 9. Fetch live exchange prices for realistic testing
+docker compose exec app python3 scripts/fetch_live_prices.py
+
+# This script provides:
+# - Current market prices from Binance and Bybit testnets
+# - Strategic prices (0.1% above/below, 5% above/below)
+# - Ready-to-use test commands with calculated prices
+# - Bracket strategy suggestions for guaranteed fills
+```
+
 ---
 
 ## 📋 PRE-TEST SETUP
 
-### 1. Environment Preparation (10 mins)
+### 1. Fetch Live Exchange Prices (5 mins) ⭐ CRITICAL
+
+**Why:** To create realistic test orders that will actually fill, test TP execution, and verify risk engine behavior.
+
+```bash
+# Fetch current prices from both exchanges
+docker compose exec app python3 scripts/fetch_live_prices.py
+```
+
+**This script provides:**
+- ✅ Current market prices for all configured pairs
+- ✅ Strategic prices for different test scenarios:
+  - **0.1% above/below**: For orders that fill quickly (within minutes)
+  - **5% above**: For creating losing positions (Risk Engine testing)
+  - **5% below**: For creating winning positions (offset testing)
+- ✅ Example commands ready to copy-paste
+- ✅ Bracket strategy suggestions (one order above, one below)
+
+**IMPORTANT Testing Strategies:**
+
+1. **For Realistic Fills** - Use bracket strategy:
+   - Place order 0.1% BELOW current price → fills on pump
+   - Place order 0.1% ABOVE current price → fills on dip
+   - At least ONE will fill within 5-10 minutes
+
+2. **For Market Orders** - Use exact current price:
+   - Fills immediately (within seconds)
+   - Best for testing TP creation and DCA fills
+
+3. **For Risk Engine** - Use 5% above current price:
+   - Creates immediate losing position
+   - Triggers risk_eligible status
+   - Tests risk timer and closure
+
+4. **For Dashboard/Analytics** - Mix of positions:
+   - Some at 5% loss, some at 5% profit
+   - Tests PnL calculations and display
+   - Verifies offset calculations
+
+**Save the output** - You'll reference these prices throughout testing!
+
+---
+
+### 2. Environment Preparation (10 mins)
 
 ```bash
 # Start all services
@@ -68,7 +140,7 @@ docker compose up -d
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
 
 # Clean database positions
-docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
 
 # Verify starting state - check exchanges and queue
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -81,21 +153,32 @@ docker compose exec app python3 scripts/list_queue.py
 - ✅ Empty queue
 - ✅ Clean database
 
-### 2. Verify Configuration (10 mins)
+---
 
-**GUI Verification:**
+### 3. Verify Configuration (5 mins)
 
-1. Open browser: `http://localhost:3000`
-2. Login with credentials
-3. Navigate to **Settings** page
-4. Verify DCA configurations exist for test pairs
-5. Note Risk Engine settings
+**Database Verification:**
+
+```bash
+# Verify DCA configurations loaded
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pair, exchange, entry_order_type, tp_mode, max_pyramids
+   FROM dca_configurations
+   WHERE user_id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1'
+   ORDER BY pair;"
+
+# Check Risk Engine settings
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT username, max_open_positions_global, enable_risk_engine
+   FROM users
+   WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+```
 
 **Expected Result:**
 
-- ✅ DCA configs present for test pairs
+- ✅ 10 DCA configs present for test pairs
 - ✅ Risk engine configured
-- ✅ Execution pool configured
+- ✅ Execution pool limit set to 10
 
 ---
 
@@ -119,16 +202,21 @@ docker compose exec app python3 scripts/simulate_webhook.py \
 # Verify orders on exchange
 docker compose exec app python3 scripts/verify_exchange_positions.py
 
-# Verify GUI: Open Dashboard -> should show 1 active position
+# Verify in database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, status, pyramid_count
+   FROM position_groups
+   WHERE symbol = 'SOLUSDT'
+   ORDER BY created_at DESC LIMIT 1;"
 ```
 
 **Expected Result:**
 
 - ✅ Position group created in DB
 - ✅ DCA orders submitted to exchange
-- ✅ Dashboard shows 1 active position
-- ✅ Positions page shows expandable BTCUSDT group
-- ✅ All DCA legs visible with PENDING/OPEN status
+- ✅ Exchange shows 5 open limit orders for SOLUSDT
+- ✅ Database shows position with status='live'
+- ✅ Pyramid count = 1
 
 **Verification Points:**
 
@@ -177,7 +265,7 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 - ✅ Pyramid count = 2
 - ✅ First pyramid uses pyramid_specific_levels[1] with 2 DCA legs
 - ✅ Second pyramid uses pyramid_specific_levels[2] with 1 DCA leg
-- ✅ GUI shows pyramid count increased
+- ✅ Database shows pyramid_count = 2 for BTCUSDT
 
 ---
 
@@ -204,7 +292,7 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 - ✅ NEW position group created (different pair)
 - ✅ Total active groups = 3 (SOLUSDT on Bybit, BTCUSDT on Binance, ETHUSDT on Binance)
-- ✅ Dashboard shows 3 active positions
+- ✅ Exchange verification shows 3 positions
 
 ---
 
@@ -230,8 +318,8 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 **Expected Result:**
 
 - ✅ Total active groups = 4
-- ✅ Dashboard shows 4 active positions
-- ✅ Positions page shows all 4 groups
+- ✅ Exchange verification shows all 4 positions
+- ✅ Database shows 4 active position groups
 
 ---
 
@@ -321,7 +409,8 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 **Expected Result:**
 
 - ✅ Active positions = 10 (pool full)
-- ✅ Dashboard shows pool usage: 10/10
+- ✅ Exchange verification shows 10 positions
+- ✅ Monitor script shows pool: 10/10
 
 ---
 
@@ -349,8 +438,8 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 **Expected Result:**
 
 - ✅ Signal added to queue (not executed) OR pyramids onto existing DOGEUSDT position
-- ✅ Queue page shows queued signal (if queued)
-- ✅ Active positions still = 10
+- ✅ list_queue.py shows queued signal (if queued)
+- ✅ Active positions still = 10 (if queued)
 - ✅ Verify behavior based on whether pyramiding happens or signal is queued
 
 ---
@@ -388,7 +477,7 @@ docker compose exec app python3 scripts/list_queue.py
 ```bash
 # Manually close all positions to test queue promotion
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
-docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
 
 # Verify queued signals were promoted
 docker compose exec app python3 scripts/list_queue.py
@@ -399,23 +488,38 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 - ✅ After cleaning: pool freed
 - ✅ Queued signals may be promoted automatically if queue promotion logic runs
-- ✅ Verify via GUI Queue page and Positions page
+- ✅ Verify via list_queue.py and verify_exchange_positions.py
 
 ---
 
-## 🔥 TEST SUITE 3: DCA FILLS & TAKE-PROFIT (Manual Testing via GUI)
+## 🔥 TEST SUITE 3: REALISTIC ORDER FILLS & MARKET ORDERS (30 mins) ⭐
 
-### Test 3.1: Monitor DCA Order Fills
+### Overview
 
-**Manual Verification:**
+This test suite focuses on creating positions that ACTUALLY FILL on the exchange using live market prices. This enables real testing of:
+- DCA order fills
+- Take-profit order creation and execution
+- Market order execution
+- Dashboard PnL calculations
+- Real-time position monitoring
+
+**Prerequisites:**
+- Live prices fetched from fetch_live_prices.py
+- Clean exchange state
+- Understanding of bracket strategy
+
+---
+
+### Test 3.1: Bracket Strategy - Guaranteed Fill
+
+**Objective:** Create positions that are guaranteed to fill within 5-10 minutes
 
 ```bash
-# Create a position with entry price very close to current market price
-# First, check current prices on exchange
-docker compose exec app python3 scripts/verify_exchange_positions.py
+# STEP 1: Fetch current price (from fetch_live_prices.py output)
+# Let's say ETHUSDT = $3,200.00
 
-# Place order with price 0.1% below current market (to get filled quickly)
-# Using ETHUSDT with market orders for faster fills
+# STEP 2: Place TWO orders - one above, one below current price
+# Order A: 0.1% below ($3,196.80) - fills when price pumps
 docker compose exec app python3 scripts/simulate_webhook.py \
   --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
   --secret ecd78c38d5ec54b4cd892735d0423671 \
@@ -424,42 +528,220 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 3232.0 \
+  --entry-price 3196.80 \
   --order-size 0.01
 
-# Wait a few minutes, then verify fills
+# Order B: 0.1% above ($3,203.20) - fills when price dips
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol XRPUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.032 \
+  --order-size 10
+
+# Wait 5-10 minutes for fills
+sleep 300
+
+# Verify fills
 docker compose exec app python3 scripts/verify_exchange_positions.py
 ```
 
 **Expected Result:**
 
-- ✅ DCA orders get filled as market moves
-- ✅ Position shows weighted average entry updated
-- ✅ Unrealized PnL calculated
-- ✅ GUI shows fill progress in Positions page
-- ✅ Filled orders show with timestamps
+- ✅ At least ONE position shows filled DCA orders (status changes to FILLED)
+- ✅ Weighted average entry price calculated
+- ✅ Take-profit orders created automatically
+- ✅ Unrealized PnL calculated and updating
+- ✅ Dashboard shows real-time position data
+
+**Verification:**
+
+```bash
+# Check which orders filled
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, status, filled_quantity,
+   weighted_avg_entry, unrealized_pnl_percent
+   FROM position_groups
+   WHERE symbol IN ('ETHUSDT', 'XRPUSDT')
+   ORDER BY created_at DESC;"
+
+# Check DCA order fills
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pg.symbol, do.level, do.status, do.filled_quantity, do.fill_price
+   FROM dca_orders do
+   JOIN position_groups pg ON do.position_group_id = pg.id
+   WHERE pg.symbol IN ('ETHUSDT', 'XRPUSDT')
+   ORDER BY pg.symbol, do.level;"
+```
 
 ---
 
-### Test 3.2: Take-Profit Order Creation
+### Test 3.2: Market Orders - Instant Fill
 
-**Manual Observation:**
-
-1. After DCA orders are filled, check exchange for TP orders
-2. Verify TP orders are created automatically
-3. Check GUI Positions page for TP order details
+**Objective:** Test market orders that fill immediately using exact current price
 
 ```bash
-# Verify TP orders on exchange
+# STEP 1: Get exact current price (from fetch_live_prices.py)
+# Use EXACT price for market order immediate fill
+
+# BTCUSDT market order (should fill in seconds)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92454.00 \
+  --order-size 0.001
+
+# Wait 30 seconds for fill
+sleep 30
+
+# Verify instant fill
 docker compose exec app python3 scripts/verify_exchange_positions.py
 ```
 
 **Expected Result:**
 
-- ✅ TP orders created for filled DCA legs
+- ✅ Position filled within 30 seconds
+- ✅ All DCA orders show FILLED status
+- ✅ Take-profit orders created immediately
+- ✅ Real-time PnL calculation active
+- ✅ Position visible in monitoring script
+
+---
+
+### Test 3.3: Take-Profit Order Creation & Monitoring
+
+**Objective:** Verify TP orders are created automatically after fills
+
+```bash
+# After Test 3.2 market order fills, check TP orders on exchange
+
+# Verify TP orders exist
+docker compose exec app python3 scripts/verify_exchange_positions.py
+
+# Check TP orders in database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pg.symbol, tpo.tp_percent, tpo.tp_price, tpo.status,
+   tpo.quantity, tpo.order_id
+   FROM take_profit_orders tpo
+   JOIN position_groups pg ON tpo.position_group_id = pg.id
+   WHERE pg.symbol = 'BTCUSDT'
+   ORDER BY tpo.tp_percent;"
+```
+
+**Expected Result:**
+
+- ✅ Take-profit orders created on exchange
 - ✅ TP prices calculated correctly based on configuration
-- ✅ GUI shows TP orders in position details
-- ✅ When TP hits: position partially or fully closes
+- ✅ TP orders show in exchange as OPEN limit orders
+- ✅ Database reflects TP order details
+- ✅ If price hits TP, orders execute and close position
+
+**Monitor TP Execution:**
+
+```bash
+# Run this periodically to catch TP fills
+watch -n 30 'docker compose exec app python3 scripts/verify_exchange_positions.py'
+
+# Check for closed positions
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, realized_pnl_usd, closed_at
+   FROM position_groups
+   WHERE status = 'closed'
+   ORDER BY closed_at DESC
+   LIMIT 10;"
+```
+
+---
+
+### Test 3.4: Dashboard & Analytics with Real Data
+
+**Objective:** Verify dashboard calculations with real filled orders
+
+```bash
+# Monitor comprehensive statistics
+docker compose exec app python3 scripts/monitor_all_tests.py
+
+# Check PnL calculations
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange,
+   filled_quantity,
+   weighted_avg_entry,
+   current_price,
+   unrealized_pnl_usd,
+   unrealized_pnl_percent,
+   CASE
+     WHEN unrealized_pnl_percent > 0 THEN 'PROFIT'
+     WHEN unrealized_pnl_percent < 0 THEN 'LOSS'
+     ELSE 'BREAK-EVEN'
+   END as status
+   FROM position_groups
+   WHERE status NOT IN ('closed', 'failed')
+   ORDER BY unrealized_pnl_percent DESC;"
+```
+
+**Expected Result:**
+
+- ✅ Real-time PnL calculations accurate
+- ✅ Weighted average entry price correct
+- ✅ Current price updates from exchange
+- ✅ Winning/losing positions identified
+- ✅ Total portfolio PnL calculated
+- ✅ Monitor script shows comprehensive statistics
+
+---
+
+### Test 3.5: Multiple Fills Across Exchanges
+
+**Objective:** Create realistic positions on both Binance and Bybit
+
+```bash
+# Use live prices for both exchanges
+
+# Binance positions with bracket strategy
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol LINKUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price <USE_PRICE_FROM_SCRIPT_0.1%_BELOW> \
+  --order-size 2
+
+# Bybit positions with bracket strategy
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol SOLUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price <USE_PRICE_FROM_SCRIPT_0.1%_BELOW> \
+  --order-size 0.1
+
+# Wait for fills and verify
+sleep 600  # Wait 10 minutes
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Positions created on both exchanges
+- ✅ Multiple orders filled across exchanges
+- ✅ Cross-exchange PnL tracked separately
+- ✅ Both exchanges show in monitoring
+- ✅ No conflicts between exchanges
 
 ---
 
@@ -535,146 +817,291 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 ---
 
-## 🔥 TEST SUITE 5: RISK ENGINE (Manual GUI Testing)
+## 🔥 TEST SUITE 5: RISK ENGINE (45 mins)
 
-### Test 5.1: Risk Engine Monitoring
+### Overview
 
-**Manual Verification via GUI:**
+The Risk Engine automatically manages losing positions by:
+- Monitoring positions for losses exceeding configured thresholds
+- Starting risk timers when positions become eligible
+- Closing losing positions using winning positions as offsets
+- Logging all risk actions for audit
 
-1. Navigate to **Risk Control Panel** page
-2. Create losing and winning positions by placing orders
-3. Observe Risk Engine status and evaluations
-
-**What to Verify:**
-
-- ✅ Risk Control Panel displays current risk status
-- ✅ Shows identified losing positions
-- ✅ Shows available winning positions
-- ✅ Timer countdown visible (if configured)
-- ✅ Eligible/Not Eligible status shown
-- ✅ Projected offset plan displayed
+**Prerequisites:**
+- Risk engine enabled in user settings
+- Mix of winning and losing positions
+- Risk timer configured (e.g., 120 seconds)
 
 ---
 
-### Test 5.2: Risk Actions via GUI
+### Test 5.1: Risk Engine Status Monitoring
 
-**Manual Testing:**
-
-1. Use Risk Control Panel buttons:
-   - **Block Button**: Prevents risk engine from closing position
-   - **Skip Next Button**: Skips next evaluation cycle
-   - **Run Evaluation Now**: Manually triggers risk evaluation
-
-2. Observe behavior in GUI and exchange
+**Objective:** Verify risk engine tracks position states correctly
 
 ```bash
-# Verify actions on exchange
-docker compose exec app python3 scripts/verify_exchange_positions.py
+# Create positions and check risk engine status
+docker compose exec app python3 scripts/monitor_all_tests.py
+
+# Check risk engine settings
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT username, enable_risk_engine, risk_loss_threshold_percent,
+   risk_timer_seconds
+   FROM users
+   WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+
+# Check positions with risk status
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, unrealized_pnl_percent,
+   risk_eligible, risk_blocked, risk_timer_start
+   FROM position_groups
+   WHERE status NOT IN ('closed', 'failed')
+   ORDER BY unrealized_pnl_percent;"
 ```
 
 **Expected Result:**
 
-- ✅ Risk engine respects block/skip actions
-- ✅ Manual evaluation triggers correctly
-- ✅ Recent Actions table logs all risk actions
-- ✅ Positions close when risk conditions met
+- ✅ Risk engine enabled in user settings
+- ✅ Monitor script shows risk engine status
+- ✅ Positions with losses > threshold marked as risk_eligible
+- ✅ Risk timer starts when position becomes eligible
+- ✅ Database accurately reflects risk states
 
 ---
 
-## 🔥 TEST SUITE 6: WEB GUI VALIDATION (60 mins)
+### Test 5.2: Risk Timer Behavior
 
-### Test 6.1: Dashboard Page
-
-**Manual Verification in Browser:**
-
-1. Open `http://localhost:3000` and navigate to Dashboard
-2. Check **Live Dashboard** tab displays:
-   - ✅ Engine Status: Running
-   - ✅ Risk Engine Status
-   - ✅ Total PnL calculated correctly
-   - ✅ TVL shows testnet balance
-   - ✅ Active Position Groups count
-   - ✅ Queued Signals count
-   - ✅ Capital Deployed percentage
-
-3. Switch to **Performance Analytics** tab:
-   - ✅ PnL metrics (Today, Week, Month, All Time)
-   - ✅ Equity curve chart
-   - ✅ Win/Loss statistics
-   - ✅ Trade distribution charts
-
-4. Verify real-time updates (auto-refresh)
-
----
-
-### Test 6.2: Positions Page
-
-**Manual Verification:**
-
-1. Open Positions page
-2. Verify table shows all active positions with:
-   - ✅ Symbol, Timeframe, Exchange
-   - ✅ Pyramids count
-   - ✅ Average Entry price
-   - ✅ Current Price (updating)
-   - ✅ Unrealized PnL % and $ (color-coded)
-   - ✅ Status, Risk Timer, Created At
-
-3. Click expand button on a position:
-   - ✅ Shows DCA legs with prices, quantities, status
-   - ✅ Shows TP orders
-   - ✅ Shows fill timestamps
+**Objective:** Verify risk timer starts and tracks correctly
 
 ```bash
-# Verify positions match exchange
+# Create a losing position (use entry price above current market)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ADAUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.50 \
+  --order-size 100
+
+# Wait for position to show loss, then check timer
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, unrealized_pnl_percent, risk_eligible,
+   risk_timer_start,
+   EXTRACT(EPOCH FROM (NOW() - risk_timer_start)) as timer_elapsed_seconds
+   FROM position_groups
+   WHERE symbol = 'ADAUSDT' AND exchange = 'binance';"
+
+# Monitor over time
+docker compose exec app python3 scripts/monitor_all_tests.py
+```
+
+**Expected Result:**
+
+- ✅ Position created with entry above market price
+- ✅ Position shows negative PnL
+- ✅ risk_eligible = true when loss exceeds threshold
+- ✅ risk_timer_start timestamp recorded
+- ✅ Timer elapsed increases over time
+- ✅ Monitor script shows timer countdown
+
+---
+
+### Test 5.3: Risk Actions - Block Position
+
+**Objective:** Verify blocking prevents risk engine from closing position
+
+```bash
+# Mark a position as risk_blocked
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE position_groups
+   SET risk_blocked = true
+   WHERE symbol = 'ADAUSDT' AND exchange = 'binance'
+   RETURNING symbol, risk_blocked, risk_eligible;"
+
+# Verify block status
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, risk_eligible, risk_blocked, unrealized_pnl_percent
+   FROM position_groups
+   WHERE risk_blocked = true;"
+
+# Check monitor reflects blocked status
+docker compose exec app python3 scripts/monitor_all_tests.py
+```
+
+**Expected Result:**
+
+- ✅ Position marked as risk_blocked = true
+- ✅ Risk engine respects block (won't close position)
+- ✅ Database shows correct block status
+- ✅ Monitor script shows blocked positions
+
+---
+
+### Test 5.4: Risk Actions History
+
+**Objective:** Verify all risk actions are logged
+
+```bash
+# Check risk actions table
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT id, action_type, timestamp, notes,
+   position_group_id
+   FROM risk_actions
+   ORDER BY timestamp DESC
+   LIMIT 20;"
+
+# Check actions for specific position
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT ra.action_type, ra.timestamp, ra.notes,
+   pg.symbol, pg.exchange
+   FROM risk_actions ra
+   JOIN position_groups pg ON ra.position_group_id = pg.id
+   WHERE pg.symbol = 'ADAUSDT'
+   ORDER BY ra.timestamp DESC;"
+```
+
+**Expected Result:**
+
+- ✅ All risk actions logged with timestamps
+- ✅ Action types recorded (block, skip, evaluation, etc.)
+- ✅ Notes field contains relevant information
+- ✅ Actions linked to correct position groups
+- ✅ History queryable for audit
+
+---
+
+### Test 5.5: Risk Engine Evaluation Cycle
+
+**Objective:** Verify risk engine evaluates positions periodically
+
+```bash
+# Create mix of winning and losing positions
+# Then monitor risk evaluations
+
+# Check when last evaluation occurred
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT action_type, timestamp, notes
+   FROM risk_actions
+   WHERE action_type = 'evaluation'
+   ORDER BY timestamp DESC
+   LIMIT 5;"
+
+# Monitor positions at risk
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+   COUNT(*) FILTER (WHERE risk_eligible = true AND risk_blocked = false) as eligible_positions,
+   COUNT(*) FILTER (WHERE risk_blocked = true) as blocked_positions,
+   COUNT(*) FILTER (WHERE unrealized_pnl_percent < -5) as losing_positions,
+   COUNT(*) FILTER (WHERE unrealized_pnl_percent > 5) as winning_positions
+   FROM position_groups
+   WHERE status NOT IN ('closed', 'failed');"
+```
+
+**Expected Result:**
+
+- ✅ Risk engine evaluates positions periodically
+- ✅ Evaluation actions logged with timestamp
+- ✅ Statistics show risk categorization
+- ✅ Eligible positions identified correctly
+- ✅ Blocked positions excluded from auto-closure
+
+---
+
+### Test 5.6: Risk Engine Offset Calculation
+
+**Objective:** Verify risk engine identifies winning positions for offsets
+
+```bash
+# Create scenario with both winning and losing positions
+# Check which positions would be used as offsets
+
+# Query potential offset pairs
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "WITH losing AS (
+     SELECT id, symbol, exchange, unrealized_pnl_percent,
+            ABS(unrealized_pnl_usd) as loss_usd
+     FROM position_groups
+     WHERE status NOT IN ('closed', 'failed')
+     AND unrealized_pnl_percent < -5
+     AND risk_eligible = true
+     AND risk_blocked = false
+   ),
+   winning AS (
+     SELECT id, symbol, exchange, unrealized_pnl_percent,
+            unrealized_pnl_usd as profit_usd
+     FROM position_groups
+     WHERE status NOT IN ('closed', 'failed')
+     AND unrealized_pnl_percent > 5
+   )
+   SELECT
+     l.symbol as losing_position,
+     l.loss_usd,
+     w.symbol as winning_position,
+     w.profit_usd,
+     CASE WHEN w.profit_usd >= l.loss_usd THEN 'Can Offset' ELSE 'Partial Offset' END as status
+   FROM losing l
+   CROSS JOIN winning w
+   ORDER BY l.loss_usd DESC, w.profit_usd DESC;"
+```
+
+**Expected Result:**
+
+- ✅ Query identifies losing positions requiring offset
+- ✅ Query identifies winning positions available for offset
+- ✅ Offset calculation shows if profit covers loss
+- ✅ Risk engine has sufficient data to make decisions
+
+---
+
+### Test 5.7: Risk Engine - Position Closure
+
+**Objective:** Verify risk engine can close positions (manual trigger for testing)
+
+```bash
+# Check positions eligible for closure
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, unrealized_pnl_percent,
+   risk_eligible, risk_blocked,
+   EXTRACT(EPOCH FROM (NOW() - risk_timer_start)) as timer_elapsed
+   FROM position_groups
+   WHERE risk_eligible = true
+   AND risk_blocked = false
+   AND risk_timer_start IS NOT NULL;"
+
+# After risk timer expires (e.g., 120 seconds), verify position closed
+# Note: This requires risk engine background service to be running
+# Or manual closure via API
+
+# Verify closure on exchange
 docker compose exec app python3 scripts/verify_exchange_positions.py
+
+# Check database status
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, closed_at, realized_pnl_usd
+   FROM position_groups
+   WHERE symbol = 'ADAUSDT' AND exchange = 'binance';"
 ```
 
----
+**Expected Result:**
 
-### Test 6.3: Queue Page
-
-**Manual Verification:**
-
-1. Open Queue page (when queue has entries)
-2. Verify table shows:
-   - ✅ Symbol, Timeframe, Direction
-   - ✅ Queue Age, Replacement Count
-   - ✅ Priority Rank, Status
-
-```bash
-# Verify queue via script
-docker compose exec app python3 scripts/list_queue.py
-```
+- ✅ Position closed after risk timer expires
+- ✅ Closure recorded in database with timestamp
+- ✅ Exchange shows position closed (no open orders)
+- ✅ Realized PnL calculated and recorded
+- ✅ Risk action logged for closure
 
 ---
 
-### Test 6.4: Settings Page
+## 🔥 TEST SUITE 6: BASIC SYSTEM HEALTH (30 mins)
 
-**Manual Verification:**
-
-1. Open Settings page
-2. Verify all configuration sections load:
-   - ✅ Exchange API Settings
-   - ✅ Execution Pool settings
-   - ✅ Risk Engine Configuration
-   - ✅ DCA Configurations table
-
-3. Test functionality:
-   - ✅ Modify settings and save
-   - ✅ Add/Edit DCA configs
-   - ✅ Verify changes persist after refresh
-
----
-
-## 🔥 TEST SUITE 7: BASIC SYSTEM HEALTH (30 mins)
-
-### Test 7.1: Clean Slate Test
+### Test 6.1: Clean Slate Test
 
 ```bash
 # Clean everything and start fresh
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
-docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
 
 # Verify clean state
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -690,7 +1117,7 @@ docker compose exec app python3 scripts/list_queue.py
 
 ---
 
-### Test 7.2: Multiple Position Management
+### Test 6.2: Multiple Position Management
 
 ```bash
 # Create multiple positions across both exchanges using configured pairs
@@ -747,15 +1174,15 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 **Expected Result:**
 
 - ✅ Multiple positions created across both exchanges
-- ✅ All positions visible in GUI
+- ✅ All positions visible via verify_exchange_positions.py
 - ✅ Exchange orders match database records
 - ✅ No conflicts or errors
 
 ---
 
-## 🔥 TEST SUITE 8: SYSTEM PERSISTENCE (15 mins)
+## 🔥 TEST SUITE 7: SYSTEM PERSISTENCE (15 mins)
 
-### Test 8.1: Application Restart Persistence
+### Test 7.1: Application Restart Persistence
 
 ```bash
 # Create some positions using configured pairs
@@ -795,8 +1222,478 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 - ✅ All positions persisted after restart
 - ✅ No data loss
-- ✅ GUI reconnects and shows same state
+- ✅ Exchange state unchanged after restart
 - ✅ System continues functioning normally
+
+---
+
+## 🔥 TEST SUITE 8: QUEUE PRIORITY SYSTEM (90 mins)
+
+### Overview
+
+The queue priority system uses 4 rules (in order of priority):
+1. **Same Pair/Timeframe (Pyramid)** - Tier 0: Score 10,000,000+ (Highest)
+2. **Deepest Loss Percent** - Tier 1: Score 1,000,000+
+3. **Highest Replacement Count** - Tier 2: Score 10,000+
+4. **FIFO Fallback** - Tier 3: Score 1,000+ (Lowest)
+
+**Prerequisites:**
+- Pool must be at 10/10 capacity
+- Multiple signals queued
+- 20 DCA configurations loaded
+
+---
+
+### Test 8.1: Queue Functionality - Basic Queuing
+
+**Objective:** Verify signals queue correctly when pool is full
+
+```bash
+# Ensure pool is full (10/10)
+docker compose exec app python3 scripts/monitor_all_tests.py
+
+# If not full, create positions until pool = 10/10
+# Then add signals to queue
+
+# Add BNB signal (limit orders, hybrid TP)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BNBUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 700.0 \
+  --order-size 0.1
+
+# Add AVAX signal (market orders, per-leg TP)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol AVAXUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 40.0 \
+  --order-size 1.0
+
+# Add LTC signal (limit orders, per-leg TP)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol LTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 100.0 \
+  --order-size 0.5
+
+# Verify signals queued
+docker compose exec app python3 scripts/list_queue.py
+```
+
+**Expected Result:**
+
+- ✅ Pool status shows 10/10 (FULL)
+- ✅ All 3 signals added to queue with status='queued'
+- ✅ Signals show in queue with timestamps
+- ✅ No positions created (pool full)
+- ✅ list_queue.py shows all queued signals
+
+---
+
+### Test 8.2: Priority Calculation - Deepest Loss Rule
+
+**Objective:** Verify loss-based priority calculation
+
+```bash
+# Check priority scores
+docker compose exec app python3 scripts/promote_queue_signal.py
+```
+
+**Expected Output:**
+```
+Queue Priority Order:
+Rank | Symbol    | Priority Score          | Explanation
+-----|-----------|------------------------|----------------------------------
+1    | AVAXUSDT  | 1,660,000+             | Loss: -66.00%, Queued for Xs
+2    | LTCUSDT   | 1,160,000+             | Loss: -16.00%, Queued for Xs
+3    | BNBUSDT   | 1,000+                 | Queued for Xs
+```
+
+**Verification Points:**
+
+- ✅ AVAXUSDT has highest priority (deepest loss)
+- ✅ Priority scores show clear tier separation
+- ✅ Loss percentage correctly incorporated into score
+- ✅ FIFO tiebreaker applied when no loss (BNBUSDT)
+- ✅ Priority explanations show active rules
+
+**Manual Verification:**
+```bash
+# Check database for loss percentages
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, current_loss_percent, replacement_count, queued_at
+   FROM queued_signals WHERE status = 'queued' ORDER BY queued_at;"
+```
+
+---
+
+### Test 8.3: Priority Rule 1 - Pyramid Continuation
+
+**Objective:** Verify pyramid signals receive highest priority (Tier 0)
+
+```bash
+# First, check current active positions for pyramid opportunities
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, pyramid_count, max_pyramids
+   FROM position_groups WHERE status NOT IN ('closed', 'failed');"
+
+# Add signals - mix of new pairs and pyramid continuations
+# Signal A: New pair (UNIUSDT)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol UNIUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 12.0 \
+  --order-size 5.0
+
+# Signal B: BTCUSDT pyramid (if BTCUSDT has < max_pyramids)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 91000.0 \
+  --order-size 0.001
+
+# Check priorities
+docker compose exec app python3 scripts/promote_queue_signal.py
+```
+
+**Expected Result:**
+
+- ✅ BTCUSDT (pyramid) has priority score 10,000,000+ (Tier 0)
+- ✅ UNIUSDT (new pair) has priority score 1,000+ (Tier 3)
+- ✅ Pyramid signals clearly separated from non-pyramid signals
+- ✅ Priority explanation shows "Pyramid continuation for BTCUSDT"
+
+---
+
+### Test 8.4: Priority Rule 3 - Replacement Count
+
+**Objective:** Verify replacement tracking and priority
+
+```bash
+# Add initial signal
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ATOMUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 10.0 \
+  --order-size 2.0
+
+# Wait 2 seconds
+sleep 2
+
+# Send replacement signals (same symbol/timeframe/side)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ATOMUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 10.05 \
+  --order-size 2.0
+
+sleep 2
+
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ATOMUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 10.10 \
+  --order-size 2.0
+
+# Check replacement count
+docker compose exec app python3 scripts/list_queue.py
+```
+
+**Expected Result:**
+
+- ✅ ATOMUSDT shows replacement_count = 2
+- ✅ Entry price updated to latest (10.10)
+- ✅ Original queued_at timestamp preserved
+- ✅ Higher priority than signals with no replacements
+- ✅ Priority explanation shows "2 replacements"
+
+---
+
+### Test 8.5: Priority Rule 4 - FIFO Fallback
+
+**Objective:** Verify FIFO ordering when no other rules apply
+
+```bash
+# Add 3 signals with similar characteristics (no pyramid, no loss, no replacements)
+# Use pairs that aren't in active positions
+
+# First signal - APTUSDT
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol APTUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 8.0 \
+  --order-size 5.0
+
+# Wait to ensure different timestamps
+sleep 3
+
+# Second signal - ARBUSDT
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ARBUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 1.5 \
+  --order-size 30.0
+
+sleep 3
+
+# Third signal - OPUSDT
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol OPUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.5 \
+  --order-size 20.0
+
+# Check priorities
+docker compose exec app python3 scripts/promote_queue_signal.py
+```
+
+**Expected Result:**
+
+- ✅ All signals score ~1,000 points (FIFO tier)
+- ✅ APTUSDT has slightly higher score (queued longest)
+- ✅ Priority order matches queue order (FIFO)
+- ✅ Time difference reflected in score (0.001 per second)
+
+---
+
+### Test 8.6: Queue History
+
+**Objective:** Verify queue history tracking
+
+```bash
+# Check current queue history
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, queued_at, promoted_at, replacement_count
+   FROM queued_signals
+   WHERE status IN ('promoted', 'cancelled')
+   ORDER BY promoted_at DESC NULLS LAST
+   LIMIT 10;"
+
+# After promoting or cancelling signals, verify history updates
+# Promotion happens when pool space opens
+```
+
+**Expected Result:**
+
+- ✅ History shows promoted signals with promoted_at timestamp
+- ✅ History shows cancelled signals
+- ✅ Replacement count preserved in history
+- ✅ Queue history accessible via database query
+
+---
+
+### Test 8.7: Queue Promotion When Pool Frees
+
+**Objective:** Test automatic/manual promotion based on priority
+
+```bash
+# Close a position to free pool space
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE position_groups
+   SET status = 'closed', closed_at = NOW()
+   WHERE symbol = 'XRPUSDT' AND exchange = 'binance'
+   RETURNING symbol, status;"
+
+# Check pool status
+docker compose exec app python3 scripts/monitor_all_tests.py
+
+# Manual promotion of highest priority signal
+docker compose exec app python3 scripts/promote_queue_signal.py
+```
+
+**Expected Result:**
+
+- ✅ Pool shows 9/10 (space available)
+- ✅ Promotion script identifies highest priority signal
+- ✅ Signal with deepest loss promoted first
+- ✅ Signal status changes from 'queued' to 'promoted'
+- ✅ Position created for promoted signal
+- ✅ Queue count decreases by 1
+
+**Note:** Automatic promotion requires background service (not yet implemented).
+Currently requires manual promotion via API or script.
+
+---
+
+### Test 8.8: Comprehensive Monitoring
+
+**Objective:** Verify all monitoring tools work correctly
+
+```bash
+# Run comprehensive monitoring
+docker compose exec app python3 scripts/monitor_all_tests.py
+```
+
+**Expected Output Sections:**
+
+1. **Execution Pool Status**
+   - ✅ Shows X/10 active positions
+   - ✅ Shows queued signal count
+   - ✅ Pool status indicator (FULL/AVAILABLE)
+
+2. **Positions by Status**
+   - ✅ Counts by status (live, partially_filled, etc.)
+
+3. **Positions by PnL**
+   - ✅ Lists all positions with PnL%
+   - ✅ Color coding (green profit, red loss)
+
+4. **DCA Orders Status**
+   - ✅ Counts by status (filled, open, trigger_pending)
+
+5. **Take-Profit Modes**
+   - ✅ Distribution of TP modes configured
+
+6. **Queue Contents**
+   - ✅ Lists queued signals
+   - ✅ Shows age, replacement count
+   - ✅ Priority scores (if calculated)
+
+7. **Risk Engine Status**
+   - ✅ Shows positions at risk
+   - ✅ Shows risk timer status
+
+8. **Order Type Distribution**
+   - ✅ Shows market vs limit order configs
+
+---
+
+### Test 8.9: Multi-Rule Priority Scenario
+
+**Objective:** Test complex scenario with multiple priority rules active
+
+**Setup:**
+```bash
+# Create scenario with:
+# 1. Pyramid signal (Tier 0)
+# 2. Deep loss signal (Tier 1)
+# 3. Replacement signal (Tier 2)
+# 4. FIFO signal (Tier 3)
+
+# Ensure mix of conditions in queue, then verify priority order
+docker compose exec app python3 scripts/promote_queue_signal.py
+```
+
+**Expected Priority Order:**
+1. Pyramid signal (10,000,000+ score)
+2. Deep loss signal (1,000,000+ score)
+3. Replacement signal (10,000+ score)
+4. FIFO signal (1,000+ score)
+
+**Verification:**
+
+- ✅ Tier separation maintained (orders of magnitude)
+- ✅ Within same tier, tiebreakers apply correctly
+- ✅ All priority explanations accurate
+- ✅ Manual promotion respects priority order
+
+---
+
+### Test 8.10: Queue Stress Test
+
+**Objective:** Test queue with many signals
+
+```bash
+# Add 10+ signals to queue (use available DCA configs)
+# Monitor queue performance and priority calculations
+
+# Check queue contents
+docker compose exec app python3 scripts/list_queue.py
+
+# Check priorities
+docker compose exec app python3 scripts/promote_queue_signal.py
+```
+
+**Expected Result:**
+
+- ✅ All signals queued successfully
+- ✅ Priority calculation works with large queue
+- ✅ Queue ordered by priority correctly
+- ✅ No performance degradation
+- ✅ Scripts handle large queue display without errors
+
+---
+
+### Additional Monitoring Commands
+
+```bash
+# Check queue via database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, status, replacement_count, current_loss_percent,
+   queued_at, (EXTRACT(EPOCH FROM (NOW() - queued_at))/60)::int as age_minutes
+   FROM queued_signals
+   WHERE status = 'queued'
+   ORDER BY queued_at;"
+
+# Check DCA configurations
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pair, exchange, entry_order_type, tp_mode, max_pyramids
+   FROM dca_configurations
+   ORDER BY pair;"
+
+# Check active positions for pyramid testing
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange, pyramid_count, max_pyramids,
+   (max_pyramids - pyramid_count) as pyramids_available
+   FROM position_groups
+   WHERE status NOT IN ('closed', 'failed')
+   ORDER BY symbol;"
+```
 
 ---
 
@@ -818,19 +1715,6 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 ---
 
-### ✅ GUI Functionality
-
-**Manual Checklist:**
-
-- ✅ All pages load without errors (Dashboard, Positions, Queue, Settings, Risk)
-- ✅ Real-time updates working (auto-refresh)
-- ✅ All buttons and controls functional
-- ✅ Data displays correctly
-- ✅ No console errors in browser DevTools
-- ✅ Position details expand/collapse correctly
-
----
-
 ### ✅ Queue System
 
 ```bash
@@ -840,7 +1724,7 @@ docker compose exec app python3 scripts/list_queue.py
 
 **Expected:**
 
-- ✅ Queue page shows accurate data
+- ✅ list_queue.py shows accurate data
 - ✅ Queue promotion works when pool frees
 - ✅ Queue replacement logic works correctly
 
@@ -851,7 +1735,7 @@ docker compose exec app python3 scripts/list_queue.py
 ```bash
 # Clean all test data
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
-docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
 
 # Verify clean state
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -893,30 +1777,44 @@ Create a file `TEST_RESULTS.md` with this template:
 - [ ] Test 2.3: Queue Replacement - ✅ PASS / ❌ FAIL
 - [ ] Test 2.4: Queue Promotion - ✅ PASS / ❌ FAIL
 
-### TEST SUITE 3: DCA Fills & Take-Profit
-- [ ] Test 3.1: Monitor DCA Fills - ✅ PASS / ❌ FAIL
-- [ ] Test 3.2: TP Order Creation - ✅ PASS / ❌ FAIL
+### TEST SUITE 3: Realistic Order Fills & Market Orders
+- [ ] Test 3.1: Bracket Strategy - Guaranteed Fill - ✅ PASS / ❌ FAIL
+- [ ] Test 3.2: Market Orders - Instant Fill - ✅ PASS / ❌ FAIL
+- [ ] Test 3.3: Take-Profit Order Creation & Monitoring - ✅ PASS / ❌ FAIL
+- [ ] Test 3.4: Dashboard & Analytics with Real Data - ✅ PASS / ❌ FAIL
+- [ ] Test 3.5: Multiple Fills Across Exchanges - ✅ PASS / ❌ FAIL
 
 ### TEST SUITE 4: Precision Validation
 - [ ] Test 4.1: Valid Symbol Precision - ✅ PASS / ❌ FAIL
 - [ ] Test 4.2: Multiple Asset Precision - ✅ PASS / ❌ FAIL
 
 ### TEST SUITE 5: Risk Engine
-- [ ] Test 5.1: Risk Engine Monitoring - ✅ PASS / ❌ FAIL
-- [ ] Test 5.2: Risk Actions via GUI - ✅ PASS / ❌ FAIL
+- [ ] Test 5.1: Risk Engine Status Monitoring - ✅ PASS / ❌ FAIL
+- [ ] Test 5.2: Risk Timer Behavior - ✅ PASS / ❌ FAIL
+- [ ] Test 5.3: Risk Actions - Block Position - ✅ PASS / ❌ FAIL
+- [ ] Test 5.4: Risk Actions History - ✅ PASS / ❌ FAIL
+- [ ] Test 5.5: Risk Engine Evaluation Cycle - ✅ PASS / ❌ FAIL
+- [ ] Test 5.6: Risk Engine Offset Calculation - ✅ PASS / ❌ FAIL
+- [ ] Test 5.7: Risk Engine Position Closure - ✅ PASS / ❌ FAIL
 
-### TEST SUITE 6: Web GUI Validation
-- [ ] Test 6.1: Dashboard Page - ✅ PASS / ❌ FAIL
-- [ ] Test 6.2: Positions Page - ✅ PASS / ❌ FAIL
-- [ ] Test 6.3: Queue Page - ✅ PASS / ❌ FAIL
-- [ ] Test 6.4: Settings Page - ✅ PASS / ❌ FAIL
+### TEST SUITE 6: Basic System Health
+- [ ] Test 6.1: Clean Slate Test - ✅ PASS / ❌ FAIL
+- [ ] Test 6.2: Multiple Position Management - ✅ PASS / ❌ FAIL
 
-### TEST SUITE 7: Basic System Health
-- [ ] Test 7.1: Clean Slate Test - ✅ PASS / ❌ FAIL
-- [ ] Test 7.2: Multiple Position Management - ✅ PASS / ❌ FAIL
+### TEST SUITE 7: System Persistence
+- [ ] Test 7.1: Application Restart - ✅ PASS / ❌ FAIL
 
-### TEST SUITE 8: System Persistence
-- [ ] Test 8.1: Application Restart - ✅ PASS / ❌ FAIL
+### TEST SUITE 8: Queue Priority System
+- [ ] Test 8.1: Queue Functionality - ✅ PASS / ❌ FAIL
+- [ ] Test 8.2: Priority Calculation - Deepest Loss - ✅ PASS / ❌ FAIL
+- [ ] Test 8.3: Priority Rule 1 - Pyramid - ✅ PASS / ❌ FAIL
+- [ ] Test 8.4: Priority Rule 3 - Replacement - ✅ PASS / ❌ FAIL
+- [ ] Test 8.5: Priority Rule 4 - FIFO - ✅ PASS / ❌ FAIL
+- [ ] Test 8.6: Queue History - ✅ PASS / ❌ FAIL
+- [ ] Test 8.7: Queue Promotion - ✅ PASS / ❌ FAIL
+- [ ] Test 8.8: Comprehensive Monitoring - ✅ PASS / ❌ FAIL
+- [ ] Test 8.9: Multi-Rule Priority Scenario - ✅ PASS / ❌ FAIL
+- [ ] Test 8.10: Queue Stress Test - ✅ PASS / ❌ FAIL
 
 ## Issues Found
 
@@ -935,33 +1833,1042 @@ Create a file `TEST_RESULTS.md` with this template:
 
 ## 🎯 SUCCESS CRITERIA
 
-**Tests MUST pass:**
+**Core Tests MUST Pass:**
 
 - ✅ All basic signal ingestion tests pass
 - ✅ Pool and queue system works correctly
-- ✅ DCA orders created and filled properly
-- ✅ TP orders created correctly
+- ✅ **Queue priority calculation accurate**
+- ✅ **Priority rules function as designed**
+- ✅ **Risk engine monitors and manages positions**
+- ✅ DCA orders created successfully
 - ✅ No data loss or corruption
-- ✅ GUI fully functional
-- ✅ Risk engine operates correctly
 - ✅ Exchange precision validation prevents rejections
+- ✅ System persistence after restart
+- ✅ Multiple positions managed correctly
 
-**GUI Requirements:**
+**Queue Priority System:**
 
-- ✅ All pages accessible and functional
-- ✅ Real-time data updates visible
-- ✅ Position details show correctly
-- ✅ Charts and analytics render properly
+- ✅ Signals queue when pool is full
+- ✅ Priority scores calculated correctly
+- ✅ Deepest loss signals prioritized
+- ✅ Pyramid signals receive highest priority
+- ✅ Replacement count tracked accurately
+- ✅ FIFO fallback works when no other rules apply
+- ✅ Queue history tracks promoted/cancelled signals
+
+**Risk Engine:**
+
+- ✅ Risk engine identifies losing positions
+- ✅ Risk timers start and track correctly
+- ✅ Risk blocking prevents unwanted closures
+- ✅ All risk actions logged for audit
+- ✅ Offset calculations identify winning positions
+- ✅ Position closure works when timer expires
+
+**Exchange & Database Consistency:**
+
+- ✅ All exchange positions match database records
+- ✅ Orders have correct precision per symbol
+- ✅ No unexpected orders on exchanges
+- ✅ Queue state consistent across database queries
+- ✅ Risk states tracked accurately in database
+
+---
+
+## 🔥 TEST SUITE 9: API ENDPOINTS & AUTHENTICATION (60 mins)
+
+### Overview
+
+This test suite covers API endpoint functionality, authentication, and authorization mechanisms that are critical for the frontend and external integrations.
+
+**Prerequisites:**
+- Valid JWT token for authenticated requests
+- User registered in system
+- API keys configured
+
+---
+
+### Test 9.1: Health Check Endpoints
+
+**Objective:** Verify system health monitoring endpoints
+
+```bash
+# Test root health check
+curl http://localhost:8000/api/v1/health/
+
+# Test database health check
+curl http://localhost:8000/api/v1/health/db
+```
+
+**Expected Result:**
+
+- ✅ Root health returns `{"status": "healthy"}`
+- ✅ Database health returns `{"status": "healthy", "database": "connected"}`
+- ✅ HTTP 200 status code
+- ✅ Fast response time (< 100ms)
+
+---
+
+### Test 9.2: User Registration & Login
+
+**Objective:** Test user management and JWT token generation
+
+```bash
+# Register new user
+curl -X POST http://localhost:8000/api/v1/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "testuser",
+    "email": "test@example.com",
+    "password": "SecurePassword123!"
+  }'
+
+# Login to get JWT token
+curl -X POST http://localhost:8000/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "testuser",
+    "password": "SecurePassword123!"
+  }'
+
+# Verify token in database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT username, email, is_active, created_at
+   FROM users
+   WHERE username = 'testuser';"
+```
+
+**Expected Result:**
+
+- ✅ Registration returns user object with UUID
+- ✅ Password is hashed (not stored in plaintext)
+- ✅ Login returns JWT access token
+- ✅ Token can be decoded and contains user_id
+- ✅ User marked as active in database
+- ✅ Webhook secret generated automatically
+
+---
+
+### Test 9.3: Settings Management - API Keys
+
+**Objective:** Test API key encryption/decryption and storage
+
+```bash
+# Get JWT token first (from Test 9.2)
+TOKEN="<your_jwt_token>"
+
+# Get current settings
+curl http://localhost:8000/api/v1/settings \
+  -H "Authorization: Bearer $TOKEN"
+
+# Update settings with API keys
+curl -X PUT http://localhost:8000/api/v1/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "binance_api_key": "test_binance_key",
+    "binance_api_secret": "test_binance_secret",
+    "bybit_api_key": "test_bybit_key",
+    "bybit_api_secret": "test_bybit_secret"
+  }'
+
+# Verify encrypted storage
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT username, encrypted_api_keys::text
+   FROM users
+   WHERE username = 'testuser';"
+
+# Delete specific exchange keys
+curl -X DELETE http://localhost:8000/api/v1/settings/keys/binance \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Expected Result:**
+
+- ✅ Settings endpoint requires authentication
+- ✅ API keys encrypted before storage (not plaintext)
+- ✅ Keys retrievable and decrypted correctly
+- ✅ Individual exchange keys can be deleted
+- ✅ Unauthorized requests return 401
+- ✅ Invalid token returns 401
+
+---
+
+### Test 9.4: Dashboard API Endpoints
+
+**Objective:** Test analytics and dashboard data endpoints
+
+```bash
+TOKEN="<your_jwt_token>"
+
+# Get account summary (TVL + free USDT)
+curl http://localhost:8000/api/v1/dashboard/account-summary \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get PnL metrics
+curl http://localhost:8000/api/v1/dashboard/pnl \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get trading statistics
+curl http://localhost:8000/api/v1/dashboard/stats \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get active positions count
+curl http://localhost:8000/api/v1/dashboard/active-groups-count \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get comprehensive analytics
+curl http://localhost:8000/api/v1/dashboard/analytics \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Expected Result:**
+
+- ✅ Account summary returns TVL and free USDT across exchanges
+- ✅ PnL endpoint returns realized, unrealized, and total PnL
+- ✅ Stats endpoint returns win rate, total trades, avg PnL
+- ✅ Active count matches database query
+- ✅ Analytics returns live metrics and performance data
+- ✅ All endpoints return JSON format
+- ✅ Response times < 500ms
+
+---
+
+### Test 9.5: Position Management API
+
+**Objective:** Test position retrieval and management endpoints
+
+```bash
+TOKEN="<your_jwt_token>"
+USER_ID="f937c6cb-f9f9-4d25-be19-db9bf596d7e1"
+
+# Get all active positions
+curl http://localhost:8000/api/v1/positions/active \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get positions for specific user
+curl http://localhost:8000/api/v1/positions/$USER_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get specific position group
+GROUP_ID="<position_group_id>"
+curl http://localhost:8000/api/v1/positions/$USER_ID/$GROUP_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get closed positions history
+curl http://localhost:8000/api/v1/positions/$USER_ID/history \
+  -H "Authorization: Bearer $TOKEN"
+
+# Force close position
+curl -X POST http://localhost:8000/api/v1/positions/$GROUP_ID/close \
+  -H "Authorization: Bearer $TOKEN"
+
+# Verify closure on exchange
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Active positions endpoint returns current positions
+- ✅ Position details include DCA orders, TP settings, PnL
+- ✅ History endpoint returns closed positions with realized PnL
+- ✅ Force close creates market sell orders on exchange
+- ✅ Position status changes to 'closing' then 'closed'
+- ✅ Unauthorized access returns 401
+
+---
+
+### Test 9.6: Risk Management API
+
+**Objective:** Test risk engine control endpoints
+
+```bash
+TOKEN="<your_jwt_token>"
+GROUP_ID="<position_group_id>"
+
+# Get risk engine status
+curl http://localhost:8000/api/v1/risk/status \
+  -H "Authorization: Bearer $TOKEN"
+
+# Manually trigger risk evaluation
+curl -X POST http://localhost:8000/api/v1/risk/run-evaluation \
+  -H "Authorization: Bearer $TOKEN"
+
+# Block position from risk engine
+curl -X POST http://localhost:8000/api/v1/risk/$GROUP_ID/block \
+  -H "Authorization: Bearer $TOKEN"
+
+# Verify block in database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, risk_blocked, risk_eligible
+   FROM position_groups
+   WHERE id = '$GROUP_ID';"
+
+# Unblock position
+curl -X POST http://localhost:8000/api/v1/risk/$GROUP_ID/unblock \
+  -H "Authorization: Bearer $TOKEN"
+
+# Skip next evaluation for position
+curl -X POST http://localhost:8000/api/v1/risk/$GROUP_ID/skip \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Expected Result:**
+
+- ✅ Status endpoint returns risk engine configuration
+- ✅ Manual evaluation triggers risk engine cycle
+- ✅ Block prevents risk engine from closing position
+- ✅ Unblock removes restriction
+- ✅ Skip sets skip_once flag correctly
+- ✅ All actions logged in risk_actions table
+
+---
+
+### Test 9.7: Queue Management API
+
+**Objective:** Test queue control endpoints
+
+```bash
+TOKEN="<your_jwt_token>"
+SIGNAL_ID="<queued_signal_id>"
+
+# Get all queued signals
+curl http://localhost:8000/api/v1/queue/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Get queue history
+curl http://localhost:8000/api/v1/queue/history \
+  -H "Authorization: Bearer $TOKEN"
+
+# Promote specific signal
+curl -X POST http://localhost:8000/api/v1/queue/$SIGNAL_ID/promote \
+  -H "Authorization: Bearer $TOKEN"
+
+# Delete queued signal
+curl -X DELETE http://localhost:8000/api/v1/queue/$SIGNAL_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Force add signal (bypass pool limit)
+curl -X POST http://localhost:8000/api/v1/queue/$SIGNAL_ID/force-add \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Expected Result:**
+
+- ✅ Queue endpoint returns all queued signals with priorities
+- ✅ History shows promoted and cancelled signals
+- ✅ Promote creates position group (if space available)
+- ✅ Delete removes signal from queue
+- ✅ Force-add bypasses pool capacity limit
+- ✅ All operations update queue status correctly
+
+---
+
+### Test 9.8: DCA Configuration API
+
+**Objective:** Test DCA configuration CRUD operations
+
+```bash
+TOKEN="<your_jwt_token>"
+
+# Get all DCA configurations
+curl http://localhost:8000/api/v1/dca-configs/ \
+  -H "Authorization: Bearer $TOKEN"
+
+# Create new DCA configuration
+curl -X POST http://localhost:8000/api/v1/dca-configs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pair": "BNBUSDT",
+    "timeframe": 60,
+    "exchange": "binance",
+    "entry_order_type": "LIMIT",
+    "dca_levels": [
+      {"gap_percent": 0, "weight_percent": 50, "tp_percent": 2},
+      {"gap_percent": -2, "weight_percent": 30, "tp_percent": 3},
+      {"gap_percent": -4, "weight_percent": 20, "tp_percent": 4}
+    ],
+    "tp_mode": "PER_LEG",
+    "max_pyramids": 2
+  }'
+
+# Update existing configuration
+CONFIG_ID="<config_id>"
+curl -X PUT http://localhost:8000/api/v1/dca-configs/$CONFIG_ID \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "max_pyramids": 3,
+    "tp_mode": "HYBRID"
+  }'
+
+# Delete configuration
+curl -X DELETE http://localhost:8000/api/v1/dca-configs/$CONFIG_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Verify in database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pair, exchange, tp_mode, max_pyramids
+   FROM dca_configurations
+   ORDER BY created_at DESC LIMIT 5;"
+```
+
+**Expected Result:**
+
+- ✅ GET returns all user's DCA configurations
+- ✅ POST creates new configuration with validation
+- ✅ PUT updates specific fields
+- ✅ DELETE removes configuration
+- ✅ Validation prevents invalid configurations
+- ✅ Duplicate pair/exchange/timeframe rejected
+
+---
+
+### Test 9.9: Webhook Signature Validation
+
+**Objective:** Test HMAC signature validation for TradingView webhooks
+
+```bash
+USER_ID="f937c6cb-f9f9-4d25-be19-db9bf596d7e1"
+SECRET="ecd78c38d5ec54b4cd892735d0423671"
+
+# Valid webhook with correct signature
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id $USER_ID \
+  --secret $SECRET \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+
+# Invalid webhook with wrong secret (should fail)
+curl -X POST http://localhost:8000/api/v1/webhooks/$USER_ID/tradingview \
+  -H "Content-Type: application/json" \
+  -H "X-TradingView-Signature: invalid_signature" \
+  -d '{
+    "user_id": "'$USER_ID'",
+    "secret": "wrong_secret",
+    "tv": {
+      "exchange": "binance",
+      "symbol": "BTCUSDT",
+      "action": "buy"
+    }
+  }'
+```
+
+**Expected Result:**
+
+- ✅ Valid signature allows webhook processing
+- ✅ Invalid signature returns 401 Unauthorized
+- ✅ Missing signature header returns 401
+- ✅ Tampered payload rejected
+- ✅ Valid webhook creates position/queues signal
+
+---
+
+### Test 9.10: Rate Limiting
+
+**Objective:** Verify rate limits protect against abuse
+
+```bash
+# Test registration rate limit (5/min)
+for i in {1..6}; do
+  curl -X POST http://localhost:8000/api/v1/users/register \
+    -H "Content-Type: application/json" \
+    -d '{
+      "username": "test'$i'",
+      "email": "test'$i'@example.com",
+      "password": "Password123!"
+    }'
+  echo ""
+done
+
+# Test login rate limit (10/min)
+for i in {1..12}; do
+  curl -X POST http://localhost:8000/api/v1/users/login \
+    -H "Content-Type: application/json" \
+    -d '{
+      "username": "testuser",
+      "password": "wrong_password"
+    }'
+  echo ""
+done
+```
+
+**Expected Result:**
+
+- ✅ First 5 registration attempts succeed
+- ✅ 6th registration returns 429 Too Many Requests
+- ✅ First 10 login attempts processed
+- ✅ 11th+ login returns 429
+- ✅ Rate limits reset after 60 seconds
+- ✅ Response includes Retry-After header
+
+---
+
+## 🔥 TEST SUITE 10: BACKGROUND WORKERS & SERVICES (45 mins)
+
+### Overview
+
+Critical background services that run continuously must be tested to ensure they function correctly.
+
+**Prerequisites:**
+- Application running with background workers enabled
+- Active positions with open orders
+- Queued signals in database
+
+---
+
+### Test 10.1: Order Fill Monitor Service
+
+**Objective:** Verify order fill monitoring updates positions automatically
+
+```bash
+# Create position with limit orders
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price <USE_LIVE_PRICE_0.1%_BELOW> \
+  --order-size 0.001
+
+# Monitor order status updates
+watch -n 5 'docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT do.level, do.status, do.filled_quantity, do.avg_fill_price, do.filled_at
+   FROM dca_orders do
+   JOIN position_groups pg ON do.position_group_id = pg.id
+   WHERE pg.symbol = '\''BTCUSDT'\''
+   ORDER BY do.level;"'
+
+# Check application logs for monitoring activity
+docker compose logs -f app | grep "order_fill_monitor"
+```
+
+**Expected Result:**
+
+- ✅ Background worker starts on application startup
+- ✅ Orders checked every 5 seconds (configurable)
+- ✅ Order status updates from OPEN → FILLED automatically
+- ✅ filled_quantity and avg_fill_price populated
+- ✅ filled_at timestamp recorded
+- ✅ Position weighted_avg_entry recalculated
+- ✅ TP orders created after fills
+- ✅ Worker handles multiple users concurrently
+- ✅ Worker survives exchange API errors gracefully
+
+---
+
+### Test 10.2: Queue Promotion Service (Auto-Promotion)
+
+**Objective:** Verify automatic queue promotion when pool has space
+
+**Note:** This test assumes the background queue promotion service is implemented.
+
+```bash
+# Fill pool to capacity (10/10)
+# ... create 10 positions ...
+
+# Add signals to queue
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol LINKUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 14.0 \
+  --order-size 2.0
+
+# Verify signal queued
+docker compose exec app python3 scripts/list_queue.py
+
+# Close a position to free space
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE position_groups
+   SET status = 'closed', closed_at = NOW()
+   WHERE symbol = 'BTCUSDT' AND exchange = 'binance'
+   RETURNING symbol, status;"
+
+# Wait 15 seconds for promotion service to run (polls every 10s)
+sleep 15
+
+# Check if signal auto-promoted
+docker compose exec app python3 scripts/list_queue.py
+docker compose exec app python3 scripts/verify_exchange_positions.py
+
+# Check logs for promotion activity
+docker compose logs -f app | grep "queue_manager"
+```
+
+**Expected Result:**
+
+- ✅ Background worker starts on application startup
+- ✅ Checks queue every 10 seconds (configurable)
+- ✅ Detects when pool has available slots
+- ✅ Promotes highest priority signal automatically
+- ✅ Signal status changes from 'queued' to 'promoted'
+- ✅ Position created on exchange
+- ✅ promoted_at timestamp recorded
+- ✅ Handles multiple queued signals correctly
+- ✅ Respects priority rules during auto-promotion
+
+---
+
+### Test 10.3: Background Worker Restart Resilience
+
+**Objective:** Verify workers resume correctly after application restart
+
+```bash
+# Create active positions and queue signals
+# ... setup test data ...
+
+# Check workers are running
+docker compose logs app | grep -E "(order_fill_monitor|queue_manager)" | tail -20
+
+# Restart application
+docker compose restart app
+
+# Wait for startup
+sleep 10
+
+# Verify workers resumed
+docker compose logs app | grep -E "(order_fill_monitor|queue_manager)" | tail -20
+
+# Verify workers continue functioning
+docker compose exec app python3 scripts/monitor_all_tests.py
+```
+
+**Expected Result:**
+
+- ✅ Workers start automatically on application startup
+- ✅ No data loss during restart
+- ✅ Workers resume monitoring existing orders
+- ✅ Queue promotion continues after restart
+- ✅ No duplicate worker instances created
+- ✅ Logs show clean startup
+
+---
+
+## 🔥 TEST SUITE 11: SECURITY & MULTI-USER ISOLATION (30 mins)
+
+### Overview
+
+Test security features and ensure users cannot access each other's data.
+
+---
+
+### Test 11.1: Multi-User Data Isolation
+
+**Objective:** Ensure users can only access their own data
+
+```bash
+# Create two users
+USER1_TOKEN="<user1_jwt>"
+USER2_TOKEN="<user2_jwt>"
+
+# User 1 creates position
+curl -X POST http://localhost:8000/api/v1/webhooks/user1_id/tradingview \
+  -H "Content-Type: application/json" \
+  -d '{ ... }'
+
+# User 2 tries to access User 1's positions
+curl http://localhost:8000/api/v1/positions/active \
+  -H "Authorization: Bearer $USER2_TOKEN"
+
+# Verify database isolation
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT user_id, COUNT(*) as position_count
+   FROM position_groups
+   GROUP BY user_id;"
+```
+
+**Expected Result:**
+
+- ✅ User 2 cannot see User 1's positions
+- ✅ Each user sees only their own data
+- ✅ Attempting to access other user's resources returns 403
+- ✅ Database queries filtered by user_id
+- ✅ Queue signals isolated per user
+- ✅ DCA configs isolated per user
+
+---
+
+### Test 11.2: API Key Encryption
+
+**Objective:** Verify API keys are encrypted at rest
+
+```bash
+# Set API keys for user
+TOKEN="<jwt_token>"
+curl -X PUT http://localhost:8000/api/v1/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "binance_api_key": "my_secret_key_123",
+    "binance_api_secret": "my_secret_secret_456"
+  }'
+
+# Check database storage (should be encrypted)
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT username, encrypted_api_keys::text
+   FROM users
+   WHERE username = 'testuser';" | grep -i "my_secret"
+```
+
+**Expected Result:**
+
+- ✅ Plaintext API keys NOT visible in database
+- ✅ encrypted_api_keys field contains encrypted data
+- ✅ Keys retrievable and decrypted correctly via API
+- ✅ Encryption uses AES with secret key from environment
+- ✅ Cannot decrypt without ENCRYPTION_KEY
+
+---
+
+### Test 11.3: JWT Token Expiration
+
+**Objective:** Verify expired tokens are rejected
+
+```bash
+# Login and get token
+TOKEN="<jwt_token>"
+
+# Use token immediately (should work)
+curl http://localhost:8000/api/v1/positions/active \
+  -H "Authorization: Bearer $TOKEN"
+
+# Wait for token expiration (if configured)
+# Or manually create expired token for testing
+
+# Try to use expired token
+curl http://localhost:8000/api/v1/positions/active \
+  -H "Authorization: Bearer <expired_token>"
+```
+
+**Expected Result:**
+
+- ✅ Fresh tokens accepted
+- ✅ Expired tokens return 401 Unauthorized
+- ✅ Error message indicates token expired
+- ✅ User must re-authenticate to get new token
+
+---
+
+## 🔥 TEST SUITE 12: ERROR HANDLING & EDGE CASES (45 mins)
+
+### Overview
+
+Test system behavior under error conditions and edge cases.
+
+---
+
+### Test 12.1: Exchange API Failures
+
+**Objective:** Verify graceful handling of exchange errors
+
+```bash
+# Test with invalid API keys (should fail gracefully)
+# ... temporarily set invalid keys ...
+
+# Try to create position
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+
+# Check error handling
+docker compose logs app | tail -50
+```
+
+**Expected Result:**
+
+- ✅ Position group created in database
+- ✅ Order submission retries with exponential backoff
+- ✅ After max retries, position marked as 'failed'
+- ✅ Error logged with details
+- ✅ User notified (if notification system exists)
+- ✅ System continues functioning for other operations
+- ✅ No crashes or unhandled exceptions
+
+---
+
+### Test 12.2: Insufficient Balance
+
+**Objective:** Handle insufficient balance errors
+
+```bash
+# Create position with order size larger than balance
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 1000.0  # Unrealistically large
+
+# Check error handling
+docker compose logs app | grep -i "insufficient\|balance"
+```
+
+**Expected Result:**
+
+- ✅ Exchange returns insufficient balance error
+- ✅ Error caught and handled gracefully
+- ✅ Position status updated to 'failed'
+- ✅ Error message stored/logged
+- ✅ No crash or data corruption
+
+---
+
+### Test 12.3: Invalid DCA Configuration
+
+**Objective:** Validate DCA configuration before processing
+
+```bash
+TOKEN="<jwt_token>"
+
+# Try to create invalid configuration (negative values)
+curl -X POST http://localhost:8000/api/v1/dca-configs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pair": "BTCUSDT",
+    "exchange": "binance",
+    "dca_levels": [
+      {"gap_percent": 0, "weight_percent": -50, "tp_percent": 2}
+    ]
+  }'
+
+# Try duplicate configuration
+curl -X POST http://localhost:8000/api/v1/dca-configs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pair": "BTCUSDT",
+    "exchange": "binance",
+    "timeframe": 60,
+    "dca_levels": [...]
+  }'
+```
+
+**Expected Result:**
+
+- ✅ Validation errors return 422 Unprocessable Entity
+- ✅ Error messages clearly explain validation failures
+- ✅ Negative values rejected
+- ✅ Duplicate pair/exchange/timeframe rejected
+- ✅ Missing required fields rejected
+- ✅ Invalid enum values rejected (e.g., invalid tp_mode)
+
+---
+
+### Test 12.4: Database Connection Loss
+
+**Objective:** Handle database disconnections gracefully
+
+```bash
+# Create position
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+
+# Stop database temporarily
+docker compose stop db
+
+# Try to create another position (should fail gracefully)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 3200.0 \
+  --order-size 0.01
+
+# Restart database
+docker compose start db
+
+# Verify system recovers
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Operations during db downtime return 503 Service Unavailable
+- ✅ Application doesn't crash
+- ✅ Connection pool handles reconnection
+- ✅ System resumes normal operation after db recovery
+- ✅ No data corruption
+
+---
+
+### Test 12.5: Different TP Modes Validation
+
+**Objective:** Thoroughly test all TP modes (per_leg, aggregate, hybrid)
+
+```bash
+# Create position with PER_LEG TP mode
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol XRPUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.03 \
+  --order-size 10
+
+# Wait for fills, check TP orders created
+sleep 60
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pg.symbol, pg.tp_mode, tpo.tp_percent, tpo.quantity, tpo.tp_price
+   FROM take_profit_orders tpo
+   JOIN position_groups pg ON tpo.position_group_id = pg.id
+   WHERE pg.symbol = 'XRPUSDT'
+   ORDER BY tpo.tp_percent;"
+
+# Repeat for AGGREGATE mode (use ETHUSDT)
+# Repeat for HYBRID mode (use BNBUSDT if configured)
+
+# Verify TP calculation differences
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ **PER_LEG**: Each DCA leg has independent TP order
+- ✅ **AGGREGATE**: Single TP at weighted average entry + target%
+- ✅ **HYBRID**: Mix of per-leg and aggregate TPs
+- ✅ TP quantities calculated correctly for each mode
+- ✅ TP prices calculated correctly based on mode
+- ✅ Exchange shows correct TP orders
+
+---
+
+## 📊 UPDATED TEST RESULTS TEMPLATE
+
+Update the test results template to include new test suites:
+
+```markdown
+### TEST SUITE 9: API Endpoints & Authentication
+- [ ] Test 9.1: Health Check Endpoints - ✅ PASS / ❌ FAIL
+- [ ] Test 9.2: User Registration & Login - ✅ PASS / ❌ FAIL
+- [ ] Test 9.3: Settings Management - API Keys - ✅ PASS / ❌ FAIL
+- [ ] Test 9.4: Dashboard API Endpoints - ✅ PASS / ❌ FAIL
+- [ ] Test 9.5: Position Management API - ✅ PASS / ❌ FAIL
+- [ ] Test 9.6: Risk Management API - ✅ PASS / ❌ FAIL
+- [ ] Test 9.7: Queue Management API - ✅ PASS / ❌ FAIL
+- [ ] Test 9.8: DCA Configuration API - ✅ PASS / ❌ FAIL
+- [ ] Test 9.9: Webhook Signature Validation - ✅ PASS / ❌ FAIL
+- [ ] Test 9.10: Rate Limiting - ✅ PASS / ❌ FAIL
+
+### TEST SUITE 10: Background Workers & Services
+- [ ] Test 10.1: Order Fill Monitor Service - ✅ PASS / ❌ FAIL
+- [ ] Test 10.2: Queue Promotion Service - ✅ PASS / ❌ FAIL
+- [ ] Test 10.3: Background Worker Restart Resilience - ✅ PASS / ❌ FAIL
+
+### TEST SUITE 11: Security & Multi-User Isolation
+- [ ] Test 11.1: Multi-User Data Isolation - ✅ PASS / ❌ FAIL
+- [ ] Test 11.2: API Key Encryption - ✅ PASS / ❌ FAIL
+- [ ] Test 11.3: JWT Token Expiration - ✅ PASS / ❌ FAIL
+
+### TEST SUITE 12: Error Handling & Edge Cases
+- [ ] Test 12.1: Exchange API Failures - ✅ PASS / ❌ FAIL
+- [ ] Test 12.2: Insufficient Balance - ✅ PASS / ❌ FAIL
+- [ ] Test 12.3: Invalid DCA Configuration - ✅ PASS / ❌ FAIL
+- [ ] Test 12.4: Database Connection Loss - ✅ PASS / ❌ FAIL
+- [ ] Test 12.5: Different TP Modes Validation - ✅ PASS / ❌ FAIL
+```
+
+---
+
+## 🎯 UPDATED SUCCESS CRITERIA
+
+**Additional Success Criteria:**
+
+**API & Authentication:**
+- ✅ All API endpoints return correct status codes
+- ✅ Authentication and authorization work correctly
+- ✅ JWT tokens validated properly
+- ✅ API keys encrypted at rest
+- ✅ Rate limiting protects against abuse
+- ✅ HMAC signature validation prevents unauthorized webhooks
+
+**Background Services:**
+- ✅ Order fill monitor updates order status automatically
+- ✅ Queue promotion service promotes signals when space available
+- ✅ Workers survive application restarts
+- ✅ Workers handle errors gracefully without crashing
+
+**Security:**
+- ✅ Multi-user data isolation enforced
+- ✅ Users cannot access other users' data
+- ✅ Sensitive data encrypted in database
+- ✅ Invalid/expired tokens rejected
+
+**Error Handling:**
+- ✅ Exchange API failures handled gracefully
+- ✅ Insufficient balance errors caught and logged
+- ✅ Invalid configurations rejected with clear errors
+- ✅ Database connection issues don't crash application
+- ✅ All TP modes (per_leg, aggregate, hybrid) work correctly
+
+**Coverage:**
+- ✅ **95%+ of application components tested**
+- ✅ All critical paths covered
+- ✅ Edge cases and error scenarios tested
 
 ---
 
 ## 📝 NOTES
 
-- Use only the 5 allowed scripts for all testing
+### General Testing Notes
+- Use the 8 available testing scripts (5 core + 3 queue scripts)
 - All webhook simulations use the provided user credentials
 - Check both Bybit and Binance testnets
 - Verify exchange state matches GUI and database
 - Test with realistic market prices (check current prices first)
+
+### Queue Priority Testing Notes
+- **20 DCA configurations required** for comprehensive queue testing
+- Pool must be at 10/10 capacity to test queuing behavior
+- Priority scores range from 1,000 to 10,000,000+ based on tier
+- Manual promotion currently required (no automatic background processor)
+- See **QUEUE_PRIORITY_TEST_RESULTS.md** for detailed test results
+- Use `monitor_all_tests.py` for comprehensive system visibility
+
+### Available Documentation
+- `COMPREHENSIVE_TEST_PLAN.md` - This file (100% practical test procedures)
+- `QUEUE_PRIORITY_TEST_RESULTS.md` - Detailed queue priority test results
+- `TESTING_SUMMARY.md` - Executive summary of completed testing
 
 ---
 
