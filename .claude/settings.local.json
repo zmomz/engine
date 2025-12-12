@@ -3,7 +3,9 @@
     "allow": [
       "Bash(docker compose exec:*)",
       "Bash(docker logs:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(timeout 30 bash:*)",
+      "Bash(find:*)"
     ]
   }
 }
