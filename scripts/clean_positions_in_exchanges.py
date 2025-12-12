@@ -97,13 +97,41 @@ def cancel_binance_orders():
 # BYBIT FUNCTIONS
 # ========================================
 
-def sign_bybit_request(params: dict, timestamp: str):
-    param_str = timestamp + BYBIT_API_KEY + "5000" + urllib.parse.urlencode(sorted(params.items()))
+def sign_bybit_request(params: dict, timestamp: str, recv_window: str):
+    """
+    Generate signature for Bybit API v5
+    For GET requests: timestamp + api_key + recv_window + queryString
+    For POST requests: timestamp + api_key + recv_window + jsonBody
+    """
+    # Sort parameters for GET requests
+    if params:
+        param_str = urllib.parse.urlencode(sorted(params.items()))
+    else:
+        param_str = ""
+    
+    # Construct the signature payload
+    signature_payload = timestamp + BYBIT_API_KEY + recv_window + param_str
+    
     signature = hmac.new(
         BYBIT_API_SECRET.encode('utf-8'),
-        param_str.encode('utf-8'),
+        signature_payload.encode('utf-8'),
         hashlib.sha256
     ).hexdigest()
+    
+    return signature
+
+def sign_bybit_request_post(json_body: str, timestamp: str, recv_window: str):
+    """
+    Generate signature for Bybit API v5 POST requests
+    """
+    signature_payload = timestamp + BYBIT_API_KEY + recv_window + json_body
+    
+    signature = hmac.new(
+        BYBIT_API_SECRET.encode('utf-8'),
+        signature_payload.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
     return signature
 
 def bybit_request(method, endpoint, params=None):
@@ -111,23 +139,38 @@ def bybit_request(method, endpoint, params=None):
         params = {}
     
     timestamp = str(int(time.time() * 1000))
-    signature = sign_bybit_request(params, timestamp)
-    
-    headers = {
-        "X-BAPI-API-KEY": BYBIT_API_KEY,
-        "X-BAPI-SIGN": signature,
-        "X-BAPI-SIGN-TYPE": "2",
-        "X-BAPI-TIMESTAMP": timestamp,
-        "X-BAPI-RECV-WINDOW": "5000",
-        "Content-Type": "application/json"
-    }
-    
-    url = BYBIT_BASE_URL + endpoint
+    recv_window = "5000"
     
     if method == "GET":
+        signature = sign_bybit_request(params, timestamp, recv_window)
+        
+        headers = {
+            "X-BAPI-API-KEY": BYBIT_API_KEY,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-SIGN-TYPE": "2",
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window,
+        }
+        
+        url = BYBIT_BASE_URL + endpoint
         r = requests.get(url, headers=headers, params=params)
+        
     elif method == "POST":
-        r = requests.post(url, headers=headers, json=params)
+        json_body = json.dumps(params)
+        signature = sign_bybit_request_post(json_body, timestamp, recv_window)
+        
+        headers = {
+            "X-BAPI-API-KEY": BYBIT_API_KEY,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-SIGN-TYPE": "2",
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window,
+            "Content-Type": "application/json"
+        }
+        
+        url = BYBIT_BASE_URL + endpoint
+        r = requests.post(url, headers=headers, data=json_body)
+        
     else:
         raise ValueError("Unsupported HTTP method")
     
@@ -135,7 +178,11 @@ def bybit_request(method, endpoint, params=None):
         print(f"Bybit Error: {r.status_code} - {r.text}")
         return None
     
-    return r.json()
+    try:
+        return r.json()
+    except:
+        print(f"Failed to parse response: {r.text}")
+        return None
 
 def cancel_bybit_orders():
     print("=" * 50)

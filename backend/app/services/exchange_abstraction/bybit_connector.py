@@ -40,7 +40,7 @@ class BybitConnector(ExchangeInterface):
             'timeout': 60000,  # 60 seconds timeout
             'enableRateLimit': True,
             'asyncio_loop': None,  # Let ccxt manage its own event loop
-            'verbose': False, # Disable verbose output to reduce log noise
+            'verbose': True, # Enable verbose output for debugging
         })
 
         self.testnet_mode = testnet
