@@ -1,560 +1,3 @@
-already set configuration:
-{
-  "exchange": "binance",
-  "risk_config": {
-    "max_open_positions_global": 10,
-    "max_open_positions_per_symbol": 1,
-    "max_total_exposure_usd": "999",
-    "max_daily_loss_usd": "500",
-    "risk_per_position_percent": "10.0",
-    "risk_per_position_cap_usd": null,
-    "loss_threshold_percent": "-1.5",
-    "timer_start_condition": "after_all_dca_filled",
-    "post_full_wait_minutes": 15,
-    "max_winners_to_combine": 3,
-    "use_trade_age_filter": false,
-    "age_threshold_minutes": 120,
-    "require_full_pyramids": true,
-    "reset_timer_on_replacement": false,
-    "partial_close_enabled": true,
-    "min_close_notional": "10",
-    "priority_rules": {
-      "priority_rules_enabled": {
-        "same_pair_timeframe": true,
-        "deepest_loss_percent": true,
-        "highest_replacement": true,
-        "fifo_fallback": true
-      },
-      "priority_order": [
-        "same_pair_timeframe",
-        "deepest_loss_percent",
-        "highest_replacement",
-        "fifo_fallback"
-      ]
-    }
-  },
-  "dca_configurations": [
-    {
-      "pair": "BTC/USDT",
-      "timeframe": 60,
-      "exchange": "binance",
-      "entry_order_type": "limit",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "25",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-1",
-          "weight_percent": "25",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-2",
-          "weight_percent": "25",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-3",
-          "weight_percent": "25",
-          "tp_percent": "1"
-        }
-      ],
-      "pyramid_specific_levels": {
-        "1": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "50",
-            "tp_percent": "1.5"
-          },
-          {
-            "gap_percent": "-1",
-            "weight_percent": "50",
-            "tp_percent": "1.5"
-          }
-        ],
-        "2": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "100",
-            "tp_percent": "2"
-          }
-        ]
-      },
-      "tp_mode": "per_leg",
-      "tp_settings": {
-        "tp_aggregate_percent": 0
-      },
-      "max_pyramids": 2
-    },
-    {
-      "pair": "ETH/USDT",
-      "timeframe": 60,
-      "exchange": "binance",
-      "entry_order_type": "market",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "33",
-          "tp_percent": "0.5"
-        },
-        {
-          "gap_percent": "-0.5",
-          "weight_percent": "33",
-          "tp_percent": "0.5"
-        },
-        {
-          "gap_percent": "-1",
-          "weight_percent": "34",
-          "tp_percent": "0.5"
-        }
-      ],
-      "pyramid_specific_levels": {},
-      "tp_mode": "aggregate",
-      "tp_settings": {
-        "tp_aggregate_percent": 5
-      },
-      "max_pyramids": 3
-    },
-    {
-      "pair": "SOL/USDT",
-      "timeframe": 60,
-      "exchange": "bybit",
-      "entry_order_type": "limit",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "20",
-          "tp_percent": "2"
-        },
-        {
-          "gap_percent": "-1",
-          "weight_percent": "20",
-          "tp_percent": "2"
-        },
-        {
-          "gap_percent": "-2",
-          "weight_percent": "20",
-          "tp_percent": "2"
-        },
-        {
-          "gap_percent": "-3",
-          "weight_percent": "20",
-          "tp_percent": "2"
-        },
-        {
-          "gap_percent": "-4",
-          "weight_percent": "20",
-          "tp_percent": "2"
-        }
-      ],
-      "pyramid_specific_levels": {
-        "1": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "25",
-            "tp_percent": "1"
-          },
-          {
-            "gap_percent": "-1",
-            "weight_percent": "25",
-            "tp_percent": "1"
-          },
-          {
-            "gap_percent": "-2",
-            "weight_percent": "25",
-            "tp_percent": "1"
-          },
-          {
-            "gap_percent": "-3",
-            "weight_percent": "25",
-            "tp_percent": "1"
-          }
-        ]
-      },
-      "tp_mode": "aggregate",
-      "tp_settings": {
-        "tp_aggregate_percent": 3
-      },
-      "max_pyramids": 1
-    },
-    {
-      "pair": "XRP/USDT",
-      "timeframe": 60,
-      "exchange": "binance",
-      "entry_order_type": "market",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "50",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-2",
-          "weight_percent": "50",
-          "tp_percent": "1"
-        }
-      ],
-      "pyramid_specific_levels": {},
-      "tp_mode": "hybrid",
-      "tp_settings": {
-        "tp_aggregate_percent": 2
-      },
-      "max_pyramids": 5
-    },
-    {
-      "pair": "DOGE/USDT",
-      "timeframe": 60,
-      "exchange": "bybit",
-      "entry_order_type": "limit",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "10",
-          "tp_percent": "3"
-        },
-        {
-          "gap_percent": "-0.5",
-          "weight_percent": "15",
-          "tp_percent": "3"
-        },
-        {
-          "gap_percent": "-1",
-          "weight_percent": "20",
-          "tp_percent": "3"
-        },
-        {
-          "gap_percent": "-1.5",
-          "weight_percent": "25",
-          "tp_percent": "3"
-        },
-        {
-          "gap_percent": "-2",
-          "weight_percent": "30",
-          "tp_percent": "3"
-        }
-      ],
-      "pyramid_specific_levels": {
-        "1": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "30",
-            "tp_percent": "2.5"
-          },
-          {
-            "gap_percent": "-1",
-            "weight_percent": "70",
-            "tp_percent": "2.5"
-          }
-        ],
-        "2": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "40",
-            "tp_percent": "2"
-          },
-          {
-            "gap_percent": "-0.5",
-            "weight_percent": "60",
-            "tp_percent": "2"
-          }
-        ],
-        "3": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "100",
-            "tp_percent": "1.5"
-          }
-        ]
-      },
-      "tp_mode": "per_leg",
-      "tp_settings": {
-        "tp_aggregate_percent": 0
-      },
-      "max_pyramids": 3
-    },
-    {
-      "pair": "ADA/USDT",
-      "timeframe": 60,
-      "exchange": "binance",
-      "entry_order_type": "market",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "100",
-          "tp_percent": "0.5"
-        }
-      ],
-      "pyramid_specific_levels": {},
-      "tp_mode": "aggregate",
-      "tp_settings": {
-        "tp_aggregate_percent": 10
-      },
-      "max_pyramids": 1
-    },
-    {
-      "pair": "DOT/USDT",
-      "timeframe": 60,
-      "exchange": "bybit",
-      "entry_order_type": "limit",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "15",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-0.3",
-          "weight_percent": "15",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-0.6",
-          "weight_percent": "20",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-1",
-          "weight_percent": "20",
-          "tp_percent": "1"
-        },
-        {
-          "gap_percent": "-1.5",
-          "weight_percent": "30",
-          "tp_percent": "1"
-        }
-      ],
-      "pyramid_specific_levels": {
-        "1": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "35",
-            "tp_percent": "0.8"
-          },
-          {
-            "gap_percent": "-0.5",
-            "weight_percent": "35",
-            "tp_percent": "0.8"
-          },
-          {
-            "gap_percent": "-1",
-            "weight_percent": "30",
-            "tp_percent": "0.8"
-          }
-        ],
-        "2": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "50",
-            "tp_percent": "0.6"
-          },
-          {
-            "gap_percent": "-1.5",
-            "weight_percent": "50",
-            "tp_percent": "0.6"
-          }
-        ]
-      },
-      "tp_mode": "hybrid",
-      "tp_settings": {
-        "tp_aggregate_percent": 3
-      },
-      "max_pyramids": 2
-    },
-    {
-      "pair": "TRX/USDT",
-      "timeframe": 60,
-      "exchange": "binance",
-      "entry_order_type": "market",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "16.67",
-          "tp_percent": "1.5"
-        },
-        {
-          "gap_percent": "-0.5",
-          "weight_percent": "16.67",
-          "tp_percent": "1.5"
-        },
-        {
-          "gap_percent": "-1",
-          "weight_percent": "16.66",
-          "tp_percent": "1.5"
-        },
-        {
-          "gap_percent": "-1.5",
-          "weight_percent": "16.67",
-          "tp_percent": "1.5"
-        },
-        {
-          "gap_percent": "-2",
-          "weight_percent": "16.67",
-          "tp_percent": "1.5"
-        },
-        {
-          "gap_percent": "-2.5",
-          "weight_percent": "16.66",
-          "tp_percent": "1.5"
-        }
-      ],
-      "pyramid_specific_levels": {},
-      "tp_mode": "aggregate",
-      "tp_settings": {
-        "tp_aggregate_percent": 4
-      },
-      "max_pyramids": 4
-    },
-    {
-      "pair": "MATIC/USDT",
-      "timeframe": 60,
-      "exchange": "bybit",
-      "entry_order_type": "limit",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "40",
-          "tp_percent": "0.8"
-        },
-        {
-          "gap_percent": "-1.5",
-          "weight_percent": "60",
-          "tp_percent": "0.8"
-        }
-      ],
-      "pyramid_specific_levels": {
-        "1": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "100",
-            "tp_percent": "1.2"
-          }
-        ]
-      },
-      "tp_mode": "per_leg",
-      "tp_settings": {
-        "tp_aggregate_percent": 0
-      },
-      "max_pyramids": 1
-    },
-    {
-      "pair": "LINK/USDT",
-      "timeframe": 60,
-      "exchange": "binance",
-      "entry_order_type": "market",
-      "dca_levels": [
-        {
-          "gap_percent": "0",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-0.4",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-0.8",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-1.2",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-1.6",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-2",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-2.5",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        },
-        {
-          "gap_percent": "-3",
-          "weight_percent": "12.5",
-          "tp_percent": "2.5"
-        }
-      ],
-      "pyramid_specific_levels": {
-        "1": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "20",
-            "tp_percent": "2"
-          },
-          {
-            "gap_percent": "-0.5",
-            "weight_percent": "20",
-            "tp_percent": "2"
-          },
-          {
-            "gap_percent": "-1",
-            "weight_percent": "20",
-            "tp_percent": "2"
-          },
-          {
-            "gap_percent": "-1.5",
-            "weight_percent": "20",
-            "tp_percent": "2"
-          },
-          {
-            "gap_percent": "-2",
-            "weight_percent": "20",
-            "tp_percent": "2"
-          }
-        ],
-        "2": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "33.33",
-            "tp_percent": "1.5"
-          },
-          {
-            "gap_percent": "-1",
-            "weight_percent": "33.33",
-            "tp_percent": "1.5"
-          },
-          {
-            "gap_percent": "-2",
-            "weight_percent": "33.34",
-            "tp_percent": "1.5"
-          }
-        ],
-        "3": [
-          {
-            "gap_percent": "0",
-            "weight_percent": "50",
-            "tp_percent": "1"
-          },
-          {
-            "gap_percent": "-1.5",
-            "weight_percent": "50",
-            "tp_percent": "1"
-          }
-        ]
-      },
-      "tp_mode": "aggregate",
-      "tp_settings": {
-        "tp_aggregate_percent": 7
-      },
-      "max_pyramids": 3
-    }
-  ]
-}
-
-
-
----------
 # 🧪 COMPREHENSIVE PRACTICAL TEST PLAN
 ## Trading Execution Engine - Full System Validation
 
@@ -564,8 +7,19 @@ already set configuration:
 **Prerequisites:** Clean database, funded testnet accounts
 
 **User Credentials:**
-- USER_ID: `7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95`
-- WEBHOOK_SECRET: `2884078ee5be6cf08ef525b7ea798e78`
+- USER_ID: `f937c6cb-f9f9-4d25-be19-db9bf596d7e1`
+- WEBHOOK_SECRET: `ecd78c38d5ec54b4cd892735d0423671`
+
+**Configured DCA Pairs (ONLY use these pairs in tests):**
+- **Binance:** BTC/USDT, ETH/USDT, XRP/USDT, ADA/USDT, TRX/USDT, LINK/USDT
+- **Bybit:** SOL/USDT, DOGE/USDT, DOT/USDT, MATIC/USDT
+
+**Current Market Prices (December 12, 2025):**
+- BTC: ~$92,454 | ETH: ~$3,232 | SOL: ~$136.82
+- XRP: ~$2.03 | DOGE: ~$0.14 | ADA: ~$0.42
+- DOT: ~$2.11 | TRX: ~$0.28 | MATIC: ~$0.21 | LINK: ~$14.09
+
+Note: All test commands below use only these configured pairs. Using unconfigured pairs will result in errors.
 
 ---
 
@@ -575,7 +29,7 @@ already set configuration:
 
 ```bash
 # 1. Clean positions from database
-docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
 
 # 2. Clean positions from exchanges (Binance & Bybit)
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
@@ -586,17 +40,17 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 # 4. Check queue (list queued signals)
 docker compose exec app python3 scripts/list_queue.py
 
-# 5. Simulate webhook (buy order)
+# 5. Simulate webhook (buy order) - Use only configured pairs from DCA configurations
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange binance \
-  --symbol BTCUSDT \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol SOLUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 96000.0 \
-  --order-size 0.001
+  --entry-price 136.82 \
+  --order-size 0.1
 ```
 
 ---
@@ -614,7 +68,7 @@ docker compose up -d
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
 
 # Clean database positions
-docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
 
 # Verify starting state - check exchanges and queue
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -650,17 +104,17 @@ docker compose exec app python3 scripts/list_queue.py
 ### Test 1.1: First Entry Signal - Single Position Creation
 
 ```bash
-# Send entry signal for BTCUSDT on Binance (get current price first from exchange)
+# Send entry signal for SOLUSDT on Bybit (configured with 5 DCA levels, max_pyramids=1)
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange binance \
-  --symbol BTCUSDT \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol SOLUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 96000.0 \
-  --order-size 0.001
+  --entry-price 136.82 \
+  --order-size 0.1
 
 # Verify orders on exchange
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -680,7 +134,7 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 - Position group ID created
 - Pyramid count = 1
-- DCA orders count = number configured (e.g., 5 legs)
+- DCA orders count = 5 legs (as configured for SOL/USDT)
 - Exchange has open limit orders
 
 ---
@@ -688,16 +142,29 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 ### Test 1.2: Pyramid Signal - Add to Existing Group
 
 ```bash
-# Send another entry for same pair/timeframe (should pyramid)
+# Send another entry for BTCUSDT on Binance (configured with 4 DCA levels, max_pyramids=2)
+# This will test pyramid functionality
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange binance \
   --symbol BTCUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 95500.0 \
+  --entry-price 92454.0 \
+  --order-size 0.001
+
+# Send second pyramid entry
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 91529.0 \
   --order-size 0.001
 
 # Verify
@@ -708,52 +175,25 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 - ✅ Same position group (not new one)
 - ✅ Pyramid count = 2
-- ✅ New set of DCA orders submitted
-- ✅ Total DCA orders = 2 × DCA legs configured
+- ✅ First pyramid uses pyramid_specific_levels[1] with 2 DCA legs
+- ✅ Second pyramid uses pyramid_specific_levels[2] with 1 DCA leg
 - ✅ GUI shows pyramid count increased
 
 ---
 
-### Test 1.3: Different Exchange - New Group
+### Test 1.3: Different Pair - New Group
 
 ```bash
-# Send entry for a different pair/exchange (SOLUSDT on Bybit)
+# Send entry for ETHUSDT on Binance (configured with 3 DCA levels, market orders, max_pyramids=3)
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange bybit \
-  --symbol SOLUSDT \
-  --timeframe 60 \
-  --side long \
-  --action buy \
-  --entry-price 133.0 \
-  --order-size 0.1
-
-# Verify
-docker compose exec app python3 scripts/verify_exchange_positions.py
-```
-
-**Expected Result:**
-
-- ✅ NEW position group created (different exchange)
-- ✅ Total active groups = 2
-- ✅ Dashboard shows 2 active positions
-
----
-
-### Test 1.4: Different Pair - New Group
-
-```bash
-# Send entry for different pair (Ethereum on Binance)
-docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange binance \
   --symbol ETHUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 3600.0 \
+  --entry-price 3232.0 \
   --order-size 0.01
 
 # Verify
@@ -762,9 +202,36 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 **Expected Result:**
 
-- ✅ Total active groups = 3
+- ✅ NEW position group created (different pair)
+- ✅ Total active groups = 3 (SOLUSDT on Bybit, BTCUSDT on Binance, ETHUSDT on Binance)
 - ✅ Dashboard shows 3 active positions
-- ✅ Positions page shows all 3 groups
+
+---
+
+### Test 1.4: Different Pair - New Group
+
+```bash
+# Send entry for XRPUSDT on Binance (configured with 2 DCA levels, hybrid TP mode, max_pyramids=5)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol XRPUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.03 \
+  --order-size 10
+
+# Verify
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Total active groups = 4
+- ✅ Dashboard shows 4 active positions
+- ✅ Positions page shows all 4 groups
 
 ---
 
@@ -773,31 +240,79 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 ### Test 2.1: Fill Pool to Capacity
 
 ```bash
-# We already have 3 positions. Add 2 more to reach limit of 5 (adjust based on your pool size).
+# We already have 4 positions. Add 6 more to reach limit of 10 (max_open_positions_global=10).
 
-# Position 4 - XRP (on Binance)
+# Position 5 - DOGEUSDT on Bybit (5 DCA levels, limit orders, max_pyramids=3)
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange binance \
-  --symbol XRPUSDT \
-  --timeframe 60 \
-  --side long \
-  --action buy \
-  --entry-price 2.5234 \
-  --order-size 10
-
-# Position 5 - DOGE (on Bybit)
-docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange bybit \
   --symbol DOGEUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 0.38456 \
+  --entry-price 0.14 \
   --order-size 100
+
+# Position 6 - ADAUSDT on Binance (1 DCA level, market orders, max_pyramids=1)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ADAUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.42 \
+  --order-size 50
+
+# Position 7 - DOTUSDT on Bybit (5 DCA levels, limit orders, max_pyramids=2)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol DOTUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.11 \
+  --order-size 10
+
+# Position 8 - TRXUSDT on Binance (6 DCA levels, market orders, max_pyramids=4)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol TRXUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.28 \
+  --order-size 100
+
+# Position 9 - MATICUSDT on Bybit (2 DCA levels, limit orders, max_pyramids=1)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol MATICUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.21 \
+  --order-size 100
+
+# Position 10 - LINKUSDT on Binance (8 DCA levels, market orders, max_pyramids=3)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol LINKUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 14.09 \
+  --order-size 2
 
 # Verify pool is full
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -805,25 +320,26 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 **Expected Result:**
 
-- ✅ Active positions = 5 (pool full)
-- ✅ Dashboard shows pool usage: 5/5
+- ✅ Active positions = 10 (pool full)
+- ✅ Dashboard shows pool usage: 10/10
 
 ---
 
 ### Test 2.2: Queue Entry When Pool Full
 
 ```bash
-# Try to add 6th position (should queue)
+# Try to add 11th position (should queue) - Use a pair NOT yet in the system
+# Note: We'll use DOGEUSDT on Bybit again to test queue replacement later
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange binance \
-  --symbol ADAUSDT \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol DOGEUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 1.1 \
-  --order-size 20
+  --entry-price 0.14 \
+  --order-size 100
 
 # Verify queued
 docker compose exec app python3 scripts/list_queue.py
@@ -832,27 +348,28 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 **Expected Result:**
 
-- ✅ Signal added to queue (not executed)
-- ✅ Queue page shows 1 queued signal
-- ✅ Active positions still = 5
-- ✅ No orders on exchange for ADAUSDT
+- ✅ Signal added to queue (not executed) OR pyramids onto existing DOGEUSDT position
+- ✅ Queue page shows queued signal (if queued)
+- ✅ Active positions still = 10
+- ✅ Verify behavior based on whether pyramiding happens or signal is queued
 
 ---
 
-### Test 2.3: Queue Another Signal (Same Pair as Queued)
+### Test 2.3: Queue Another Signal (Test Queue Replacement)
 
 ```bash
-# Send another signal for ADAUSDT (should replace in queue)
+# Send another signal for a new pair to test queue behavior
+# Use DOTUSDT on Bybit (already has a position, test if it pyramids or queues)
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange binance \
-  --symbol ADAUSDT \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol DOTUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 1.15 \
-  --order-size 20
+  --entry-price 2.09 \
+  --order-size 10
 
 # Verify
 docker compose exec app python3 scripts/list_queue.py
@@ -860,9 +377,9 @@ docker compose exec app python3 scripts/list_queue.py
 
 **Expected Result:**
 
-- ✅ Queue still has 1 entry (not 2)
-- ✅ Replacement count increased
-- ✅ Latest price/data updated
+- ✅ If DOTUSDT can pyramid (max_pyramids=2), it creates a second pyramid
+- ✅ Otherwise, signal is queued or replaced in queue
+- ✅ Queue behavior validated
 
 ---
 
@@ -871,9 +388,9 @@ docker compose exec app python3 scripts/list_queue.py
 ```bash
 # Manually close all positions to test queue promotion
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
-docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
 
-# Verify ADAUSDT was promoted from queue
+# Verify queued signals were promoted
 docker compose exec app python3 scripts/list_queue.py
 docker compose exec app python3 scripts/verify_exchange_positions.py
 ```
@@ -881,8 +398,8 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 **Expected Result:**
 
 - ✅ After cleaning: pool freed
-- ✅ ADAUSDT may be promoted automatically if queue promotion logic runs
-- ✅ Verify via GUI Queue page
+- ✅ Queued signals may be promoted automatically if queue promotion logic runs
+- ✅ Verify via GUI Queue page and Positions page
 
 ---
 
@@ -898,16 +415,17 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 docker compose exec app python3 scripts/verify_exchange_positions.py
 
 # Place order with price 0.1% below current market (to get filled quickly)
+# Using ETHUSDT with market orders for faster fills
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange binance \
-  --symbol BTCUSDT \
+  --symbol ETHUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 95800.0 \
-  --order-size 0.001
+  --entry-price 3232.0 \
+  --order-size 0.01
 
 # Wait a few minutes, then verify fills
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -951,15 +469,16 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 ```bash
 # Send signal for valid pair with precise decimal values
+# XRPUSDT on Binance (configured with 2 DCA levels, market orders)
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange binance \
   --symbol XRPUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 2.5234 \
+  --entry-price 2.03 \
   --order-size 10
 
 # Verify orders on exchange
@@ -980,17 +499,29 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 
 ```bash
 # Test different assets with different precision requirements
-# DOGEUSDT (typically 5 decimals for price)
+# DOGEUSDT on Bybit (configured with 5 DCA levels, limit orders)
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange bybit \
   --symbol DOGEUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 0.38456 \
+  --entry-price 0.14 \
   --order-size 100
+
+# Test LINKUSDT on Binance (8 DCA levels, market orders)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol LINKUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 14.09 \
+  --order-size 2
 
 # Verify
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -1143,7 +674,7 @@ docker compose exec app python3 scripts/list_queue.py
 ```bash
 # Clean everything and start fresh
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
-docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
 
 # Verify clean state
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -1162,41 +693,52 @@ docker compose exec app python3 scripts/list_queue.py
 ### Test 7.2: Multiple Position Management
 
 ```bash
-# Create multiple positions across both exchanges
-# Bybit positions - DOGEUSDT
+# Create multiple positions across both exchanges using configured pairs
+# Bybit positions
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol SOLUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 136.82 \
+  --order-size 0.1
+
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange bybit \
   --symbol DOGEUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 0.38456 \
+  --entry-price 0.14 \
   --order-size 100
-
-docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange bybit \
-  --symbol MATICUSDT \
-  --timeframe 60 \
-  --side long \
-  --action buy \
-  --entry-price 0.8 \
-  --order-size 10
 
 # Binance positions
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
   --exchange binance \
   --symbol BTCUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 96000.0 \
+  --entry-price 92454.0 \
   --order-size 0.001
+
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 3232.0 \
+  --order-size 0.01
 
 # Verify all positions
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -1216,17 +758,28 @@ docker compose exec app python3 scripts/verify_exchange_positions.py
 ### Test 8.1: Application Restart Persistence
 
 ```bash
-# Create some positions (DOGEUSDT on Bybit)
+# Create some positions using configured pairs
 docker compose exec app python3 scripts/simulate_webhook.py \
-  --user-id 7df5b1ed-b024-4c2a-9ac7-f67e09d5cb95 \
-  --secret 2884078ee5be6cf08ef525b7ea798e78 \
-  --exchange bybit \
-  --symbol DOGEUSDT \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
   --timeframe 60 \
   --side long \
   --action buy \
-  --entry-price 0.38456 \
-  --order-size 100
+  --entry-price 92454.0 \
+  --order-size 0.001
+
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange bybit \
+  --symbol SOLUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 136.82 \
+  --order-size 0.1
 
 # Verify before restart
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -1298,7 +851,7 @@ docker compose exec app python3 scripts/list_queue.py
 ```bash
 # Clean all test data
 docker compose exec app python3 scripts/clean_positions_in_exchanges.py
-docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+docker compose exec app python3 scripts/clean_positions_in_db.py --username maaz --confirm true
 
 # Verify clean state
 docker compose exec app python3 scripts/verify_exchange_positions.py
