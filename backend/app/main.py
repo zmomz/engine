@@ -13,11 +13,14 @@ from app.services.order_fill_monitor import OrderFillMonitorService
 from app.services.order_management import OrderService
 from app.repositories.dca_order import DCAOrderRepository
 from app.repositories.position_group import PositionGroupRepository
-from app.db.database import AsyncSessionLocal
+from app.repositories.risk_action import RiskActionRepository
+from app.db.database import AsyncSessionLocal, get_db_session
 from app.services.position_manager import PositionManagerService
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.grid_calculator import GridCalculatorService
 from app.services.queue_manager import QueueManagerService
+from app.services.risk_engine import RiskEngineService
+from app.schemas.grid_config import RiskEngineConfig
 from app.core.logging_config import setup_logging
 from app.core.config import settings
 from fastapi.staticfiles import StaticFiles
@@ -90,8 +93,21 @@ async def startup_event():
         execution_pool_manager=app.state.execution_pool_manager
     )
     await app.state.queue_manager_service.start_promotion_task()
-    
-    # PositionManagerService & RiskEngineService are now instantiated per-request.
+
+    # RiskEngineService - Background monitoring task for automatic risk management
+    app.state.risk_engine_service = RiskEngineService(
+        session_factory=get_db_session,  # Use async generator function
+        position_group_repository_class=PositionGroupRepository,
+        risk_action_repository_class=RiskActionRepository,
+        dca_order_repository_class=DCAOrderRepository,
+        order_service_class=OrderService,
+        risk_engine_config=RiskEngineConfig(),  # Uses default config; user-specific configs loaded per evaluation
+        polling_interval_seconds=60  # Check positions every 60 seconds
+    )
+    await app.state.risk_engine_service.start_monitoring_task()
+    logger.info("Risk Engine monitoring task started (polling every 60 seconds)")
+
+    # PositionManagerService is now instantiated per-request.
 
 
 @app.on_event("shutdown")
@@ -100,6 +116,9 @@ async def shutdown_event():
         await app.state.order_fill_monitor.stop_monitoring_task()
     if hasattr(app.state, "queue_manager_service"):
         await app.state.queue_manager_service.stop_promotion_task()
+    if hasattr(app.state, "risk_engine_service"):
+        await app.state.risk_engine_service.stop_monitoring_task()
+        logger.info("Risk Engine monitoring task stopped")
 
 
 app.include_router(health.router, prefix="/api/v1/health", tags=["Health Check"])
