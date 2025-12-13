@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.position_group import PositionGroup
 from app.models.pyramid import Pyramid, PyramidStatus
 from app.models.dca_order import DCAOrder, OrderStatus
+from app.models.dca_configuration import DCAConfiguration
 from app.schemas.telegram_config import TelegramConfig
 from app.services.telegram_broadcaster import TelegramBroadcaster
 
@@ -57,47 +58,107 @@ async def broadcast_entry_signal(
             logger.info(f"Entry signals disabled for user {user.username} - skipping broadcast")
             return
 
-        # Get all pyramids for this position group
+        # Get the DCA configuration to get the original percentage weights
+        # Convert symbol format: BTCUSDT -> BTC/USDT
+        pair_formatted = f"{position_group.symbol[:-4]}/{position_group.symbol[-4:]}" if position_group.symbol.endswith('USDT') else position_group.symbol
+
         result = await session.execute(
-            select(Pyramid).where(Pyramid.group_id == position_group.id).order_by(Pyramid.pyramid_index)
+            select(DCAConfiguration).where(
+                DCAConfiguration.user_id == position_group.user_id,
+                DCAConfiguration.pair == pair_formatted,
+                DCAConfiguration.timeframe == position_group.timeframe,
+                DCAConfiguration.exchange == position_group.exchange
+            )
         )
-        all_pyramids = result.scalars().all()
+        dca_config = result.scalar_one_or_none()
 
-        # Build entry prices list - ALWAYS 5 elements
-        # Create a mapping of pyramid_index -> entry_price
-        pyramid_prices = {}
+        # Get all DCA orders for this pyramid to show entry levels
+        result = await session.execute(
+            select(DCAOrder)
+            .where(DCAOrder.pyramid_id == pyramid.id)
+            .order_by(DCAOrder.price.desc())  # Order by price descending (highest first)
+        )
+        dca_orders = result.scalars().all()
 
-        for pyr in all_pyramids:
-            # Show pyramid entry price for SUBMITTED or FILLED pyramids
-            if pyr.status in [PyramidStatus.SUBMITTED, PyramidStatus.FILLED,
-                             PyramidStatus.SUBMITTED.value, PyramidStatus.FILLED.value]:
-                # Use the pyramid's base entry_price as the displayed price
-                # This is the price from the signal when the pyramid was created
-                pyramid_prices[pyr.pyramid_index] = pyr.entry_price
-
-        # Build the list based on max_pyramids (dynamic)
+        # Build entry prices, weights, and TP data from DCA orders and config
         entry_prices: List[Optional[Decimal]] = []
         weights: List[int] = []
+        tp_prices: List[Optional[Decimal]] = []
+        tp_mode = None
+        aggregate_tp = None
 
-        max_pyramids = position_group.max_pyramids or 5  # Default to 5 if not set
+        # Get weights and TP data from DCA configuration levels
+        if dca_config and dca_config.dca_levels:
+            dca_levels = dca_config.dca_levels
+            tp_mode = dca_config.tp_mode.value if hasattr(dca_config.tp_mode, 'value') else dca_config.tp_mode
 
-        for i in range(max_pyramids):
-            entry_prices.append(pyramid_prices.get(i, None))
-            # Calculate weight dynamically based on total pyramids
-            weight = int((i + 1) * 100 / max_pyramids)
-            weights.append(weight)
+            for i, order in enumerate(dca_orders):
+                entry_prices.append(order.price)
+
+                # Get the weight_percent from the configuration
+                if i < len(dca_levels):
+                    weight = int(float(dca_levels[i].get('weight_percent', 0)))
+
+                    # Calculate TP for per_leg mode
+                    if tp_mode == "per_leg":
+                        tp_percent = dca_levels[i].get('tp_percent', 0)
+                        if tp_percent and order.price:
+                            # For long positions, TP is above entry
+                            tp_price = order.price * (1 + Decimal(str(tp_percent)) / 100)
+                            tp_prices.append(tp_price)
+                        else:
+                            tp_prices.append(None)
+                else:
+                    weight = 0
+                    if tp_mode == "per_leg":
+                        tp_prices.append(None)
+
+                weights.append(weight)
+
+            # Calculate aggregate TP if mode is aggregate
+            if tp_mode == "aggregate" and dca_config.tp_settings:
+                # Support both key names for backward compatibility
+                aggregate_tp_percent = dca_config.tp_settings.get('tp_aggregate_percent') or dca_config.tp_settings.get('aggregate_tp_percent', 0)
+                if aggregate_tp_percent:
+                    # Calculate weighted average entry price using weight_percent
+                    total_value = Decimal('0')
+                    total_weight = Decimal('0')
+                    for i, order in enumerate(dca_orders):
+                        weight_pct = Decimal(str(dca_levels[i].get('weight_percent', 0))) if i < len(dca_levels) else Decimal('0')
+                        total_value += order.price * weight_pct
+                        total_weight += weight_pct
+
+                    if total_weight > 0:
+                        avg_entry = total_value / total_weight
+                        aggregate_tp = avg_entry * (1 + Decimal(str(aggregate_tp_percent)) / 100)
+        else:
+            # Fallback: calculate from order quantities
+            total_qty = sum(order.quantity for order in dca_orders)
+            for order in dca_orders:
+                entry_prices.append(order.price)
+                if total_qty > 0:
+                    weight = int((order.quantity / total_qty) * 100)
+                else:
+                    weight = int(100 / len(dca_orders))
+                weights.append(weight)
+
+        # Store the total number of DCA levels for the message
+        max_pyramids = len(dca_orders)
 
         # Create broadcaster and send signal
         broadcaster = TelegramBroadcaster(config)
 
         logger.info(f"Broadcasting entry signal for {position_group.symbol} pyramid {pyramid.pyramid_index}")
-        logger.debug(f"Entry prices: {entry_prices}, Weights: {weights}")
+        logger.debug(f"Entry prices: {entry_prices}, Weights: {weights}, TP mode: {tp_mode}, Aggregate TP: {aggregate_tp}")
 
         message_id = await broadcaster.send_entry_signal(
             position_group=position_group,
             pyramid=pyramid,
             entry_prices=entry_prices,
-            weights=weights
+            weights=weights,
+            tp_prices=tp_prices if tp_mode == "per_leg" else None,
+            tp_mode=tp_mode,
+            aggregate_tp=aggregate_tp
         )
 
         if message_id:

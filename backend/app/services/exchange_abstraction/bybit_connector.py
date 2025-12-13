@@ -27,6 +27,7 @@ class BybitConnector(ExchangeInterface):
         options = {
             'defaultType': default_type,
             'accountType': account_type,
+            'recvWindow': 20000,  # Increase recv_window to 20 seconds for clock drift tolerance
         }
 
         # Add testnet option to ccxt options
