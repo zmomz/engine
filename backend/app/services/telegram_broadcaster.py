@@ -29,7 +29,10 @@ class TelegramBroadcaster:
         position_group: PositionGroup,
         pyramid: Pyramid,
         entry_prices: list[Optional[Decimal]],
-        weights: list[int]
+        weights: list[int],
+        tp_prices: list[Optional[Decimal]] = None,
+        tp_mode: str = None,
+        aggregate_tp: Decimal = None
     ) -> Optional[int]:
         """
         Send or update entry signal message
@@ -39,6 +42,9 @@ class TelegramBroadcaster:
             pyramid: Current pyramid
             entry_prices: List of entry prices (None for TBD)
             weights: List of weights for each level
+            tp_prices: List of TP prices for per_leg mode
+            tp_mode: TP mode ("per_leg" or "aggregate")
+            aggregate_tp: Aggregate TP price for aggregate mode
 
         Returns:
             Message ID if sent successfully
@@ -51,7 +57,10 @@ class TelegramBroadcaster:
             position_group=position_group,
             pyramid=pyramid,
             entry_prices=entry_prices,
-            weights=weights
+            weights=weights,
+            tp_prices=tp_prices,
+            tp_mode=tp_mode,
+            aggregate_tp=aggregate_tp
         )
 
         # Check if we should update existing message
@@ -112,7 +121,10 @@ class TelegramBroadcaster:
         position_group: PositionGroup,
         pyramid: Pyramid,
         entry_prices: list[Optional[Decimal]],
-        weights: list[int]
+        weights: list[int],
+        tp_prices: list[Optional[Decimal]] = None,
+        tp_mode: str = None,
+        aggregate_tp: Decimal = None
     ) -> str:
         """Build entry signal message"""
 
@@ -120,27 +132,33 @@ class TelegramBroadcaster:
         message = f"📈 Entry Setup\n"
         message += f"{position_group.exchange.capitalize()}:{position_group.symbol}\n\n"
 
-        # Entry levels - show all levels based on max_pyramids
-        max_pyramids = position_group.max_pyramids or 5  # Default to 5
+        # Entry levels
         message += "🟩 Entries Levels\n"
-        for i in range(max_pyramids):
-            # Use provided weight or calculate dynamically
-            if i < len(weights):
-                weight = weights[i]
-            else:
-                weight = int((i + 1) * 100 / max_pyramids)
+        num_levels = len(entry_prices)
 
-            if i < len(entry_prices) and entry_prices[i] is not None:
-                # Pyramid filled - show the price
-                message += f"• {weight} percent  Entry Price {i + 1}  {float(entry_prices[i]):.2f}\n"
-            else:
-                # Not filled yet - show TBD
-                message += f"• {weight} percent  Entry Price {i + 1}  TBD\n"
+        for i in range(num_levels):
+            weight = weights[i] if i < len(weights) else 0
+            entry_price = entry_prices[i]
 
-        # Engine notes - dynamic pyramid count
+            if entry_price is not None:
+                line = f"• {weight} % Entry Price {i + 1} {float(entry_price):.2f}"
+
+                # Add TP if mode is per_leg
+                if tp_mode == "per_leg" and tp_prices and i < len(tp_prices) and tp_prices[i] is not None:
+                    line += f"  TP : {float(tp_prices[i]):.2f}"
+
+                message += line + "\n"
+            else:
+                message += f"• {weight} % Entry Price {i + 1} TBD\n"
+
+        # Add aggregate TP if mode is aggregate
+        if tp_mode == "aggregate" and aggregate_tp is not None:
+            message += f"\nTP aggregate: {float(aggregate_tp):.2f}\n"
+
+        # Engine notes
         message += "\n🧩 Engine Notes\n"
         message += "• Long only\n"
-        message += f"• Up to {max_pyramids} pyramids\n"
+        message += f"• Up to {num_levels} pyramids\n"
         message += "• This message will be updated as new levels fill\n"
         message += "• Unknown levels remain as TBD\n"
         message += "• The exit is one trigger that closes the full position"
