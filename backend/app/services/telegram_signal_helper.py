@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.models.user import User
 from app.models.position_group import PositionGroup
-from app.models.pyramid import Pyramid
+from app.models.pyramid import Pyramid, PyramidStatus
 from app.models.dca_order import DCAOrder, OrderStatus
 from app.schemas.telegram_config import TelegramConfig
 from app.services.telegram_broadcaster import TelegramBroadcaster
@@ -39,12 +39,22 @@ async def broadcast_entry_signal(
         )
         user = result.scalar_one_or_none()
 
-        if not user or not user.telegram_config:
+        if not user:
+            logger.warning(f"User {position_group.user_id} not found for Telegram broadcast")
+            return
+
+        if not user.telegram_config:
+            logger.info(f"No Telegram config for user {user.username} - skipping broadcast")
             return
 
         config = TelegramConfig(**user.telegram_config)
 
-        if not config.enabled or not config.send_entry_signals:
+        if not config.enabled:
+            logger.info(f"Telegram disabled for user {user.username} - skipping broadcast")
+            return
+
+        if not config.send_entry_signals:
+            logger.info(f"Entry signals disabled for user {user.username} - skipping broadcast")
             return
 
         # Get all pyramids for this position group
@@ -53,45 +63,47 @@ async def broadcast_entry_signal(
         )
         all_pyramids = result.scalars().all()
 
-        # Build entry prices and weights lists
+        # Build entry prices list - ALWAYS 5 elements
+        # Create a mapping of pyramid_index -> entry_price
+        pyramid_prices = {}
+
+        for pyr in all_pyramids:
+            # Show pyramid entry price for SUBMITTED or FILLED pyramids
+            if pyr.status in [PyramidStatus.SUBMITTED, PyramidStatus.FILLED,
+                             PyramidStatus.SUBMITTED.value, PyramidStatus.FILLED.value]:
+                # Use the pyramid's base entry_price as the displayed price
+                # This is the price from the signal when the pyramid was created
+                pyramid_prices[pyr.pyramid_index] = pyr.entry_price
+
+        # Build the list based on max_pyramids (dynamic)
         entry_prices: List[Optional[Decimal]] = []
         weights: List[int] = []
 
-        for pyr in all_pyramids:
-            if pyr.status == "filled":
-                # Get filled DCA orders for this pyramid
-                result = await session.execute(
-                    select(DCAOrder)
-                    .where(DCAOrder.pyramid_id == pyr.id)
-                    .where(DCAOrder.status == OrderStatus.FILLED.value)
-                )
-                filled_orders = result.scalars().all()
+        max_pyramids = position_group.max_pyramids or 5  # Default to 5 if not set
 
-                if filled_orders:
-                    # Calculate average entry price for this pyramid
-                    total_qty = sum(o.filled_quantity for o in filled_orders)
-                    total_value = sum(o.filled_quantity * o.avg_fill_price for o in filled_orders)
-                    avg_entry = total_value / total_qty if total_qty > 0 else Decimal("0")
-                    entry_prices.append(avg_entry)
-                else:
-                    entry_prices.append(None)
-            else:
-                entry_prices.append(None)
-
-            # Calculate weight (20%, 40%, 60%, 80%, 100%)
-            weight = (pyr.pyramid_index + 1) * 20
+        for i in range(max_pyramids):
+            entry_prices.append(pyramid_prices.get(i, None))
+            # Calculate weight dynamically based on total pyramids
+            weight = int((i + 1) * 100 / max_pyramids)
             weights.append(weight)
 
         # Create broadcaster and send signal
         broadcaster = TelegramBroadcaster(config)
-        await broadcaster.send_entry_signal(
+
+        logger.info(f"Broadcasting entry signal for {position_group.symbol} pyramid {pyramid.pyramid_index}")
+        logger.debug(f"Entry prices: {entry_prices}, Weights: {weights}")
+
+        message_id = await broadcaster.send_entry_signal(
             position_group=position_group,
             pyramid=pyramid,
             entry_prices=entry_prices,
             weights=weights
         )
 
-        logger.info(f"Sent entry signal for {position_group.symbol} pyramid {pyramid.pyramid_index}")
+        if message_id:
+            logger.info(f"Successfully sent entry signal for {position_group.symbol} pyramid {pyramid.pyramid_index} (message_id: {message_id})")
+        else:
+            logger.warning(f"Failed to send entry signal for {position_group.symbol} pyramid {pyramid.pyramid_index}")
 
     except Exception as e:
         logger.error(f"Error broadcasting entry signal: {e}")

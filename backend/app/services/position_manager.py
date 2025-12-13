@@ -243,9 +243,12 @@ class PositionManagerService:
         logger.info(f"Pyramid {new_pyramid.id} status updated to SUBMITTED after order submission.")
 
         logger.info(f"Created new PositionGroup {new_position_group.id} and submitted {len(orders_to_submit)} DCA orders.")
-        
+
         await self.update_risk_timer(new_position_group.id, risk_config, session=session)
         await self.update_position_stats(new_position_group.id, session=session)
+
+        # Broadcast initial entry signal to Telegram
+        await broadcast_entry_signal(new_position_group, new_pyramid, session)
 
         return new_position_group
 
@@ -342,10 +345,13 @@ class PositionManagerService:
             await order_service.submit_order(order)
 
         logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
-        
+
         await self.update_risk_timer(existing_position_group.id, risk_config, session=session)
         await self.update_position_stats(existing_position_group.id, session=session)
-        
+
+        # Broadcast entry signal to Telegram for the new pyramid
+        await broadcast_entry_signal(existing_position_group, new_pyramid, session)
+
         return existing_position_group
 
     async def handle_exit_signal(self, position_group_id: uuid.UUID, session: Optional[AsyncSession] = None):
@@ -566,7 +572,7 @@ class PositionManagerService:
                 pyramid.status = PyramidStatus.FILLED
                 logger.info(f"Pyramid {pyramid.id} status updated to FILLED.")
 
-                # Broadcast entry signal to Telegram
+                # Update Telegram message with filled pyramid data
                 await broadcast_entry_signal(position_group, pyramid, session)
 
             elif any_order_submitted_or_filled and pyramid.status == PyramidStatus.PENDING:
