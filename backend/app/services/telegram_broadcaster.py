@@ -118,23 +118,32 @@ class TelegramBroadcaster:
 
         # Header
         message = f"📈 Entry Setup\n"
-        message += f"{position_group.exchange.upper()}:{position_group.symbol}\n\n"
+        message += f"{position_group.exchange.capitalize()}:{position_group.symbol}\n\n"
 
-        # Entry levels
+        # Entry levels - show all levels based on max_pyramids
+        max_pyramids = position_group.max_pyramids or 5  # Default to 5
         message += "🟩 Entries Levels\n"
-        for i, (price, weight) in enumerate(zip(entry_prices, weights), 1):
-            if price is not None:
-                message += f"• {weight} percent  Entry Price {i}  {float(price):.2f}\n"
+        for i in range(max_pyramids):
+            # Use provided weight or calculate dynamically
+            if i < len(weights):
+                weight = weights[i]
             else:
-                message += f"• {weight} percent  Entry Price {i}  TBD\n"
+                weight = int((i + 1) * 100 / max_pyramids)
 
-        # Engine notes
-        message += "\n🧩 Engine Notes:\n"
+            if i < len(entry_prices) and entry_prices[i] is not None:
+                # Pyramid filled - show the price
+                message += f"• {weight} percent  Entry Price {i + 1}  {float(entry_prices[i]):.2f}\n"
+            else:
+                # Not filled yet - show TBD
+                message += f"• {weight} percent  Entry Price {i + 1}  TBD\n"
+
+        # Engine notes - dynamic pyramid count
+        message += "\n🧩 Engine Notes\n"
         message += "• Long only\n"
-        message += f"• Up to {position_group.max_pyramids} pyramids\n"
-        message += "• The message updates as new levels fill\n"
+        message += f"• Up to {max_pyramids} pyramids\n"
+        message += "• This message will be updated as new levels fill\n"
         message += "• Unknown levels remain as TBD\n"
-        message += "• Exit is one trigger that closes the full position\n"
+        message += "• The exit is one trigger that closes the full position"
 
         return message
 
@@ -149,9 +158,9 @@ class TelegramBroadcaster:
 
         message = "🚪 Exit Triggered\n\n"
         message += f"💰 Exit price: {float(exit_price):.2f}\n"
-        message += f"📉 Result: {float(pnl_percent):.2f}%\n"
+        message += f"📉 Result: {float(pnl_percent):.1f} percent\n"
         message += f"📦 Pyramids used: {pyramids_used}\n\n"
-        message += "🔍 The engine closed the full position based on market behavior.\n"
+        message += "🔍 Engine closed the full position based on market behavior."
 
         return message
 
@@ -184,8 +193,7 @@ class TelegramBroadcaster:
 
         except Exception as e:
             logger.error(f"Error sending Telegram message: {e}")
-            error_text = await response.text()
-            raise RuntimeError(f"Telegram error {response.status}: {error_text}")
+            return None
 
     async def _update_message(self, message_id: int, text: str) -> Optional[int]:
         """Update an existing message"""
