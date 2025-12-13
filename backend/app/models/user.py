@@ -27,7 +27,9 @@ class User(Base):
     
     # User-specific risk and grid configurations
     risk_config = Column(JSON, nullable=False, default=RiskEngineConfig().model_dump(mode='json')) # Store as JSON
-    risk_config = Column(JSON, nullable=False, default=RiskEngineConfig().model_dump(mode='json')) # Store as JSON
+
+    # Telegram configuration for signal broadcasting
+    telegram_config = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

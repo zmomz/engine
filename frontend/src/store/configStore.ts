@@ -33,6 +33,18 @@ export interface RiskEngineConfig {
   priority_rules: PriorityRulesConfig;
 }
 
+export interface TelegramConfig {
+  enabled: boolean;
+  bot_token?: string;
+  channel_id?: string;
+  channel_name: string;
+  engine_signature: string;
+  send_entry_signals: boolean;
+  send_exit_signals: boolean;
+  update_on_pyramid: boolean;
+  test_mode: boolean;
+}
+
 export interface UserSettings {
   id: string;
   username: string;
@@ -41,6 +53,7 @@ export interface UserSettings {
   webhook_secret: string;
   configured_exchanges: string[];
   risk_config: RiskEngineConfig;
+  telegram_config?: TelegramConfig;
   configured_exchange_details?: Record<string, { testnet?: boolean; account_type?: string; encrypted_data?: string; }>;
 }
 

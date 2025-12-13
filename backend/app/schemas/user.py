@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any, List
 
 from pydantic import BaseModel, EmailStr, model_validator, field_validator
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Import config schemas
+from app.schemas.telegram_config import TelegramConfig
 
 class UserBase(BaseModel):
     username: str
@@ -30,6 +31,7 @@ class UserUpdate(BaseModel):
     testnet: Optional[bool] = None # Added for input
     account_type: Optional[str] = None # Added for input
     risk_config: Optional[RiskEngineConfig] = None
+    telegram_config: Optional[Dict[str, Any]] = None
 
 class UserInDB(UserBase):
     id: uuid.UUID
@@ -51,6 +53,7 @@ class UserRead(UserBase):
     id: uuid.UUID
     exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
+    telegram_config: Optional[Dict[str, Any]] = None
     encrypted_api_keys: Optional[Dict[str, Any]] = None # Explicitly include to pass to validator
     configured_exchange_details: Optional[Dict[str, Dict[str, Any]]] = None # Detailed exchange configs
     configured_exchanges: List[str] = [] # List of configured exchange names

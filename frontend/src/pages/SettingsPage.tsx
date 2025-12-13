@@ -10,6 +10,20 @@ import useConfirmStore from '../store/confirmStore';
 import useNotificationStore from '../store/notificationStore';
 import QueuePrioritySettings from '../components/QueuePrioritySettings';
 import DCAConfigList from '../components/dca_config/DCAConfigList'; // Import the new component
+import TelegramSettings from '../components/TelegramSettings';
+
+
+const telegramConfigSchema = z.object({
+  enabled: z.boolean(),
+  bot_token: z.string().optional(),
+  channel_id: z.string().optional(),
+  channel_name: z.string().optional(),
+  engine_signature: z.string().optional(),
+  send_entry_signals: z.boolean(),
+  send_exit_signals: z.boolean(),
+  update_on_pyramid: z.boolean(),
+  test_mode: z.boolean(),
+});
 
 // Define Zod schemas for validation
 const exchangeSettingsSchema = z.object({
@@ -20,6 +34,7 @@ const exchangeSettingsSchema = z.object({
   testnet: z.boolean().optional(), // Added testnet
   account_type: z.string().optional(), // Added account_type
 });
+
 
 const riskEngineConfigSchema = z.object({
   max_open_positions_global: z.coerce.number().min(0),
@@ -59,12 +74,14 @@ const formSchema = z.object({
   exchangeSettings: exchangeSettingsSchema,
   riskEngineConfig: riskEngineConfigSchema,
   appSettings: appSettingsSchema,
+  telegramSettings: telegramConfigSchema, // ADD THIS LINE
 });
 
 type FormValues = {
   exchangeSettings: z.infer<typeof exchangeSettingsSchema>;
   riskEngineConfig: z.infer<typeof riskEngineConfigSchema>;
   appSettings: z.infer<typeof appSettingsSchema>;
+  telegramSettings: z.infer<typeof telegramConfigSchema>;
 };
 
 interface TabPanelProps {
@@ -109,7 +126,7 @@ const SettingsPage: React.FC = () => {
     fetchSupportedExchanges();
   }, [fetchSettings, fetchSupportedExchanges]);
 
-  const { handleSubmit, control, reset, setValue, watch, formState: { errors } } = useForm<FormValues>({
+  const { handleSubmit, control, reset, setValue, watch, getValues, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       exchangeSettings: {
@@ -153,6 +170,17 @@ const SettingsPage: React.FC = () => {
         email: settings?.email || '',
         webhook_secret: settings?.webhook_secret || '',
       },
+      telegramSettings: {
+            enabled: false,
+            bot_token: '',
+            channel_id: '',
+            channel_name: 'AlgoMakers.Ai Signals',
+            engine_signature: '⚙️ AlgoMakers Engine\nLong only. Up to five pyramids. One full exit.\nNo fixed targets. Market driven logic.',
+            send_entry_signals: true,
+            send_exit_signals: true,
+            update_on_pyramid: true,
+            test_mode: false,
+      }
     },
   });
 
@@ -177,6 +205,17 @@ const SettingsPage: React.FC = () => {
           email: settings.email,
           webhook_secret: settings.webhook_secret,
         },
+        telegramSettings: settings.telegram_config || {
+          enabled: false,
+          bot_token: '',
+          channel_id: '',
+          channel_name: 'AlgoMakers.Ai Signals',
+          engine_signature: '⚙️ AlgoMakers Engine\nLong only. Up to five pyramids. One full exit.\nNo fixed targets. Market driven logic.',
+          send_entry_signals: true,
+          send_exit_signals: true,
+          update_on_pyramid: true,
+          test_mode: false,
+        },
       });
     }
   }, [settings, reset]);
@@ -194,6 +233,7 @@ const SettingsPage: React.FC = () => {
       username: data.appSettings.username,
       email: data.appSettings.email,
       webhook_secret: data.appSettings.webhook_secret,
+      telegram_config: data.telegramSettings,
     };
 
     // Only send keys if they are provided
@@ -220,6 +260,8 @@ const SettingsPage: React.FC = () => {
       }
     } else if (errors.appSettings) {
       setCurrentTab(4);
+    } else if (errors.telegramSettings) {
+      setCurrentTab(5);
     }
     // Optional: show a snackbar or alert
     // alert("Please correct the errors in the highlighted tab before saving.");
@@ -278,7 +320,8 @@ const SettingsPage: React.FC = () => {
             <Tab label="Queue Configuration" {...a11yProps(2)} />
             <Tab label="DCA Grid" {...a11yProps(3)} />
             <Tab label="Account" {...a11yProps(4)} />
-            <Tab label="System" {...a11yProps(5)} />
+            <Tab label="Telegram" {...a11yProps(5)} />
+            <Tab label="System" {...a11yProps(6)} />
           </Tabs>
         </Box>
 
@@ -598,6 +641,10 @@ const SettingsPage: React.FC = () => {
           </CustomTabPanel>
 
           <CustomTabPanel value={currentTab} index={5}>
+            <TelegramSettings control={control} watch={watch} getValues={getValues} />
+          </CustomTabPanel>
+
+          <CustomTabPanel value={currentTab} index={6}>
             <Typography variant="h6" gutterBottom>System Maintenance</Typography>
             <Box sx={{ mb: 3 }}>
               <Typography variant="subtitle1">Backup Configuration</Typography>
