@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.position_group import PositionGroup
 from app.repositories.queued_signal import QueuedSignalRepository
 from app.repositories.position_group import PositionGroupRepository
+from app.repositories.dca_configuration import DCAConfigurationRepository
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.schemas.webhook_payloads import WebhookPayload
 from app.services.exchange_abstraction.factory import get_exchange_connector
@@ -381,20 +382,53 @@ class QueueManagerService:
             if not self.execution_pool_manager:
                 continue
 
-            # Load Configs from User
+            # Load Risk Config from User
             try:
                 # Ensure configs are loaded from JSON strings if coming from DB
                 risk_config_data = user.risk_config
                 if isinstance(risk_config_data, str):
                     risk_config_data = json.loads(risk_config_data)
                 risk_config = RiskEngineConfig(**risk_config_data)
-
-                dca_config_data = user.dca_grid_config
-                if isinstance(dca_config_data, str):
-                    dca_config_data = json.loads(dca_config_data)
-                dca_config = DCAGridConfig.model_validate(dca_config_data)
             except Exception as e:
-                logger.error(f"Failed to load user config: {e}")
+                logger.error(f"Failed to load user risk config: {e}")
+                continue
+
+            # Load DCA Config for the specific signal
+            try:
+                dca_config_repo = DCAConfigurationRepository(session)
+
+                # Normalize the pair format for lookup
+                normalized_pair = best_signal.symbol
+                if '/' not in normalized_pair:
+                    if normalized_pair.endswith('USDT'):
+                        normalized_pair = normalized_pair[:-4] + '/' + normalized_pair[-4:]
+                    elif normalized_pair.endswith(('USD', 'BTC', 'ETH', 'BNB')):
+                        normalized_pair = normalized_pair[:-3] + '/' + normalized_pair[-3:]
+
+                specific_config = await dca_config_repo.get_specific_config(
+                    user_id=user.id,
+                    pair=normalized_pair,
+                    timeframe=best_signal.timeframe,
+                    exchange=best_signal.exchange.lower()
+                )
+
+                if specific_config:
+                    logger.info(f"Using specific DCA configuration for {best_signal.symbol} {best_signal.timeframe}")
+                    # Map DB model to Pydantic Schema
+                    from enum import Enum as PyEnum
+                    dca_config = DCAGridConfig(
+                        levels=specific_config.dca_levels,
+                        tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
+                        tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
+                        max_pyramids=specific_config.max_pyramids,
+                        entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
+                        pyramid_specific_levels=specific_config.pyramid_specific_levels or {}
+                    )
+                else:
+                    logger.error(f"No DCA configuration found for {best_signal.symbol} {best_signal.timeframe} (Exchange: {best_signal.exchange})")
+                    continue
+            except Exception as e:
+                logger.error(f"Failed to load DCA config for signal {best_signal.symbol}: {e}")
                 continue
 
             is_pyramid = any(

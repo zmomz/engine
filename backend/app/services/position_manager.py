@@ -21,6 +21,7 @@ from app.services.grid_calculator import GridCalculatorService
 from app.services.order_management import OrderService
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.services.telegram_signal_helper import broadcast_entry_signal, broadcast_exit_signal
 from app.core.security import EncryptionService
 from fastapi import HTTPException, status
 
@@ -412,6 +413,9 @@ class PositionManagerService:
                     await position_group_repo.update(position_group)
                     logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
+                    # Broadcast exit signal to Telegram
+                    await broadcast_exit_signal(position_group, current_price, session)
+
                 except Exception as e:
                     logger.error(f"DEBUG: Caught exception in handle_exit_signal: {type(e)} - {e}")
                     error_msg = str(e).lower()
@@ -454,6 +458,10 @@ class PositionManagerService:
                                 position_group.closed_at = datetime.utcnow()
                                 await position_group_repo.update(position_group)
                                 logger.info(f"PositionGroup {position_group.id} closed after retry. Realized PnL: {realized_pnl}")
+
+                                # Broadcast exit signal to Telegram
+                                await broadcast_exit_signal(position_group, current_price, session)
+
                             else:
                                 logger.error(f"No balance found for {base_currency}. Cannot retry close.")
                                 raise e # Re-raise original exception if retry not possible
@@ -557,6 +565,10 @@ class PositionManagerService:
             if all_orders_for_pyramid_filled and pyramid.status != PyramidStatus.FILLED:
                 pyramid.status = PyramidStatus.FILLED
                 logger.info(f"Pyramid {pyramid.id} status updated to FILLED.")
+
+                # Broadcast entry signal to Telegram
+                await broadcast_entry_signal(position_group, pyramid, session)
+
             elif any_order_submitted_or_filled and pyramid.status == PyramidStatus.PENDING:
                 pyramid.status = PyramidStatus.SUBMITTED
                 logger.info(f"Pyramid {pyramid.id} status updated to SUBMITTED.")

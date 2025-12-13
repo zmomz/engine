@@ -5,7 +5,8 @@
       "Bash(docker logs:*)",
       "Bash(docker compose:*)",
       "Bash(timeout 30 bash:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python -m alembic:*)"
     ]
   }
 }
