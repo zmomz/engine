@@ -1,8 +1,8 @@
 import asyncio
 import logging
 from datetime import datetime
-from decimal import Decimal
-from typing import Dict, Any
+from decimal import Decimal, ROUND_DOWN
+from typing import Dict, Any, Optional
 import uuid
 import ccxt # Added for exchange exceptions
 
@@ -10,10 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.repositories.dca_order import DCAOrderRepository
-from app.repositories.position_group import PositionGroupRepository # New import
+from app.repositories.position_group import PositionGroupRepository
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType
-from app.models.position_group import PositionGroup, PositionGroupStatus # New import
-from app.exceptions import APIError, ExchangeConnectionError
+from app.models.position_group import PositionGroup, PositionGroupStatus
+from app.exceptions import APIError, ExchangeConnectionError, SlippageExceededError
+
+
+def round_to_tick_size(value: Decimal, tick_size: Decimal) -> Decimal:
+    """Rounds a price value down to the nearest tick size."""
+    return (value / tick_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick_size
 
 logger = logging.getLogger(__name__)
 
@@ -113,24 +118,66 @@ class OrderService:
         await self.dca_order_repository.update(dca_order)
         return dca_order
 
-    async def place_tp_order(self, dca_order: DCAOrder) -> DCAOrder:
+    async def place_tp_order(
+        self,
+        dca_order: DCAOrder,
+        adjust_for_fill_price: bool = True,
+        tick_size: Optional[Decimal] = None
+    ) -> DCAOrder:
         """
         Places a Take-Profit order for a filled DCA order.
+
+        Args:
+            dca_order: The filled DCA order to place TP for
+            adjust_for_fill_price: If True, recalculates TP based on actual fill price
+                                   rather than using the pre-calculated tp_price
+            tick_size: Price tick size for rounding. If None, fetches from exchange.
         """
         if dca_order.status != OrderStatus.FILLED:
             raise APIError("Cannot place TP order for unfilled order.")
-            
+
         if dca_order.tp_order_id:
-             # TP order already exists
-             return dca_order
+            # TP order already exists
+            return dca_order
 
         try:
             # Determine TP side
             tp_side = "SELL" if dca_order.side.upper() == "BUY" else "BUY"
-            
-            # Use the calculated tp_price from the order record
-            tp_price = dca_order.tp_price
-            
+
+            # Calculate TP price based on actual fill price if adjustment is enabled
+            if adjust_for_fill_price and dca_order.avg_fill_price and dca_order.avg_fill_price > 0 and dca_order.tp_percent > 0:
+                # Recalculate TP based on actual fill price
+                if dca_order.side.upper() == "BUY":
+                    adjusted_tp_price = dca_order.avg_fill_price * (Decimal("1") + dca_order.tp_percent / Decimal("100"))
+                else:
+                    adjusted_tp_price = dca_order.avg_fill_price * (Decimal("1") - dca_order.tp_percent / Decimal("100"))
+
+                # Log if there's a difference between planned and adjusted TP
+                if dca_order.tp_price and abs(adjusted_tp_price - dca_order.tp_price) > Decimal("0.0001"):
+                    logger.info(
+                        f"Adjusting TP for order {dca_order.id}: "
+                        f"planned TP {dca_order.tp_price} -> adjusted TP {adjusted_tp_price} "
+                        f"(fill price {dca_order.avg_fill_price} vs planned {dca_order.price})"
+                    )
+                tp_price = adjusted_tp_price
+            else:
+                # Use the pre-calculated tp_price from the order record
+                tp_price = dca_order.tp_price
+
+            # Round TP price to valid tick size
+            if tick_size is None:
+                # Fetch precision rules from exchange if not provided
+                try:
+                    precision_rules = await self.exchange_connector.get_precision_rules()
+                    symbol_precision = precision_rules.get(dca_order.symbol, {})
+                    tick_size = Decimal(str(symbol_precision.get("tick_size", "0.00000001")))
+                except Exception as e:
+                    logger.warning(f"Failed to fetch tick_size for {dca_order.symbol}, using default: {e}")
+                    tick_size = Decimal("0.00000001")  # Safe fallback
+
+            tp_price = round_to_tick_size(tp_price, tick_size)
+            logger.debug(f"TP price rounded to tick_size {tick_size}: {tp_price}")
+
             # Place limit order for TP
             exchange_order_data = await self.exchange_connector.place_order(
                 symbol=dca_order.symbol,
@@ -139,14 +186,91 @@ class OrderService:
                 quantity=dca_order.filled_quantity,
                 price=tp_price
             )
-            
+
             dca_order.tp_order_id = exchange_order_data["id"]
             await self.dca_order_repository.update(dca_order)
             return dca_order
         except Exception as e:
-             logger.error(f"Failed to place TP order for {dca_order.id}: {e}")
-             # We don't raise here to avoid crashing the monitor loop, just log
-             return dca_order
+            logger.error(f"Failed to place TP order for {dca_order.id}: {e}")
+            # We don't raise here to avoid crashing the monitor loop, just log
+            return dca_order
+
+    async def place_tp_order_for_partial_fill(
+        self,
+        dca_order: DCAOrder,
+        tick_size: Optional[Decimal] = None
+    ) -> DCAOrder:
+        """
+        Places a Take-Profit order for a PARTIALLY FILLED DCA order.
+        Uses the filled_quantity (not the full order quantity) for the TP.
+
+        This allows users to secure profits on the portion that has filled
+        while the rest of the order remains open.
+
+        Args:
+            dca_order: The partially filled DCA order
+            tick_size: Price tick size for rounding. If None, fetches from exchange.
+        """
+        if dca_order.status != OrderStatus.PARTIALLY_FILLED:
+            logger.warning(f"Order {dca_order.id} is not PARTIALLY_FILLED (status: {dca_order.status}), skipping partial TP")
+            return dca_order
+
+        if dca_order.tp_order_id:
+            # TP order already exists for this partial fill
+            return dca_order
+
+        if not dca_order.filled_quantity or dca_order.filled_quantity <= 0:
+            logger.warning(f"Order {dca_order.id} has no filled quantity, skipping partial TP")
+            return dca_order
+
+        try:
+            # Determine TP side
+            tp_side = "SELL" if dca_order.side.upper() == "BUY" else "BUY"
+
+            # Calculate TP price based on actual fill price
+            if dca_order.avg_fill_price and dca_order.avg_fill_price > 0 and dca_order.tp_percent > 0:
+                if dca_order.side.upper() == "BUY":
+                    tp_price = dca_order.avg_fill_price * (Decimal("1") + dca_order.tp_percent / Decimal("100"))
+                else:
+                    tp_price = dca_order.avg_fill_price * (Decimal("1") - dca_order.tp_percent / Decimal("100"))
+            else:
+                tp_price = dca_order.tp_price
+
+            # Round TP price to valid tick size
+            if tick_size is None:
+                try:
+                    precision_rules = await self.exchange_connector.get_precision_rules()
+                    symbol_precision = precision_rules.get(dca_order.symbol, {})
+                    tick_size = Decimal(str(symbol_precision.get("tick_size", "0.00000001")))
+                except Exception as e:
+                    logger.warning(f"Failed to fetch tick_size for {dca_order.symbol}, using default: {e}")
+                    tick_size = Decimal("0.00000001")
+
+            tp_price = round_to_tick_size(tp_price, tick_size)
+
+            logger.info(
+                f"Placing partial TP for order {dca_order.id}: "
+                f"filled_qty={dca_order.filled_quantity}, tp_price={tp_price}"
+            )
+
+            # Place limit order for partial TP
+            exchange_order_data = await self.exchange_connector.place_order(
+                symbol=dca_order.symbol,
+                order_type="LIMIT",
+                side=tp_side,
+                quantity=dca_order.filled_quantity,  # Use filled quantity, not full order qty
+                price=tp_price
+            )
+
+            dca_order.tp_order_id = exchange_order_data["id"]
+            await self.dca_order_repository.update(dca_order)
+
+            logger.info(f"Partial TP order placed for {dca_order.id}: {exchange_order_data['id']}")
+            return dca_order
+
+        except Exception as e:
+            logger.error(f"Failed to place partial TP order for {dca_order.id}: {e}")
+            return dca_order
 
     async def check_order_status(self, dca_order: DCAOrder) -> DCAOrder:
         """
@@ -332,12 +456,22 @@ class OrderService:
         quantity: Decimal,
         position_group_id: uuid.UUID = None,
         record_in_db: bool = False,
+        expected_price: Decimal = None,
+        max_slippage_percent: float = None,
+        slippage_action: str = "warn",
         **kwargs
     ) -> Dict[str, Any]:
         """
         Places a market order directly on the exchange.
         Used for risk engine offsets, force closes, and aggregate TP execution.
         If record_in_db is True, creates a FILLED DCAOrder to track this trade.
+
+        Args:
+            expected_price: Expected execution price for slippage calculation
+            max_slippage_percent: Maximum allowed slippage percentage (e.g., 1.0 = 1%)
+            slippage_action: What to do when slippage exceeds threshold:
+                - "warn": Log warning only (default, backward compatible)
+                - "reject": Raise SlippageExceededError (order still executed, caller handles)
         """
         try:
             # Extract pyramid_id from kwargs before passing to exchange
@@ -354,6 +488,36 @@ class OrderService:
                 price=None, # Market orders don't have a price
                 **kwargs
             )
+
+            # Slippage protection check (post-execution)
+            slippage_exceeded = False
+            actual_slippage_percent = 0.0
+            avg_price = Decimal("0")
+
+            if expected_price and max_slippage_percent is not None:
+                avg_price = Decimal(str(exchange_order_data.get("average", exchange_order_data.get("price", "0"))))
+                if avg_price > 0:
+                    # Calculate actual slippage
+                    if side_value == "BUY":
+                        # For buys, slippage is positive when fill price > expected
+                        actual_slippage_percent = float((avg_price - expected_price) / expected_price * 100)
+                    else:
+                        # For sells, slippage is positive when fill price < expected
+                        actual_slippage_percent = float((expected_price - avg_price) / expected_price * 100)
+
+                    if actual_slippage_percent > max_slippage_percent:
+                        slippage_exceeded = True
+                        slippage_msg = (
+                            f"Slippage exceeded for {symbol} {side_value}: "
+                            f"expected {expected_price}, got {avg_price}, "
+                            f"slippage {actual_slippage_percent:.2f}% > max {max_slippage_percent}%"
+                        )
+
+                        if slippage_action == "reject":
+                            logger.error(slippage_msg)
+                            raise SlippageExceededError(slippage_msg)
+                        else:
+                            logger.warning(slippage_msg)
             
             if record_in_db and position_group_id:
                 # Create a "virtual" leg index for tracking (e.g., -1 or derived from sequence)
@@ -446,19 +610,36 @@ class OrderService:
             elif order.status == OrderStatus.FILLED.value and order.tp_order_id:
                 await self.cancel_tp_order(order)
 
-    async def close_position_market(self, position_group: PositionGroup, quantity_to_close: Decimal):
+    async def close_position_market(
+        self,
+        position_group: PositionGroup,
+        quantity_to_close: Decimal,
+        expected_price: Decimal = None,
+        max_slippage_percent: float = None,
+        slippage_action: str = "warn"
+    ):
         """
         Closes a position (or partial quantity) using a market order.
         Determines the correct side (opposite of position side) automatically.
+
+        Args:
+            position_group: The position group to close
+            quantity_to_close: Amount to close
+            expected_price: Expected execution price for slippage calculation
+            max_slippage_percent: Maximum allowed slippage percentage
+            slippage_action: "warn" to log only, "reject" to raise SlippageExceededError
         """
         close_side = "SELL" if position_group.side == "long" else "BUY"
-        
+
         await self.place_market_order(
             user_id=position_group.user_id,
             exchange=position_group.exchange,
             symbol=position_group.symbol,
             side=close_side,
             quantity=quantity_to_close,
-            position_group_id=position_group.id
+            position_group_id=position_group.id,
+            expected_price=expected_price,
+            slippage_action=slippage_action,
+            max_slippage_percent=max_slippage_percent
         )
 

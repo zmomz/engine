@@ -6,7 +6,12 @@
       "Bash(docker compose:*)",
       "Bash(timeout 30 bash:*)",
       "Bash(find:*)",
-      "Bash(python -m alembic:*)"
+      "Bash(python -m alembic:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(npm test:*)",
+      "Bash(npx react-scripts test -- --coverage --watchAll=false)",
+      "Bash(node node_modules/.bin/react-scripts test:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

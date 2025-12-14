@@ -8,6 +8,7 @@ import json
 from typing import Callable, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.dca_order import DCAOrder, OrderStatus
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 class UserNotFoundException(Exception):
     """Exception raised when a user is not found."""
+    pass
+
+
+class DuplicatePositionException(Exception):
+    """Exception raised when attempting to create a duplicate active position."""
     pass
 
 class PositionManagerService:
@@ -160,7 +166,20 @@ class PositionManagerService:
             risk_timer_expires=None
         )
         session.add(new_position_group)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError as e:
+            await session.rollback()
+            if 'uix_active_position_group' in str(e.orig):
+                logger.warning(
+                    f"Duplicate position rejected: {signal.symbol} {signal.side} "
+                    f"on {signal.exchange} tf={signal.timeframe} for user {user_id}"
+                )
+                raise DuplicatePositionException(
+                    f"Active position already exists for {signal.symbol} {signal.side} "
+                    f"on timeframe {signal.timeframe}"
+                )
+            raise  # Re-raise if it's a different integrity error
         logger.debug(f"Created PG {new_position_group.id}")
         
         # 5. Create Initial Pyramid
@@ -290,10 +309,14 @@ class PositionManagerService:
             precision_rules=symbol_precision
         )
 
-        # 4. Update PositionGroup Stats
-        existing_position_group.pyramid_count += 1
-        existing_position_group.replacement_count += 1
-        existing_position_group.total_dca_legs += len(dca_levels)
+        # 4. Update PositionGroup Stats (atomic increment to prevent race conditions)
+        pg_repo = self.position_group_repository_class(session)
+        new_pyramid_count = await pg_repo.increment_pyramid_count(
+            group_id=existing_position_group.id,
+            additional_dca_legs=len(dca_levels)
+        )
+        # Refresh the local object to reflect DB changes
+        await session.refresh(existing_position_group)
         
         # Reset risk timer only if it was already running (condition previously met)
         if risk_config.reset_timer_on_replacement and existing_position_group.risk_timer_expires is not None:
@@ -354,30 +377,64 @@ class PositionManagerService:
 
         return existing_position_group
 
-    async def handle_exit_signal(self, position_group_id: uuid.UUID, session: Optional[AsyncSession] = None):
+    async def handle_exit_signal(
+        self,
+        position_group_id: uuid.UUID,
+        session: Optional[AsyncSession] = None,
+        max_slippage_percent: float = 1.0,
+        slippage_action: str = "warn"
+    ):
         """
         Handles an exit signal for a position group.
         1. Cancels all open DCA orders.
         2. Places a market order to close the total filled quantity.
+
+        Args:
+            position_group_id: ID of the position group to close
+            session: Optional database session
+            max_slippage_percent: Maximum acceptable slippage (default 1%)
+            slippage_action: "warn" to log only, "reject" to raise error
         """
         if session:
-            await self._execute_handle_exit_signal(position_group_id, session)
+            await self._execute_handle_exit_signal(
+                position_group_id, session, max_slippage_percent, slippage_action
+            )
         else:
             async with self.session_factory() as new_session:
-                await self._execute_handle_exit_signal(position_group_id, new_session)
+                await self._execute_handle_exit_signal(
+                    position_group_id, new_session, max_slippage_percent, slippage_action
+                )
                 await new_session.commit()
 
-    async def _execute_handle_exit_signal(self, position_group_id: uuid.UUID, session: AsyncSession):
+    async def _execute_handle_exit_signal(
+        self,
+        position_group_id: uuid.UUID,
+        session: AsyncSession,
+        max_slippage_percent: float = 1.0,
+        slippage_action: str = "warn"
+    ):
         """
         Core logic for handling an exit signal within a provided session.
         """
         # Re-fetch position group with orders attached in this session
         position_group_repo = self.position_group_repository_class(session)
         position_group = await position_group_repo.get_with_orders(position_group_id)
-        
+
         if not position_group:
             logger.error(f"PositionGroup {position_group_id} not found for exit signal.")
             return
+
+        # Check if already closed or closing
+        if position_group.status == PositionGroupStatus.CLOSED:
+            logger.warning(f"PositionGroup {position_group_id} is already closed. Skipping exit signal.")
+            return
+
+        # Transition to CLOSING status first
+        if position_group.status != PositionGroupStatus.CLOSING:
+            position_group.status = PositionGroupStatus.CLOSING
+            await position_group_repo.update(position_group)
+            await session.flush()
+            logger.info(f"PositionGroup {position_group_id} status changed to CLOSING")
 
         exchange_connector = self._get_exchange_connector_for_user(self.user, position_group.exchange)
         try:
@@ -391,18 +448,22 @@ class PositionManagerService:
             total_filled_quantity = position_group.total_filled_quantity
 
             if total_filled_quantity > 0:
-                # 3. Close the position
+                # 3. Close the position with slippage protection
+                # Get current price before placing order for slippage calculation
+                current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
+
                 try:
                     await order_service.close_position_market(
                         position_group=position_group,
-                        quantity_to_close=total_filled_quantity
+                        quantity_to_close=total_filled_quantity,
+                        expected_price=current_price,
+                        max_slippage_percent=max_slippage_percent,
+                        slippage_action=slippage_action
                     )
                     logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
 
                     # If successful, update position status and PnL
                     position_group.status = PositionGroupStatus.CLOSED
-                    
-                    current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
                     
                     exit_value = total_filled_quantity * current_price
                     cost_basis = position_group.total_invested_usd

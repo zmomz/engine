@@ -19,6 +19,7 @@ from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.models.queued_signal import QueuedSignal, QueueStatus
 from app.models.position_group import PositionGroup
 from app.models.dca_order import DCAOrder
+from app.models.dca_configuration import DCAConfiguration, EntryOrderType, TakeProfitMode
 from decimal import Decimal
 import json
 import uuid
@@ -40,6 +41,29 @@ async def test_exchange_api_timeout_on_order_submission(
     db_session.add(test_user)
     await db_session.commit()
 
+    # Create DCA configuration for the signal (required for promotion)
+    dca_config = DCAConfiguration(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        pair="BTC/USDT",  # Will be normalized from BTCUSDT
+        timeframe=15,
+        exchange="mock",
+        entry_order_type=EntryOrderType.LIMIT,
+        dca_levels=[
+            {"gap_percent": 0.0, "weight_percent": 20, "tp_percent": 1.0},
+            {"gap_percent": -0.5, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -1.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -2.0, "weight_percent": 20, "tp_percent": 0.5},
+            {"gap_percent": -4.0, "weight_percent": 20, "tp_percent": 0.5}
+        ],
+        pyramid_specific_levels={},
+        tp_mode=TakeProfitMode.PER_LEG,
+        tp_settings={"tp_aggregate_percent": 0},
+        max_pyramids=5
+    )
+    db_session.add(dca_config)
+    await db_session.commit()
+
     # 0. Set up mock exchange to simulate a TimeoutError
     mock_exchange_connector = MagicMock()
     # We mock place_order because OrderService uses it
@@ -54,6 +78,7 @@ async def test_exchange_api_timeout_on_order_submission(
     })
     mock_exchange_connector.get_current_price = AsyncMock(return_value=Decimal("50000.00"))
     mock_exchange_connector.fetch_balance = AsyncMock(return_value={'total': {'USDT': 10000}})
+    mock_exchange_connector.close = AsyncMock()  # Add close method
     
     # Mock ExecutionPoolManager.request_slot to return False in the API (SignalRouter)
     mock_exec_pool = MagicMock()
@@ -64,7 +89,9 @@ async def test_exchange_api_timeout_on_order_submission(
     with (
         patch('app.services.position_manager.get_exchange_connector', return_value=mock_exchange_connector),
         patch('app.services.exchange_abstraction.factory.get_exchange_connector', return_value=mock_exchange_connector),
-        # We don't need to patch EncryptionService here as it's handled by the fixture override_get_db_session_for_integration_tests 
+        patch('app.services.queue_manager.get_exchange_connector', return_value=mock_exchange_connector),
+        patch('app.services.signal_router.get_exchange_connector', return_value=mock_exchange_connector),
+        # We don't need to patch EncryptionService here as it's handled by the fixture override_get_db_session_for_integration_tests
         # and we want it to work normally (or use the MockEncryptionService provided by fixture)
         # If we needed to patch it, we would patch app.core.security.EncryptionService
         patch('app.services.signal_router.ExecutionPoolManager', return_value=mock_exec_pool)
@@ -145,10 +172,13 @@ async def test_exchange_api_timeout_on_order_submission(
 
         await queue_manager.promote_highest_priority_signal(session=db_session)
 
+        # Commit to ensure changes are visible
+        await db_session.commit()
+
         # 3. Verify
         # Expect place_order to have been called (and failed with TimeoutError)
         mock_exchange_connector.place_order.assert_called()
-        
+
         # Re-execute select
         result = await db_session.execute(select(PositionGroup).where(PositionGroup.user_id == test_user.id))
         position_groups = result.scalars().all()

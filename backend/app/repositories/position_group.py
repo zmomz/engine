@@ -1,4 +1,4 @@
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
@@ -60,6 +60,81 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
             query = query.with_for_update()
         result = await self.session.execute(query)
         return result.scalars().all()
+
+    async def get_active_position_group_for_signal(
+        self,
+        user_id: uuid.UUID,
+        symbol: str,
+        exchange: str,
+        timeframe: int,
+        side: str,
+        for_update: bool = True
+    ) -> PositionGroup | None:
+        """
+        Retrieves a specific active position group matching the signal parameters.
+        Uses SQL WHERE clause for efficient filtering and optional row locking.
+
+        Args:
+            user_id: The user's ID
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+            exchange: Exchange name (e.g., 'binance')
+            timeframe: Timeframe in minutes
+            side: Position side ('long' or 'short')
+            for_update: Whether to acquire a row lock (default True for race condition prevention)
+        """
+        query = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.symbol == symbol,
+            self.model.exchange == exchange,
+            self.model.timeframe == timeframe,
+            self.model.side == side,
+            self.model.status.in_(["live", "partially_filled", "active", "closing"])
+        ).options(
+            selectinload(self.model.pyramids).selectinload(Pyramid.dca_orders)
+        )
+        if for_update:
+            query = query.with_for_update()
+        result = await self.session.execute(query)
+        return result.scalars().first()
+
+    async def get_active_position_group_for_exit(
+        self,
+        user_id: uuid.UUID,
+        symbol: str,
+        exchange: str,
+        side: str,
+        timeframe: int | None = None,
+        for_update: bool = True
+    ) -> PositionGroup | None:
+        """
+        Retrieves an active position group for exit signal.
+        Matches on timeframe if provided, otherwise matches any timeframe.
+
+        Args:
+            user_id: The user's ID
+            symbol: Trading pair symbol
+            exchange: Exchange name
+            side: Position side to close ('long' or 'short')
+            timeframe: Optional timeframe filter (if None, matches any)
+            for_update: Whether to acquire a row lock
+        """
+        conditions = [
+            self.model.user_id == user_id,
+            self.model.symbol == symbol,
+            self.model.exchange == exchange,
+            self.model.side == side,
+            self.model.status.in_(["live", "partially_filled", "active", "closing"])
+        ]
+        if timeframe is not None:
+            conditions.append(self.model.timeframe == timeframe)
+
+        query = select(self.model).where(*conditions).options(
+            selectinload(self.model.pyramids).selectinload(Pyramid.dca_orders)
+        )
+        if for_update:
+            query = query.with_for_update()
+        result = await self.session.execute(query)
+        return result.scalars().first()
 
     async def get_all_active_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
         """
@@ -135,3 +210,35 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
             .order_by(self.model.closed_at.desc())
         )
         return result.scalars().all()
+
+    async def increment_pyramid_count(
+        self,
+        group_id: uuid.UUID,
+        additional_dca_legs: int = 0
+    ) -> int:
+        """
+        Atomically increments pyramid_count using SQL expression.
+        Returns the new pyramid_count value.
+
+        This is safer than Python-side increment when row locking may not be in place.
+
+        Note: replacement_count is NOT incremented here. It should only be incremented
+        when a queued signal replaces another (tracked in QueuedSignal.replacement_count
+        and optionally synced to PositionGroup when the signal is promoted).
+
+        Args:
+            group_id: The position group ID
+            additional_dca_legs: Number of new DCA legs to add to total_dca_legs
+        """
+        stmt = (
+            update(self.model)
+            .where(self.model.id == group_id)
+            .values(
+                pyramid_count=self.model.pyramid_count + 1,
+                total_dca_legs=self.model.total_dca_legs + additional_dca_legs
+            )
+            .returning(self.model.pyramid_count)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one()
+

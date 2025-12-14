@@ -240,7 +240,7 @@ class RiskEngineService:
 
         order_service_class: type[OrderService],
         risk_engine_config: RiskEngineConfig,
-        polling_interval_seconds: int = 60,
+        polling_interval_seconds: int = None,
         user: Optional[User] = None
     ):
         self.session_factory = session_factory
@@ -249,7 +249,8 @@ class RiskEngineService:
         self.dca_order_repository_class = dca_order_repository_class
 
         self.order_service_class = order_service_class
-        self.polling_interval_seconds = polling_interval_seconds
+        # Use config value if polling_interval_seconds not explicitly provided
+        self.polling_interval_seconds = polling_interval_seconds if polling_interval_seconds is not None else risk_engine_config.evaluate_interval_seconds
         self.config = risk_engine_config
         self.user = user
         self._running = False
@@ -446,6 +447,14 @@ class RiskEngineService:
                         logger.warning(f"Risk Engine: No pyramid found for winner {winner_pg.symbol}. Skipping.")
                         continue
 
+                    # Cancel pending orders on winner if configured
+                    if config.cancel_orders_on_partial_close:
+                        try:
+                            await order_service.cancel_open_orders_for_group(winner_pg.id)
+                            logger.info(f"Risk Engine: Cancelled pending orders for winner {winner_pg.symbol} (ID: {winner_pg.id}) before partial close.")
+                        except Exception as cancel_err:
+                            logger.warning(f"Risk Engine: Failed to cancel orders for winner {winner_pg.symbol}: {cancel_err}")
+
                     await order_service.place_market_order(
                         user_id=winner_pg.user_id,
                         exchange=winner_pg.exchange,
@@ -460,7 +469,8 @@ class RiskEngineService:
                     winner_details.append({
                         "group_id": str(winner_pg.id),
                         "pnl_usd": str(winner_pg.unrealized_pnl_usd),
-                        "quantity_closed": str(quantity_to_close)
+                        "quantity_closed": str(quantity_to_close),
+                        "orders_cancelled": config.cancel_orders_on_partial_close
                     })
                 
                 risk_action = RiskAction(
@@ -621,7 +631,7 @@ class RiskEngineService:
             # Calculate projected offset plan
             projected_plan = []
             if loser and winners and required_usd > 0:
-                remaining_needed = required_usd
+                remaining_needed = float(required_usd)
                 for winner in winners:
                     if remaining_needed <= 0:
                         break
@@ -705,3 +715,21 @@ class RiskEngineService:
             logger.info("Risk Engine: Manually triggered single evaluation (Global).")
             await self._evaluate_positions()
         return {"status": "Risk evaluation completed"}
+
+    async def evaluate_on_fill_event(self, user: User, session: AsyncSession):
+        """
+        Triggered when a position fill occurs, if evaluate_on_fill is enabled.
+        This provides event-driven risk evaluation instead of/in addition to polling.
+
+        Args:
+            user: The user whose position was filled
+            session: Active database session
+        """
+        if not self.config.evaluate_on_fill:
+            return
+
+        logger.info(f"Risk Engine: Fill-triggered evaluation for user {user.id}.")
+        try:
+            await self._evaluate_user_positions(session, user)
+        except Exception as e:
+            logger.error(f"Risk Engine: Fill-triggered evaluation failed for user {user.id}: {e}")

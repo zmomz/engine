@@ -112,7 +112,7 @@ class QueueManagerService:
             signal = await repo.get_by_id(signal_id)
             if not signal:
                 return False
-            
+
             if user_id and signal.user_id != user_id:
                 logger.warning(f"User {user_id} attempted to remove signal {signal_id} belonging to {signal.user_id}")
                 return False
@@ -121,6 +121,47 @@ class QueueManagerService:
             if result:
                 await session.commit()
             return result
+
+    async def cancel_queued_signals_on_exit(
+        self,
+        user_id: uuid.UUID,
+        symbol: str,
+        exchange: str,
+        timeframe: int,
+        side: str
+    ) -> int:
+        """
+        Cancel all queued signals for a symbol/timeframe/side when an exit signal arrives.
+
+        This ensures that pending entry signals don't get promoted after the position
+        has already been closed by an exit signal.
+
+        Args:
+            user_id: The user's ID
+            symbol: Trading symbol (e.g., "BTCUSDT")
+            exchange: Exchange name (e.g., "binance")
+            timeframe: Timeframe in minutes
+            side: Position side ("long" or "short")
+
+        Returns:
+            Number of queued signals cancelled
+        """
+        async with self.session_factory() as session:
+            repo = self.queued_signal_repository_class(session)
+            cancelled_count = await repo.cancel_queued_signals_for_symbol(
+                user_id=str(user_id),
+                symbol=symbol,
+                exchange=exchange.lower(),
+                timeframe=timeframe,
+                side=side
+            )
+            if cancelled_count > 0:
+                await session.commit()
+                logger.info(
+                    f"Cancelled {cancelled_count} queued signal(s) for {symbol} {timeframe}m {side} "
+                    f"on exit signal (user: {user_id})"
+                )
+            return cancelled_count
 
     async def get_all_queued_signals(self, user_id: Optional[uuid.UUID] = None) -> List[QueuedSignal]:
          async with self.session_factory() as session:
@@ -233,17 +274,17 @@ class QueueManagerService:
                 )
                 
                 # Only treat as pyramid (bypass max groups) if the rule is ENABLED
-                if is_pyramid:
-                    if not pyramid_rule_enabled:
-                        logger.info(f"Signal {signal.symbol} matches active group, but 'Same Pair & Timeframe' rule is DISABLED. Evaluating as normal signal.")
-                        is_pyramid = False
-                    else:
-                        logger.info(f"Signal {signal.symbol} matches active group and rule is ENABLED. Treating as Pyramid (bypass limits).")
-                
-                slot_granted = await self.execution_pool_manager.request_slot(
-                    is_pyramid_continuation=is_pyramid,
-                    max_open_groups_override=user_max_groups
-                )
+                if is_pyramid and pyramid_rule_enabled:
+                    logger.info(f"Signal {signal.symbol} matches active group and 'same_pair_timeframe' rule is ENABLED. Bypassing pool limit for pyramid.")
+                    # Pyramid with bypass enabled - skip slot check entirely
+                    slot_granted = True
+                else:
+                    if is_pyramid and not pyramid_rule_enabled:
+                        logger.info(f"Signal {signal.symbol} matches active group, but 'same_pair_timeframe' rule is DISABLED. Competing for slot.")
+                    slot_granted = await self.execution_pool_manager.request_slot(
+                        max_open_groups_override=user_max_groups
+                    )
+
                 if not slot_granted:
                     return None
             
@@ -432,26 +473,27 @@ class QueueManagerService:
                 continue
 
             is_pyramid = any(
-                g.symbol == best_signal.symbol and 
+                g.symbol == best_signal.symbol and
                 g.exchange == best_signal.exchange and
-                g.timeframe == best_signal.timeframe and 
+                g.timeframe == best_signal.timeframe and
                 g.side == best_signal.side
                 for g in active_groups
             )
-            
+
             # Retrieve already loaded config (or default)
             pyramid_rule_enabled = priority_config.priority_rules_enabled.get("same_pair_timeframe", False)
-            
-            # Only treat as pyramid (bypass max groups) if the rule is ENABLED
-            if is_pyramid and not pyramid_rule_enabled:
-                 logger.info(f"Signal {best_signal.symbol} matches active group, but 'Same Pair & Timeframe' rule is DISABLED. Evaluating as normal signal.")
-                 is_pyramid = False
 
+            # Only treat as pyramid (bypass max groups) if the rule is ENABLED
             user_max_groups = risk_config.max_open_positions_global
-            slot_granted = await self.execution_pool_manager.request_slot(
-                is_pyramid_continuation=is_pyramid,
-                max_open_groups_override=user_max_groups
-            )
+            if is_pyramid and pyramid_rule_enabled:
+                logger.info(f"Signal {best_signal.symbol} matches active group and 'same_pair_timeframe' rule is ENABLED. Bypassing pool limit for pyramid.")
+                slot_granted = True
+            else:
+                if is_pyramid and not pyramid_rule_enabled:
+                    logger.info(f"Signal {best_signal.symbol} matches active group, but 'same_pair_timeframe' rule is DISABLED. Competing for slot.")
+                slot_granted = await self.execution_pool_manager.request_slot(
+                    max_open_groups_override=user_max_groups
+                )
             
             if slot_granted:
                 # Ensure priority metrics are saved to history

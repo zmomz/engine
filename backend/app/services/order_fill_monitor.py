@@ -15,11 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.dca_order import DCAOrderRepository
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.user import UserRepository
+from app.repositories.dca_configuration import DCAConfigurationRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.services.order_management import OrderService
 from app.services.position_manager import PositionManagerService
+from app.services.risk_engine import RiskEngineService
 from app.models.dca_order import DCAOrder, OrderStatus
+from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.core.security import EncryptionService
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,7 @@ class OrderFillMonitorService:
         position_group_repository_class: type[PositionGroupRepository],
         order_service_class: type[OrderService],
         position_manager_service_class: type[PositionManagerService],
+        risk_engine_config: RiskEngineConfig = None,
         polling_interval_seconds: int = 5
     ):
         self.session_factory = session_factory
@@ -39,6 +43,7 @@ class OrderFillMonitorService:
         self.position_group_repository_class = position_group_repository_class
         self.order_service_class = order_service_class
         self.position_manager_service_class = position_manager_service_class
+        self.risk_engine_config = risk_engine_config or RiskEngineConfig()
         self.polling_interval_seconds = polling_interval_seconds
         self._running = False
         self._monitor_task = None
@@ -47,6 +52,113 @@ class OrderFillMonitorService:
         except Exception as e:
             logger.error(f"OrderFillMonitor failed to init encryption service: {e}")
             self.encryption_service = None
+
+    async def _trigger_risk_evaluation_on_fill(self, user, session: AsyncSession):
+        """
+        Triggers risk engine evaluation if evaluate_on_fill is enabled.
+        Called after a position fill is detected.
+        """
+        if not self.risk_engine_config.evaluate_on_fill:
+            return
+
+        try:
+            from app.repositories.risk_action import RiskActionRepository
+
+            risk_engine = RiskEngineService(
+                session_factory=self.session_factory,
+                position_group_repository_class=self.position_group_repository_class,
+                risk_action_repository_class=RiskActionRepository,
+                dca_order_repository_class=self.dca_order_repository_class,
+                order_service_class=self.order_service_class,
+                risk_engine_config=self.risk_engine_config,
+                user=user
+            )
+            await risk_engine.evaluate_on_fill_event(user, session)
+        except Exception as e:
+            logger.error(f"OrderFillMonitor: Failed to trigger risk evaluation on fill for user {user.id}: {e}")
+
+    async def _check_dca_beyond_threshold(
+        self,
+        order: DCAOrder,
+        current_price: Decimal,
+        order_service,
+        session: AsyncSession
+    ):
+        """
+        Check if a pending DCA order should be cancelled because price has moved
+        beyond the configured threshold from the position's entry price.
+
+        Args:
+            order: The DCA order to check
+            current_price: Current market price
+            order_service: OrderService instance for cancellation
+            session: Database session
+        """
+        if not order.group:
+            return
+
+        # Load DCA config for this position group to check threshold
+        try:
+            dca_config_repo = DCAConfigurationRepository(session)
+
+            # Normalize pair format
+            symbol = order.group.symbol
+            normalized_pair = symbol
+            if '/' not in normalized_pair:
+                if normalized_pair.endswith('USDT'):
+                    normalized_pair = normalized_pair[:-4] + '/' + normalized_pair[-4:]
+                elif normalized_pair.endswith(('USD', 'BTC', 'ETH', 'BNB')):
+                    normalized_pair = normalized_pair[:-3] + '/' + normalized_pair[-3:]
+
+            specific_config = await dca_config_repo.get_specific_config(
+                user_id=order.group.user_id,
+                pair=normalized_pair,
+                timeframe=order.group.timeframe,
+                exchange=order.group.exchange.lower()
+            )
+
+            if not specific_config:
+                return
+
+            # Check if cancel_dca_beyond_percent is configured
+            # It may be stored in the config or not exist at all
+            cancel_threshold = None
+            if hasattr(specific_config, 'cancel_dca_beyond_percent'):
+                cancel_threshold = specific_config.cancel_dca_beyond_percent
+            elif isinstance(specific_config, dict) and 'cancel_dca_beyond_percent' in specific_config:
+                cancel_threshold = specific_config.get('cancel_dca_beyond_percent')
+
+            if cancel_threshold is None:
+                return
+
+            cancel_threshold = Decimal(str(cancel_threshold))
+
+            # Calculate how far price has moved from the position's weighted average entry
+            entry_price = order.group.weighted_avg_entry
+            if not entry_price or entry_price == 0:
+                return
+
+            # Calculate percent move
+            if order.group.side == "long":
+                # For long positions, we're concerned about price dropping too far
+                price_change_percent = ((current_price - entry_price) / entry_price) * Decimal("100")
+                # If price dropped beyond threshold (negative change exceeds negative threshold)
+                beyond_threshold = price_change_percent < -cancel_threshold
+            else:
+                # For short positions, we're concerned about price rising too far
+                price_change_percent = ((entry_price - current_price) / entry_price) * Decimal("100")
+                # If price rose beyond threshold (negative change exceeds negative threshold)
+                beyond_threshold = price_change_percent < -cancel_threshold
+
+            if beyond_threshold and order.status in [OrderStatus.OPEN.value, OrderStatus.TRIGGER_PENDING.value]:
+                logger.info(
+                    f"DCA order {order.id} for {order.symbol} cancelled: price moved {price_change_percent:.2f}% "
+                    f"beyond threshold of {cancel_threshold}%"
+                )
+                await order_service.cancel_order(order)
+
+        except Exception as e:
+            logger.warning(f"Failed to check DCA beyond threshold for order {order.id}: {e}")
 
     async def _check_orders(self):
         """
@@ -135,6 +247,8 @@ class OrderFillMonitorService:
                                                 # Flush tp_hit update before recalculating stats
                                                 await session.flush()
                                                 await position_manager.update_position_stats(updated_order.group_id, session=session)
+                                                # Trigger risk evaluation on TP hit (position closed/reduced)
+                                                await self._trigger_risk_evaluation_on_fill(user, session)
                                             continue
                                         
                                         # --- NEW TRIGGER LOGIC ---
@@ -142,16 +256,23 @@ class OrderFillMonitorService:
                                             # Watch price
                                             current_price = Decimal(str(await connector.get_current_price(order.symbol)))
                                             should_trigger = False
-                                            
+
+                                            # Check if DCA should be cancelled due to price moving beyond threshold
+                                            await self._check_dca_beyond_threshold(order, current_price, order_service, session)
+                                            # Refresh order status in case it was cancelled
+                                            await session.refresh(order)
+                                            if order.status == OrderStatus.CANCELLED.value:
+                                                continue
+
                                             logger.debug(f"Checking Trigger for Order {order.id} ({order.side}): Target {order.price}, Current {current_price}")
-                                            
+
                                             if order.side == "buy":
                                                 if current_price <= order.price:
                                                     should_trigger = True
                                             else: # sell
                                                 if current_price >= order.price:
                                                     should_trigger = True
-                                            
+
                                             if should_trigger:
                                                 logger.info(f"Trigger condition met for Order {order.id}. Submitting Market Order.")
                                                 # Submit now. OrderService handles placing market order.
@@ -159,23 +280,26 @@ class OrderFillMonitorService:
                                                 # After submit, status should be FILLED (market) or OPEN.
                                                 await session.refresh(order)
                                                 logger.info(f"Triggered Order {order.id} status is now {order.status}")
-                                                
+
                                                 if order.status == OrderStatus.FILLED.value:
                                                     await position_manager.update_position_stats(order.group_id, session=session)
-                                                    # Market orders usually fill immediately, TPs are placed by position manager if needed?
-                                                    # Actually PositionManager creates TP Objects? No, OrderService places TP logic?
-                                                    # Wait, `submit_order` places entry. TP monitoring is separate?
-                                                    # In this system, TPs are separate Limit orders created in `create_position_group`.
-                                                    # If this was entry (Leg 0), we don't have a TP order for it yet?
-                                                    # Actually `create_position_group` created all DCA orders.
-                                                    # Does it create TP orders?
-                                                    # `dca_order` model has `tp_percent`.
-                                                    # The system seems to place TP "when a leg fills" (User Request: "When a leg fills, place limit TP order")
-                                                    
                                                     # So we need to call `place_tp_order` if filled.
                                                     await order_service.place_tp_order(order)
+                                                    # Trigger risk evaluation on fill
+                                                    await self._trigger_risk_evaluation_on_fill(user, session)
                                             continue
                                         # -------------------------
+
+                                        # Check if OPEN DCA order should be cancelled due to price beyond threshold
+                                        if order.status == OrderStatus.OPEN.value:
+                                            try:
+                                                current_price = Decimal(str(await connector.get_current_price(order.symbol)))
+                                                await self._check_dca_beyond_threshold(order, current_price, order_service, session)
+                                                await session.refresh(order)
+                                                if order.status == OrderStatus.CANCELLED.value:
+                                                    continue
+                                            except Exception as price_err:
+                                                logger.debug(f"Could not fetch price for DCA threshold check: {price_err}")
 
                                         # Attempt to get order status from the exchange
                                         # This may trigger the Bybit workaround which marks order as FILLED
@@ -193,14 +317,32 @@ class OrderFillMonitorService:
 
                                         # Handle filled orders
                                         if updated_order.status == OrderStatus.FILLED.value:
-                                            
+
                                             # CRITICAL: Flush order status and filled details update before recalculating stats
                                             await session.flush()
-                                            
+
                                             logger.info(f"Order {order.id} FILLED - updating position stats and placing TP order")
                                             await position_manager.update_position_stats(updated_order.group_id, session=session)
                                             await order_service.place_tp_order(updated_order)
                                             logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
+                                            # Trigger risk evaluation on fill
+                                            await self._trigger_risk_evaluation_on_fill(user, session)
+
+                                        # Handle partially filled orders - place TP for filled portion
+                                        elif updated_order.status == OrderStatus.PARTIALLY_FILLED.value:
+                                            await session.flush()
+
+                                            # Only place partial TP if we have filled quantity and no TP order yet
+                                            if updated_order.filled_quantity and updated_order.filled_quantity > 0 and not updated_order.tp_order_id:
+                                                logger.info(
+                                                    f"Order {order.id} PARTIALLY_FILLED ({updated_order.filled_quantity}/{updated_order.quantity}) "
+                                                    f"- updating position stats and placing partial TP order"
+                                                )
+                                                await position_manager.update_position_stats(updated_order.group_id, session=session)
+                                                await order_service.place_tp_order_for_partial_fill(updated_order)
+                                                logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
+                                                # Trigger risk evaluation on partial fill
+                                                await self._trigger_risk_evaluation_on_fill(user, session)
                                                 
                                     except Exception as e:
                                         logger.error(f"Error processing loop for order {order.id}: {e}")

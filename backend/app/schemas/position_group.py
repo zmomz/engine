@@ -50,7 +50,6 @@ class PositionGroupSchema(BaseModel):
     status: PositionGroupStatus
     pyramid_count: int
     max_pyramids: int
-    replacement_count: int
     total_dca_legs: int
     filled_dca_legs: int
     base_entry_price: Decimal

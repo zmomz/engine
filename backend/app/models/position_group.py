@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -41,6 +42,17 @@ class PositionGroup(Base):
 
     __tablename__ = "position_groups"
 
+    # Partial unique index to prevent duplicate active positions
+    # Only applies when status is not 'closed' or 'failed'
+    __table_args__ = (
+        Index(
+            'uix_active_position_group',
+            'user_id', 'symbol', 'exchange', 'timeframe', 'side',
+            unique=True,
+            postgresql_where="status NOT IN ('closed', 'failed')"
+        ),
+    )
+
     # Identity
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
     user_id = Column(GUID, ForeignKey("users.id"), nullable=False)
@@ -59,7 +71,6 @@ class PositionGroup(Base):
     # Pyramid tracking
     pyramid_count = Column(Integer, default=0)
     max_pyramids = Column(Integer, default=5)
-    replacement_count = Column(Integer, default=0)
 
     # DCA tracking
     total_dca_legs = Column(Integer, nullable=False)

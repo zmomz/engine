@@ -64,15 +64,24 @@ async def test_request_slot_not_available(execution_pool_manager_service, mock_p
     execution_pool_manager_service.get_current_pool_size.assert_called_once_with(for_update=True)
 
 @pytest.mark.asyncio
-async def test_request_slot_pyramid_continuation_bypasses_limit(execution_pool_manager_service, mock_position_group_repository_class):
+async def test_request_slot_with_override(execution_pool_manager_service, mock_position_group_repository_class):
     """
-    Test that a pyramid continuation always grants a slot, regardless of pool size.
+    Test that max_open_groups_override parameter works correctly.
+
+    Note: Pyramid continuation bypass is handled at the signal routing level
+    via the same_pair_timeframe priority rule configuration, not here.
     """
-    # Even if the pool is full, a pyramid continuation should be granted a slot
-    execution_pool_manager_service.get_current_pool_size = AsyncMock(return_value=3) # Pool is full
-    
-    slot_granted = await execution_pool_manager_service.request_slot(is_pyramid_continuation=True)
-    
+    # Pool has 2 active groups
+    execution_pool_manager_service.get_current_pool_size = AsyncMock(return_value=2)
+
+    # With default limit of 3, should grant slot
+    slot_granted = await execution_pool_manager_service.request_slot()
     assert slot_granted is True
-    # get_current_pool_size should NOT be called for pyramid continuations
-    execution_pool_manager_service.get_current_pool_size.assert_not_called()
+
+    # With override limit of 2, should deny slot (2 >= 2)
+    slot_granted = await execution_pool_manager_service.request_slot(max_open_groups_override=2)
+    assert slot_granted is False
+
+    # With override limit of 3, should grant slot (2 < 3)
+    slot_granted = await execution_pool_manager_service.request_slot(max_open_groups_override=3)
+    assert slot_granted is True

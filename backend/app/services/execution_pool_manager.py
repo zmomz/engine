@@ -38,21 +38,23 @@ class ExecutionPoolManager:
             logger.info(f"ExecutionPoolManager: Counted {count} active groups with statuses {active_statuses}")
             return count
 
-    async def request_slot(self, is_pyramid_continuation: bool = False, max_open_groups_override: Optional[int] = None) -> bool:
+    async def request_slot(self, max_open_groups_override: Optional[int] = None) -> bool:
         """
-        Requests a slot in the execution pool within a given session.
-        Pyramid continuations bypass the max position limit.
+        Requests a slot in the execution pool.
         Returns True if a slot is granted, False otherwise.
-        """
-        if is_pyramid_continuation:
-            logger.info("ExecutionPoolManager: Granting slot for pyramid continuation")
-            return True
 
+        Note: Pyramid continuation bypass is handled at the signal routing level
+        via the `same_pair_timeframe` priority rule configuration, not here.
+        When the rule is enabled, pyramids skip calling this method entirely.
+
+        Args:
+            max_open_groups_override: Optional override for max open groups limit
+        """
         current_size = await self.get_current_pool_size(for_update=True)
         limit = max_open_groups_override if max_open_groups_override is not None else self.max_open_groups
-        
+
         logger.info(f"ExecutionPoolManager: Requesting slot. Current: {current_size}, Max: {limit}")
-        
+
         if current_size < limit:
             return True
         else:

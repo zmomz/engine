@@ -23,6 +23,10 @@ const mockRiskStatus = {
     unrealized_pnl_usd: -100,
     risk_blocked: false,
     risk_skip_once: false,
+    pyramids_reached: true,
+    age_filter_passed: true,
+    loss_threshold_reached: true,
+    timer_expired: true,
   },
   identified_winners: [
     {
@@ -32,10 +36,12 @@ const mockRiskStatus = {
     }
   ],
   required_offset_usd: 100,
+  total_available_profit: 50,
   risk_engine_running: true,
   config: {
     max_open_positions_global: 5,
-  }
+  },
+  projected_plan: [],
 };
 
 describe('RiskPage', () => {

@@ -18,7 +18,7 @@ from app.models.user import User
 from app.models.queued_signal import QueuedSignal
 from app.schemas.webhook_payloads import WebhookPayload
 
-from app.services.position_manager import PositionManagerService
+from app.services.position_manager import PositionManagerService, DuplicatePositionException
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.services.precision_validator import PrecisionValidator
@@ -138,10 +138,22 @@ class SignalRouterService:
             return f"Configuration Error: Failed to initialize exchange connector for {signal.tv.exchange}"
         
         try:
-            # Precision Validation (Block if metadata missing)
+            # Precision Validation (configurable via risk_config.precision)
+            precision_config = risk_config.precision
+            fallback_rules = {
+                "tick_size": float(precision_config.fallback_rules.tick_size),
+                "step_size": float(precision_config.fallback_rules.step_size),
+                "min_qty": float(precision_config.fallback_rules.min_qty),
+                "min_notional": float(precision_config.fallback_rules.min_notional),
+            }
+
             try:
                 precision_rules = await exchange.get_precision_rules()
-                validator = PrecisionValidator(precision_rules)
+                validator = PrecisionValidator(
+                    precision_rules=precision_rules,
+                    fallback_rules=fallback_rules,
+                    block_on_missing=precision_config.block_on_missing_metadata
+                )
                 if not validator.validate_symbol(signal.tv.symbol):
                     response_message = f"Validation Error: Metadata missing or incomplete for symbol {signal.tv.symbol}"
                     return response_message
@@ -149,8 +161,18 @@ class SignalRouterService:
                 import traceback
                 logger.error(f"Signal Router: Precision validation failed: {e}")
                 logger.error(f"Traceback: {traceback.format_exc()}")
-                response_message = f"Validation Error: Failed to fetch precision rules: {e}"
-                return response_message
+                # If block_on_missing is False, we can proceed with fallback rules
+                if not precision_config.block_on_missing_metadata:
+                    logger.warning(f"Precision fetch failed but block_on_missing=False. Using fallback rules.")
+                    precision_rules = {signal.tv.symbol: fallback_rules}
+                    validator = PrecisionValidator(
+                        precision_rules=precision_rules,
+                        fallback_rules=fallback_rules,
+                        block_on_missing=False
+                    )
+                else:
+                    response_message = f"Validation Error: Failed to fetch precision rules: {e}"
+                    return response_message
 
             grid_calc = GridCalculatorService()
             
@@ -162,25 +184,50 @@ class SignalRouterService:
                 order_service_class=OrderService
             )
 
-            # 1. Check for Existing Active Group
-            active_groups = await pg_repo.get_active_position_groups_for_user(self.user.id)
-            logger.debug(f"DEBUG: Active groups found: {active_groups}")
-            
             # --- Handle Exit Signal ---
             intent_type = signal.execution_intent.type.lower() if signal.execution_intent else "signal"
             if intent_type == "exit":
                 # Determine target position side to close
                 # If action is 'buy', we close 'long'. If 'sell', we close 'short'.
                 target_side = "long" if signal.tv.action.lower() == "buy" else "short"
-                
-                group_to_close = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.exchange == signal.tv.exchange and g.side == target_side), None)
-                
+
+                # Cancel any queued signals for this symbol/timeframe/side
+                # This prevents queued entries from being promoted after the position is closed
+                cancelled_count = await queue_service.cancel_queued_signals_on_exit(
+                    user_id=self.user.id,
+                    symbol=signal.tv.symbol,
+                    exchange=signal.tv.exchange.lower(),
+                    timeframe=signal.tv.timeframe,
+                    side=target_side
+                )
+                if cancelled_count > 0:
+                    logger.info(f"Cancelled {cancelled_count} queued signal(s) for {signal.tv.symbol} on exit")
+
+                # Use SQL-based lookup with row locking and timeframe matching
+                group_to_close = await pg_repo.get_active_position_group_for_exit(
+                    user_id=self.user.id,
+                    symbol=signal.tv.symbol,
+                    exchange=signal.tv.exchange.lower(),
+                    side=target_side,
+                    timeframe=signal.tv.timeframe,  # Match timeframe for exit signals
+                    for_update=True
+                )
+                logger.debug(f"DEBUG: Exit signal - group_to_close: {group_to_close}")
+
                 if group_to_close:
-                    await pos_manager.handle_exit_signal(group_to_close.id)
+                    await pos_manager.handle_exit_signal(
+                        group_to_close.id,
+                        max_slippage_percent=risk_config.max_slippage_percent,
+                        slippage_action=risk_config.slippage_action
+                    )
                     response_message = f"Exit signal executed for {signal.tv.symbol}"
+                    if cancelled_count > 0:
+                        response_message += f" ({cancelled_count} queued signal(s) cancelled)"
                 else:
-                    logger.warning(f"Exit signal received for {signal.tv.symbol} but no active {target_side} position found.")
+                    logger.warning(f"Exit signal received for {signal.tv.symbol} (timeframe: {signal.tv.timeframe}) but no active {target_side} position found.")
                     response_message = f"No active {target_side} position found for {signal.tv.symbol} to exit."
+                    if cancelled_count > 0:
+                        response_message += f" ({cancelled_count} queued signal(s) cancelled)"
 
             # --- Handle Entry/Pyramid Signal ---
             else: # intent_type != "exit"
@@ -193,8 +240,16 @@ class SignalRouterService:
                 else:
                     signal_side = raw_action # Fallback
 
-                existing_group = next((g for g in active_groups if g.symbol == signal.tv.symbol and g.exchange == signal.tv.exchange and g.timeframe == signal.tv.timeframe and g.side == signal_side), None)
-                logger.debug(f"DEBUG: Existing group after next(): {existing_group}")
+                # Use SQL-based lookup with row locking to prevent race conditions
+                existing_group = await pg_repo.get_active_position_group_for_signal(
+                    user_id=self.user.id,
+                    symbol=signal.tv.symbol,
+                    exchange=signal.tv.exchange.lower(),
+                    timeframe=signal.tv.timeframe,
+                    side=signal_side,
+                    for_update=True
+                )
+                logger.debug(f"DEBUG: Existing group from SQL query: {existing_group}")
                 
                 # Fetch Capital (Try to get from exchange, fallback to default)
                 total_capital = Decimal("1000")
@@ -229,7 +284,7 @@ class SignalRouterService:
                             entry_price=Decimal(str(signal.tv.entry_price)),
                             signal_payload=signal.model_dump(mode='json')
                         )
-                        
+
                         new_position_group = await pos_manager.create_position_group_from_signal(
                             session=db_session,
                             user_id=self.user.id,
@@ -239,13 +294,16 @@ class SignalRouterService:
                             total_capital_usd=total_capital
                         )
                         await db_session.commit()
-                        
+
                         if new_position_group.status == PositionGroupStatus.FAILED:
                             logger.warning(f"New position created for {signal.tv.symbol}, but order submission failed. Status: FAILED.")
                             return f"New position created for {signal.tv.symbol}, but order submission failed."
                         else:
                             logger.info(f"New position created for {signal.tv.symbol}. Status: {new_position_group.status.value}")
                             return f"New position created for {signal.tv.symbol}"
+                    except DuplicatePositionException as e:
+                        logger.warning(f"Duplicate position rejected: {e}")
+                        return f"Duplicate position rejected: {e}"
                     except Exception as e:
                         logger.error(f"New position execution failed: {e}")
                         return f"New position execution failed: {e}"
@@ -288,13 +346,13 @@ class SignalRouterService:
 
                 if existing_group:
                     # Pyramid Logic Check
-                    if existing_group.pyramid_count < dca_config.max_pyramids - 1:
+                    if existing_group.pyramid_count < dca_config.max_pyramids:
                         # Check Priority Rules for Bypass
                         priority_rules = risk_config.priority_rules
                         bypass_enabled = priority_rules.priority_rules_enabled.get("same_pair_timeframe", False)
-                        
+
                         slot_available = False
-                        
+
                         if bypass_enabled:
                             logger.info(f"Pyramid bypass rule ENABLED. Granting implicit slot for {signal.tv.symbol}")
                             slot_available = True
@@ -302,12 +360,13 @@ class SignalRouterService:
                             # Rule DISABLED: Must compete for a standard slot
                             logger.info(f"Pyramid bypass rule DISABLED. Requesting standard slot for {signal.tv.symbol}")
                             slot_available = await exec_pool.request_slot()
-                        
+
                         if slot_available:
                             response_message = await execute_pyramid(existing_group)
                         else:
                             response_message = await queue_signal("Pool full (Rule Disabled).")
                     else:
+                        logger.warning(f"Max pyramids reached for {signal.tv.symbol} (count: {existing_group.pyramid_count}, max: {dca_config.max_pyramids}). Signal ignored.")
                         response_message = "Max pyramids reached. Signal ignored."
 
                 else:

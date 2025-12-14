@@ -436,3 +436,600 @@ async def test_check_order_status_unknown_error(order_service, mock_exchange_con
     assert "Failed to retrieve order status: Something went wrong" in str(exc_info.value)
     mock_dca_order_repository.update.assert_not_awaited()
     assert mock_dca_order.status == OrderStatus.OPEN
+
+
+@pytest.mark.asyncio
+async def test_place_tp_order_success(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test successful TP order placement for a filled order."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0.001"),
+        avg_fill_price=Decimal("60000"),
+        tp_order_id=None
+    )
+
+    mock_exchange_connector.place_order.return_value = {
+        "id": "tp_order_123",
+        "status": "open"
+    }
+    mock_exchange_connector.get_precision_rules.return_value = {
+        "BTC/USDT": {"tick_size": "0.01", "step_size": "0.00001"}
+    }
+
+    updated_order = await order_service.place_tp_order(mock_dca_order)
+
+    assert updated_order.tp_order_id == "tp_order_123"
+    mock_exchange_connector.place_order.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_place_tp_order_already_has_tp(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test that TP order is not placed if one already exists."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0.001"),
+        tp_order_id="existing_tp_order"  # Already has TP
+    )
+
+    result = await order_service.place_tp_order(mock_dca_order)
+
+    assert result.tp_order_id == "existing_tp_order"
+    mock_exchange_connector.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_place_tp_order_not_filled(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test that TP order cannot be placed for unfilled order."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.OPEN,
+        exchange_order_id="exchange_order_123"
+    )
+
+    with pytest.raises(APIError, match="Cannot place TP order for unfilled order"):
+        await order_service.place_tp_order(mock_dca_order)
+
+
+@pytest.mark.asyncio
+async def test_place_tp_order_for_partial_fill(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test TP order placement for partially filled order."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.01"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.PARTIALLY_FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0.005"),
+        avg_fill_price=Decimal("60000"),
+        tp_order_id=None
+    )
+
+    mock_exchange_connector.place_order.return_value = {
+        "id": "partial_tp_order",
+        "status": "open"
+    }
+    mock_exchange_connector.get_precision_rules.return_value = {
+        "BTC/USDT": {"tick_size": "0.01"}
+    }
+
+    result = await order_service.place_tp_order_for_partial_fill(mock_dca_order)
+
+    assert result.tp_order_id == "partial_tp_order"
+
+
+@pytest.mark.asyncio
+async def test_place_tp_order_for_partial_fill_no_filled_quantity(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test that partial TP is not placed when no filled quantity."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.01"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.PARTIALLY_FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0"),  # No filled quantity
+        tp_order_id=None
+    )
+
+    result = await order_service.place_tp_order_for_partial_fill(mock_dca_order)
+
+    # Should return same order without placing TP
+    mock_exchange_connector.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_tp_status_hit(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test checking TP status when TP is hit."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0.001"),
+        tp_order_id="tp_order_123",
+        tp_hit=False
+    )
+
+    mock_exchange_connector.get_order_status.return_value = {
+        "id": "tp_order_123",
+        "status": "closed",
+        "filled": 0.001,
+        "average": 60600
+    }
+
+    result = await order_service.check_tp_status(mock_dca_order)
+
+    assert result.tp_hit is True
+
+
+@pytest.mark.asyncio
+async def test_check_tp_status_no_tp_order(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test checking TP status when no TP order exists."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0.001"),
+        tp_order_id=None  # No TP order
+    )
+
+    result = await order_service.check_tp_status(mock_dca_order)
+
+    mock_exchange_connector.get_order_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_order_no_exchange_id(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test cancelling order without exchange_order_id."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.OPEN,
+        exchange_order_id=None  # No exchange order ID
+    )
+
+    result = await order_service.cancel_order(mock_dca_order)
+
+    assert result.status == OrderStatus.CANCELLED
+    mock_exchange_connector.cancel_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_tp_order_success(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test successful TP order cancellation."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.FILLED,
+        exchange_order_id="exchange_order_123",
+        filled_quantity=Decimal("0.001"),
+        tp_order_id="tp_order_123",
+        tp_hit=False
+    )
+
+    mock_exchange_connector.cancel_order.return_value = {
+        "id": "tp_order_123",
+        "status": "canceled"
+    }
+
+    result = await order_service.cancel_tp_order(mock_dca_order)
+
+    assert result.tp_order_id is None
+    mock_exchange_connector.cancel_order.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_tp_order_no_tp(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test TP cancellation when no TP order exists."""
+    mock_dca_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=uuid.uuid4(),
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.FILLED,
+        exchange_order_id="exchange_order_123",
+        tp_order_id=None  # No TP order
+    )
+
+    result = await order_service.cancel_tp_order(mock_dca_order)
+
+    mock_exchange_connector.cancel_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_place_market_order_success(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test successful market order placement."""
+    mock_exchange_connector.place_order.return_value = {
+        "id": "market_order_123",
+        "status": "closed",
+        "filled": 0.001,
+        "average": 60000
+    }
+
+    result = await order_service.place_market_order(
+        user_id=uuid.uuid4(),
+        exchange="binance",
+        symbol="BTC/USDT",
+        side="sell",
+        quantity=Decimal("0.001")
+    )
+
+    assert result["id"] == "market_order_123"
+    mock_exchange_connector.place_order.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_place_market_order_with_slippage_warning(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test market order with slippage warning."""
+    mock_exchange_connector.place_order.return_value = {
+        "id": "market_order_123",
+        "status": "closed",
+        "filled": 0.001,
+        "average": 59400  # 1% slippage for sell
+    }
+
+    result = await order_service.place_market_order(
+        user_id=uuid.uuid4(),
+        exchange="binance",
+        symbol="BTC/USDT",
+        side="sell",
+        quantity=Decimal("0.001"),
+        expected_price=Decimal("60000"),
+        max_slippage_percent=0.5,  # 0.5% max
+        slippage_action="warn"  # Just warn
+    )
+
+    # Should complete even with slippage warning
+    assert result["id"] == "market_order_123"
+
+
+@pytest.mark.asyncio
+async def test_place_market_order_with_slippage_reject(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test market order rejection when slippage exceeds threshold."""
+    from app.exceptions import SlippageExceededError
+
+    mock_exchange_connector.place_order.return_value = {
+        "id": "market_order_123",
+        "status": "closed",
+        "filled": 0.001,
+        "average": 59400  # ~1% slippage
+    }
+
+    with pytest.raises(SlippageExceededError):
+        await order_service.place_market_order(
+            user_id=uuid.uuid4(),
+            exchange="binance",
+            symbol="BTC/USDT",
+            side="sell",
+            quantity=Decimal("0.001"),
+            expected_price=Decimal("60000"),
+            max_slippage_percent=0.5,
+            slippage_action="reject"
+        )
+
+
+@pytest.mark.asyncio
+async def test_place_market_order_with_db_record(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test market order with database recording."""
+    position_group_id = uuid.uuid4()
+
+    mock_exchange_connector.place_order.return_value = {
+        "id": "market_order_123",
+        "status": "closed",
+        "filled": 0.001,
+        "average": 60000
+    }
+
+    result = await order_service.place_market_order(
+        user_id=uuid.uuid4(),
+        exchange="binance",
+        symbol="BTC/USDT",
+        side="sell",
+        quantity=Decimal("0.001"),
+        position_group_id=position_group_id,
+        record_in_db=True
+    )
+
+    assert result["id"] == "market_order_123"
+    mock_dca_order_repository.create.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_open_orders_for_group(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test cancelling all open orders for a group."""
+    group_id = uuid.uuid4()
+
+    open_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=group_id,
+        pyramid_id=uuid.uuid4(),
+        leg_index=0,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("60000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("0"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("60600"),
+        status=OrderStatus.OPEN.value,
+        exchange_order_id="exchange_order_1"
+    )
+
+    filled_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=group_id,
+        pyramid_id=uuid.uuid4(),
+        leg_index=1,
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        price=Decimal("59000"),
+        quantity=Decimal("0.001"),
+        gap_percent=Decimal("-1"),
+        weight_percent=Decimal("20"),
+        tp_percent=Decimal("1"),
+        tp_price=Decimal("59590"),
+        status=OrderStatus.FILLED.value,
+        exchange_order_id="exchange_order_2",
+        filled_quantity=Decimal("0.001"),
+        tp_order_id="tp_order_1"
+    )
+
+    mock_dca_order_repository.get_all_orders_by_group_id.return_value = [open_order, filled_order]
+    mock_exchange_connector.cancel_order.return_value = {"id": "order", "status": "canceled"}
+
+    await order_service.cancel_open_orders_for_group(group_id)
+
+    # Should cancel open order and TP order
+    assert mock_exchange_connector.cancel_order.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_close_position_market_long(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test closing a long position with market order."""
+    from app.models.position_group import PositionGroup
+
+    position_group = MagicMock(spec=PositionGroup)
+    position_group.id = uuid.uuid4()
+    position_group.user_id = uuid.uuid4()
+    position_group.side = "long"
+    position_group.symbol = "BTC/USDT"
+    position_group.exchange = "binance"
+
+    mock_exchange_connector.place_order.return_value = {
+        "id": "close_order_123",
+        "status": "closed",
+        "filled": 0.1
+    }
+
+    await order_service.close_position_market(
+        position_group=position_group,
+        quantity_to_close=Decimal("0.1")
+    )
+
+    # For long, close side should be SELL
+    call_args = mock_exchange_connector.place_order.call_args
+    assert call_args.kwargs["side"] == "SELL"
+
+
+@pytest.mark.asyncio
+async def test_close_position_market_short(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test closing a short position with market order."""
+    from app.models.position_group import PositionGroup
+
+    position_group = MagicMock(spec=PositionGroup)
+    position_group.id = uuid.uuid4()
+    position_group.user_id = uuid.uuid4()
+    position_group.side = "short"
+    position_group.symbol = "BTC/USDT"
+    position_group.exchange = "binance"
+
+    mock_exchange_connector.place_order.return_value = {
+        "id": "close_order_123",
+        "status": "closed",
+        "filled": 0.1
+    }
+
+    await order_service.close_position_market(
+        position_group=position_group,
+        quantity_to_close=Decimal("0.1")
+    )
+
+    # For short, close side should be BUY
+    call_args = mock_exchange_connector.place_order.call_args
+    assert call_args.kwargs["side"] == "BUY"
+
+
+@pytest.mark.asyncio
+async def test_execute_force_close_success(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test successful force close initiation."""
+    from app.models.position_group import PositionGroup, PositionGroupStatus
+    from app.repositories.position_group import PositionGroupRepository
+
+    group_id = uuid.uuid4()
+    user_id = order_service.user.id
+
+    mock_position_group = MagicMock(spec=PositionGroup)
+    mock_position_group.id = group_id
+    mock_position_group.user_id = user_id
+    mock_position_group.status = PositionGroupStatus.ACTIVE.value
+
+    # Mock the repository
+    mock_position_repo = AsyncMock()
+    mock_position_repo.get.return_value = mock_position_group
+    mock_position_repo.update = AsyncMock()
+    order_service.position_group_repository = mock_position_repo
+
+    result = await order_service.execute_force_close(group_id)
+
+    assert result.status == PositionGroupStatus.CLOSING.value
+
+
+@pytest.mark.asyncio
+async def test_execute_force_close_not_found(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test force close for non-existent position."""
+    group_id = uuid.uuid4()
+
+    mock_position_repo = AsyncMock()
+    mock_position_repo.get.return_value = None
+    order_service.position_group_repository = mock_position_repo
+
+    with pytest.raises(APIError, match="not found"):
+        await order_service.execute_force_close(group_id)
+
+
+@pytest.mark.asyncio
+async def test_execute_force_close_unauthorized(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test force close for position owned by another user."""
+    from app.models.position_group import PositionGroup, PositionGroupStatus
+
+    group_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
+
+    mock_position_group = MagicMock(spec=PositionGroup)
+    mock_position_group.id = group_id
+    mock_position_group.user_id = other_user_id  # Different user
+    mock_position_group.status = PositionGroupStatus.ACTIVE.value
+
+    mock_position_repo = AsyncMock()
+    mock_position_repo.get.return_value = mock_position_group
+    order_service.position_group_repository = mock_position_repo
+
+    with pytest.raises(APIError, match="Not authorized"):
+        await order_service.execute_force_close(group_id)
+
+
+@pytest.mark.asyncio
+async def test_execute_force_close_already_closed(order_service, mock_exchange_connector, mock_dca_order_repository):
+    """Test force close for already closed position."""
+    from app.models.position_group import PositionGroup, PositionGroupStatus
+
+    group_id = uuid.uuid4()
+    user_id = order_service.user.id
+
+    mock_position_group = MagicMock(spec=PositionGroup)
+    mock_position_group.id = group_id
+    mock_position_group.user_id = user_id
+    mock_position_group.status = PositionGroupStatus.CLOSED.value  # Already closed
+
+    mock_position_repo = AsyncMock()
+    mock_position_repo.get.return_value = mock_position_group
+    order_service.position_group_repository = mock_position_repo
+
+    with pytest.raises(APIError, match="already closed"):
+        await order_service.execute_force_close(group_id)
