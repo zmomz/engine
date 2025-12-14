@@ -23,10 +23,15 @@ async def test_full_signal_flow_new_position(
     3. Verifies that a new PositionGroup is created in the database.
     4. Verifies that the correct number of DCAOrder records are created.
     5. Verifies that the correct number of orders were placed on the mock exchange.
+
+    Note: This test requires the mock-exchange service to be running on port 9000.
     """
-    # 0. Clear mock exchange state before test
-    async with httpx.AsyncClient() as client:
-        await client.delete("http://mock-exchange:9000/test/orders")
+    # 0. Clear mock exchange state before test (skip if not available)
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.delete("http://mock-exchange:9000/test/orders")
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pytest.skip("Mock exchange service not available at http://mock-exchange:9000")
 
     # 1. Send a valid webhook payload
     # Update user to use mock exchange to avoid real API calls/errors

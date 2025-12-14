@@ -6,12 +6,24 @@ from app.services.exchange_abstraction.interface import ExchangeInterface
 class PrecisionService:
     """
     Service for fetching and caching exchange precision rules.
+
+    Supports configurable cache TTL via precision.refresh_seconds in RiskEngineConfig.
     """
-    def __init__(self, exchange_connector: ExchangeInterface, cache_ttl_minutes: int = 60):
+    def __init__(
+        self,
+        exchange_connector: ExchangeInterface,
+        cache_ttl_seconds: int = 3600,
+        cache_ttl_minutes: int = None  # Deprecated, kept for backward compatibility
+    ):
         self.exchange_connector = exchange_connector
         self._cache: Dict[str, Any] = {}
         self._last_fetched: Optional[datetime] = None
-        self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
+
+        # Support both new seconds-based and legacy minutes-based TTL
+        if cache_ttl_minutes is not None:
+            self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
+        else:
+            self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
 
     async def fetch_and_cache_precision_rules(self) -> Dict[str, Any]:
         """

@@ -63,3 +63,61 @@ class QueuedSignalRepository(BaseRepository[QueuedSignal]):
             .limit(limit)
         )
         return result.scalars().all()
+
+    async def get_queued_signals_for_symbol(
+        self,
+        user_id: str,
+        symbol: str,
+        exchange: str,
+        timeframe: int = None,
+        side: str = None
+    ) -> List[QueuedSignal]:
+        """
+        Get all queued signals for a specific symbol.
+        Optionally filter by timeframe and/or side.
+        """
+        conditions = [
+            self.model.user_id == user_id,
+            self.model.symbol == symbol,
+            self.model.exchange == exchange,
+            self.model.status == QueueStatus.QUEUED.value
+        ]
+        if timeframe is not None:
+            conditions.append(self.model.timeframe == timeframe)
+        if side is not None:
+            conditions.append(self.model.side == side)
+
+        result = await self.session.execute(
+            select(self.model).where(*conditions)
+        )
+        return result.scalars().all()
+
+    async def cancel_queued_signals_for_symbol(
+        self,
+        user_id: str,
+        symbol: str,
+        exchange: str,
+        timeframe: int = None,
+        side: str = None
+    ) -> int:
+        """
+        Cancel (delete) all queued signals for a specific symbol.
+        Returns the number of signals cancelled.
+
+        Used when an exit signal arrives to clean up any pending entries
+        for the same symbol/timeframe.
+        """
+        signals = await self.get_queued_signals_for_symbol(
+            user_id=user_id,
+            symbol=symbol,
+            exchange=exchange,
+            timeframe=timeframe,
+            side=side
+        )
+
+        count = 0
+        for signal in signals:
+            await self.delete(signal.id)
+            count += 1
+
+        return count

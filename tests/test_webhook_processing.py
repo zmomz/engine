@@ -31,6 +31,7 @@ async def test_webhook_invalid_signature_rejection(test_db_session, mocker):
     class MockUser:
         def __init__(self, id, webhook_secret):
             self.id = id
+            self.username = "test_user"
             self.webhook_secret = webhook_secret
             self.encrypted_api_keys = {"encrypted_data": "dummy"}
             self.exchange = "binance"
@@ -38,7 +39,7 @@ async def test_webhook_invalid_signature_rejection(test_db_session, mocker):
             self.dca_grid_config = {}
 
     mock_user_instance = MockUser(id=user_id, webhook_secret="valid_secret")
-    
+
     # Mock UserRepository.get_by_id to return our mock_user_instance
     mocker.patch.object(UserRepository, "get_by_id", AsyncMock(return_value=mock_user_instance))
 
@@ -95,6 +96,7 @@ async def test_webhook_missing_required_fields(test_db_session, mocker):
     class MockUser:
         def __init__(self, id, webhook_secret):
             self.id = id
+            self.username = "test_user"
             self.webhook_secret = webhook_secret
             self.encrypted_api_keys = {"encrypted_data": "dummy"}
             self.exchange = "binance"
@@ -103,9 +105,9 @@ async def test_webhook_missing_required_fields(test_db_session, mocker):
 
     mock_user_instance = MockUser(id=user_id, webhook_secret="valid_secret")
     mocker.patch.object(UserRepository, "get_by_id", AsyncMock(return_value=mock_user_instance))
-    
+
     app.dependency_overrides[get_db_session] = lambda: test_db_session
-    
+
     async with AsyncClient(app=app, base_url="http://test") as ac:
         payload = {
             "tv": {
@@ -155,6 +157,7 @@ async def test_webhook_unreplaced_placeholders(test_db_session, mocker):
     class MockUser:
         def __init__(self, id, webhook_secret):
             self.id = id
+            self.username = "test_user"
             self.webhook_secret = webhook_secret
             self.encrypted_api_keys = {"encrypted_data": "dummy"}
             self.exchange = "binance"
@@ -164,7 +167,7 @@ async def test_webhook_unreplaced_placeholders(test_db_session, mocker):
     mock_user_instance = MockUser(id=user_id, webhook_secret="valid_secret")
     mocker.patch.object(UserRepository, "get_by_id", AsyncMock(return_value=mock_user_instance))
     app.dependency_overrides[get_db_session] = lambda: test_db_session
-    
+
     async with AsyncClient(app=app, base_url="http://test") as ac:
         payload = {
             "tv": {

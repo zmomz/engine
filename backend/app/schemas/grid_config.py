@@ -29,9 +29,15 @@ class DCAGridConfig(BaseModel):
     tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage (used in 'aggregate' or 'hybrid' mode).")
     
     max_pyramids: int = Field(5, description="Maximum number of pyramids allowed for this position group.")
-    
+
     # Entry configuration (Add this to schema for validation even if stored in specific config table)
     entry_order_type: Literal["limit", "market"] = Field("limit", description="Order type for initial entry.")
+
+    # DCA Beyond-Threshold Cancellation
+    cancel_dca_beyond_percent: Optional[Decimal] = Field(
+        default=None,
+        description="Auto-cancel pending DCA orders when price moves beyond this % from entry. None = disabled."
+    )
     
     @model_validator(mode='after')
     def validate_total_weight(self):
@@ -50,9 +56,7 @@ class DCAGridConfig(BaseModel):
         if not levels: return
         total_weight = sum(level.weight_percent for level in levels)
         if abs(total_weight - Decimal("100")) > Decimal("0.01"):
-            # warning or error? Strict for now.
-            pass
-            # raise ValueError(f"{context}: Total weight_percent must sum to 100, but got {total_weight}")
+            raise ValueError(f"{context}: Total weight_percent must sum to 100, but got {total_weight}")
 
     def get_levels_for_pyramid(self, pyramid_index: int) -> List[DCALevelConfig]:
         """
@@ -102,6 +106,50 @@ class DCAConfigurationUpdate(BaseModel):
     tp_mode: Optional[Literal["per_leg", "aggregate", "hybrid"]] = None
     tp_settings: Optional[Dict[str, Any]] = None
     max_pyramids: Optional[int] = None
+
+
+class PrecisionFallbackRules(BaseModel):
+    """Fallback precision rules when exchange metadata is unavailable"""
+    tick_size: Decimal = Field(
+        default=Decimal("0.00000001"),
+        description="Fallback tick size for price rounding"
+    )
+    step_size: Decimal = Field(
+        default=Decimal("0.000001"),
+        description="Fallback step size for quantity rounding"
+    )
+    min_qty: Decimal = Field(
+        default=Decimal("0.000001"),
+        description="Fallback minimum quantity"
+    )
+    min_notional: Decimal = Field(
+        default=Decimal("1"),
+        description="Fallback minimum notional value"
+    )
+
+    @model_validator(mode='before')
+    @classmethod
+    def convert_floats_to_decimals(cls, values):
+        for key in ['tick_size', 'step_size', 'min_qty', 'min_notional']:
+            if key in values and isinstance(values[key], (float, int)):
+                values[key] = Decimal(str(values[key]))
+        return values
+
+
+class PrecisionConfig(BaseModel):
+    """Configuration for exchange precision validation"""
+    refresh_seconds: int = Field(
+        default=3600,
+        description="How often to refresh precision data from exchange (in seconds)"
+    )
+    fallback_rules: PrecisionFallbackRules = Field(
+        default_factory=PrecisionFallbackRules,
+        description="Fallback precision rules when exchange metadata is unavailable"
+    )
+    block_on_missing_metadata: bool = Field(
+        default=True,
+        description="If True, block orders when precision metadata is missing. If False, use fallback rules."
+    )
 
 
 class PriorityRulesConfig(BaseModel):
@@ -167,11 +215,41 @@ class RiskEngineConfig(BaseModel):
     reset_timer_on_replacement: bool = False
     partial_close_enabled: bool = True
     min_close_notional: Decimal = Decimal("10")
+    cancel_orders_on_partial_close: bool = Field(
+        default=True,
+        description="Cancel pending DCA/TP orders on winners after partial close by Risk Engine"
+    )
+
+    # Risk Engine Evaluation Triggers
+    evaluate_on_fill: bool = Field(
+        default=False,
+        description="Trigger risk evaluation immediately when a position fill occurs"
+    )
+    evaluate_interval_seconds: int = Field(
+        default=60,
+        description="Interval in seconds for polling-based risk evaluation"
+    )
+
+    # Slippage Protection
+    max_slippage_percent: float = Field(
+        default=1.0,
+        description="Maximum acceptable slippage percentage for market orders (exit signals, aggregate TP)"
+    )
+    slippage_action: str = Field(
+        default="warn",
+        description="Action when slippage exceeds threshold: 'warn' (log only) or 'reject' (raise error)"
+    )
 
     # Queue Priority Rules Configuration
     priority_rules: PriorityRulesConfig = Field(
         default_factory=PriorityRulesConfig,
         description="Configuration for queue priority rules (enabled/disabled and execution order)"
+    )
+
+    # Precision Validation Configuration
+    precision: PrecisionConfig = Field(
+        default_factory=PrecisionConfig,
+        description="Configuration for exchange precision validation (cache TTL, fallback rules)"
     )
 
     @model_validator(mode='before')

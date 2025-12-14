@@ -30,3 +30,11 @@ class ExchangeConnectionError(APIError):
 class GenericExchangeError(APIError):
     def __init__(self, message: str = "An unknown exchange error occurred.", status_code: int = 500):
         super().__init__(message, status_code)
+
+class SlippageExceededError(APIError):
+    """
+    Raised when slippage on a market order exceeds the configured maximum threshold.
+    Note: The order has already executed when this is raised (post-execution check).
+    """
+    def __init__(self, message: str = "Slippage exceeded maximum threshold.", status_code: int = 400):
+        super().__init__(message, status_code)

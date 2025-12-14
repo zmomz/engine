@@ -131,9 +131,13 @@ async def test_get_exchange_connector_bybit():
                 'options': {
                     'defaultType': 'spot',
                     'accountType': 'UNIFIED',
-                    'testnet': True 
+                    'recvWindow': 20000,
+                    'testnet': True
                 },
-                'verbose': False,
+                'timeout': 60000,
+                'enableRateLimit': True,
+                'asyncio_loop': None,
+                'verbose': True,
             })
             mock_exchange_instance.set_sandbox_mode.assert_called_once_with(True)
 

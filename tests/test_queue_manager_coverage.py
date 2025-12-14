@@ -3,45 +3,51 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 from decimal import Decimal
 from datetime import datetime
-import json
 
 from app.services.queue_manager import QueueManagerService
 from app.models.user import User
 from app.models.queued_signal import QueuedSignal, QueueStatus
 from app.models.position_group import PositionGroup
-from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig # Added for model_dump
-
-def decimal_default(obj):
-    if isinstance(obj, Decimal):
-        return str(obj)
-    raise TypeError
+from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 
 @pytest.fixture
 def mock_deps():
     with patch("app.services.queue_manager.QueuedSignalRepository") as MockQueueRepo, \
          patch("app.services.queue_manager.PositionGroupRepository") as MockPosRepo, \
          patch("app.services.queue_manager.ExecutionPoolManager") as MockPool, \
-         patch("app.services.position_manager.PositionManagerService") as MockPosManager, \
+         patch("app.services.queue_manager.PositionManagerService") as MockPosManager, \
          patch("app.services.queue_manager.get_exchange_connector") as MockConnector, \
-         patch("app.services.queue_manager.EncryptionService") as MockEnc:
-        
+         patch("app.services.queue_manager.EncryptionService") as MockEnc, \
+         patch("app.services.queue_manager.DCAConfigurationRepository") as MockDCAConfigRepo:
+
         # Setup default behavior for synchronous service
         MockEnc.return_value.decrypt_keys.return_value = ("key", "secret")
-        
+
         # Configure the return value of get_exchange_connector to have AsyncMock methods
         mock_exchange_connector_instance = MagicMock()
         mock_exchange_connector_instance.fetch_balance = AsyncMock(return_value={'total': {'USDT': Decimal('1000')}})
         mock_exchange_connector_instance.get_current_price = AsyncMock(return_value=Decimal("50000"))
         mock_exchange_connector_instance.close = AsyncMock() # Ensure close is also an AsyncMock
         MockConnector.return_value = mock_exchange_connector_instance
-        
+
+        # Setup DCA Config Repository mock
+        mock_dca_config = MagicMock()
+        mock_dca_config.dca_levels = []
+        mock_dca_config.tp_mode = "per_leg"
+        mock_dca_config.tp_settings = {"tp_aggregate_percent": 0}
+        mock_dca_config.max_pyramids = 5
+        mock_dca_config.entry_order_type = "market"
+        mock_dca_config.pyramid_specific_levels = {}
+        MockDCAConfigRepo.return_value.get_specific_config = AsyncMock(return_value=mock_dca_config)
+
         yield {
             "queue_repo": MockQueueRepo,
             "pos_repo": MockPosRepo,
             "pool": MockPool,
             "pos_manager": MockPosManager,
             "connector": MockConnector, # This is the mocked get_exchange_connector function
-            "enc": MockEnc
+            "enc": MockEnc,
+            "dca_config_repo": MockDCAConfigRepo
         }
 
 @pytest.fixture
@@ -52,8 +58,9 @@ def sample_user():
     user.email = "test@example.com"
     user.exchange = "binance"
     user.encrypted_api_keys = {"binance": {"encrypted_data": "dummy"}}
-    user.risk_config = json.dumps(RiskEngineConfig().model_dump(), default=decimal_default) # Store as JSON string
-    user.dca_grid_config = json.dumps(DCAGridConfig(levels=[]).model_dump(), default=decimal_default) # Store as JSON string
+    # risk_config should be a dict (the code handles both dict and JSON string formats)
+    user.risk_config = RiskEngineConfig().model_dump()
+    user.dca_grid_config = DCAGridConfig(levels=[]).model_dump()
     return user
 
 @pytest.mark.asyncio
@@ -98,24 +105,23 @@ async def test_promote_signal_execution_new_position(sample_user, mock_async_ses
     pos_manager_instance_mock = pos_manager_mock.return_value
     pos_manager_instance_mock.create_position_group_from_signal = AsyncMock()
 
-    with patch("app.services.queue_manager.PositionManagerService", new=pos_manager_mock):
-        service = QueueManagerService(
-            session_factory=lambda: mock_async_session,
-            user=sample_user,
-            queued_signal_repository_class=mock_deps["queue_repo"],
-            position_group_repository_class=mock_deps["pos_repo"],
-            exchange_connector=connector_instance, # Pass the mock connector instance
-            execution_pool_manager=pool,
-            position_manager_service=pos_manager_instance_mock # This is still passed, but not used due to internal creation
-        )
-        
-        # Execute
-        await service.promote_highest_priority_signal(session=mock_async_session)
-        
-        # Verify
-        assert signal.status == QueueStatus.PROMOTED
-        pos_manager_instance_mock.create_position_group_from_signal.assert_called_once()
-        queue_repo.update.assert_called()
+    service = QueueManagerService(
+        session_factory=lambda: mock_async_session,
+        user=sample_user,
+        queued_signal_repository_class=mock_deps["queue_repo"],
+        position_group_repository_class=mock_deps["pos_repo"],
+        exchange_connector=connector_instance, # Pass the mock connector instance
+        execution_pool_manager=pool,
+        position_manager_service=pos_manager_instance_mock # This is still passed, but not used due to internal creation
+    )
+
+    # Execute
+    await service.promote_highest_priority_signal(session=mock_async_session)
+
+    # Verify
+    assert signal.status == QueueStatus.PROMOTED
+    pos_manager_instance_mock.create_position_group_from_signal.assert_called_once()
+    queue_repo.update.assert_called()
 
 @pytest.mark.asyncio
 async def test_promote_signal_execution_pyramid(sample_user, mock_async_session, mock_deps):
@@ -167,23 +173,22 @@ async def test_promote_signal_execution_pyramid(sample_user, mock_async_session,
     pos_manager_instance_mock = pos_manager_mock.return_value
     pos_manager_instance_mock.handle_pyramid_continuation = AsyncMock()
 
-    with patch("app.services.queue_manager.PositionManagerService", new=pos_manager_mock):
-        service = QueueManagerService(
-            session_factory=lambda: mock_async_session,
-            user=sample_user,
-            queued_signal_repository_class=mock_deps["queue_repo"],
-            position_group_repository_class=mock_deps["pos_repo"],
-            exchange_connector=connector_instance, # Pass the mock connector instance
-            execution_pool_manager=pool,
-            position_manager_service=pos_manager_instance_mock
-        )
-        
-        # Execute
-        await service.promote_highest_priority_signal(session=mock_async_session)
-        
-        # Verify
-        assert signal.status == QueueStatus.PROMOTED
-        pos_manager_instance_mock.handle_pyramid_continuation.assert_called_once()
+    service = QueueManagerService(
+        session_factory=lambda: mock_async_session,
+        user=sample_user,
+        queued_signal_repository_class=mock_deps["queue_repo"],
+        position_group_repository_class=mock_deps["pos_repo"],
+        exchange_connector=connector_instance, # Pass the mock connector instance
+        execution_pool_manager=pool,
+        position_manager_service=pos_manager_instance_mock
+    )
+
+    # Execute
+    await service.promote_highest_priority_signal(session=mock_async_session)
+
+    # Verify
+    assert signal.status == QueueStatus.PROMOTED
+    pos_manager_instance_mock.handle_pyramid_continuation.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_promote_signal_price_fetch_failure(sample_user, mock_async_session, mock_deps):
@@ -225,22 +230,21 @@ async def test_promote_signal_price_fetch_failure(sample_user, mock_async_sessio
     pos_manager_instance_mock = pos_manager_mock.return_value
     pos_manager_instance_mock.create_position_group_from_signal = AsyncMock()
 
-    with patch("app.services.queue_manager.PositionManagerService", new=pos_manager_mock):
-        service = QueueManagerService(
-            session_factory=lambda: mock_async_session,
-            user=sample_user,
-            queued_signal_repository_class=mock_deps["queue_repo"],
-            position_group_repository_class=mock_deps["pos_repo"],
-            exchange_connector=connector_instance, # Pass the mock connector instance
-            execution_pool_manager=pool,
-            position_manager_service=pos_manager_instance_mock
-        )
-        
-        # Execute
-        await service.promote_highest_priority_signal(session=mock_async_session)
-        
-        # Should handle exception gracefully and attempt promotion logic (which fails due to slot)
-        connector_instance.get_current_price.assert_called_once()
+    service = QueueManagerService(
+        session_factory=lambda: mock_async_session,
+        user=sample_user,
+        queued_signal_repository_class=mock_deps["queue_repo"],
+        position_group_repository_class=mock_deps["pos_repo"],
+        exchange_connector=connector_instance, # Pass the mock connector instance
+        execution_pool_manager=pool,
+        position_manager_service=pos_manager_instance_mock
+    )
+
+    # Execute
+    await service.promote_highest_priority_signal(session=mock_async_session)
+
+    # Should handle exception gracefully and attempt promotion logic (which fails due to slot)
+    connector_instance.get_current_price.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_promote_signal_execution_exception(sample_user, mock_async_session, mock_deps):
@@ -278,23 +282,22 @@ async def test_promote_signal_execution_exception(sample_user, mock_async_sessio
     pos_manager_instance_mock.create_position_group_from_signal = AsyncMock(side_effect=Exception("Execution Failed"))
     
     connector_instance = mock_deps["connector"].return_value # Get the mock instance from the fixture
-    connector_instance.get_current_price.return_value = Decimal("49000") 
+    connector_instance.get_current_price.return_value = Decimal("49000")
     # fetch_balance is already mocked in the fixture with a default return value
 
-    with patch("app.services.queue_manager.PositionManagerService", new=pos_manager_mock):
-        service = QueueManagerService(
-            session_factory=lambda: mock_async_session,
-            user=sample_user,
-            queued_signal_repository_class=mock_deps["queue_repo"],
-            position_group_repository_class=mock_deps["pos_repo"],
-            exchange_connector=connector_instance, # Pass the mock connector instance
-            execution_pool_manager=pool,
-            position_manager_service=pos_manager_instance_mock
-        )
-        
-        # Execute
-        await service.promote_highest_priority_signal(session=mock_async_session)
-        
-        # Should catch exception and log error
-        pos_manager_instance_mock.create_position_group_from_signal.assert_called_once()
-        assert signal.status == QueueStatus.PROMOTED # Status was updated BEFORE execution attempt in the code
+    service = QueueManagerService(
+        session_factory=lambda: mock_async_session,
+        user=sample_user,
+        queued_signal_repository_class=mock_deps["queue_repo"],
+        position_group_repository_class=mock_deps["pos_repo"],
+        exchange_connector=connector_instance, # Pass the mock connector instance
+        execution_pool_manager=pool,
+        position_manager_service=pos_manager_instance_mock
+    )
+
+    # Execute
+    await service.promote_highest_priority_signal(session=mock_async_session)
+
+    # Should catch exception and log error
+    pos_manager_instance_mock.create_position_group_from_signal.assert_called_once()
+    assert signal.status == QueueStatus.PROMOTED # Status was updated BEFORE execution attempt in the code

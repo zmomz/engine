@@ -60,7 +60,6 @@ async def test_get_all_positions_integration(position_group_repo: PositionGroupR
         status=PositionGroupStatus.ACTIVE,
         pyramid_count=1,
         max_pyramids=5,
-        replacement_count=0,
         total_dca_legs=5,
         filled_dca_legs=1,
         base_entry_price=Decimal("50000.00"),
@@ -87,7 +86,6 @@ async def test_get_all_positions_integration(position_group_repo: PositionGroupR
         status=PositionGroupStatus.ACTIVE,
         pyramid_count=1,
         max_pyramids=5,
-        replacement_count=0,
         total_dca_legs=3,
         filled_dca_legs=1,
         base_entry_price=Decimal("3000.00"),
@@ -124,14 +122,13 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
     
     # Create user directly in database
     user = User(
-        id=user_id, 
-        username="testuser_group", 
-        email="test_group@example.com", 
+        id=user_id,
+        username="testuser_group",
+        email="test_group@example.com",
         hashed_password="hashedpassword",
         exchange="binance",
         webhook_secret="secret",
-        risk_config={},
-        dca_grid_config=[]
+        risk_config={}
     )
     db_session.add(user)
     await db_session.commit()
@@ -147,7 +144,6 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
         status=PositionGroupStatus.ACTIVE,
         pyramid_count=1,
         max_pyramids=5,
-        replacement_count=0,
         total_dca_legs=5,
         filled_dca_legs=1,
         base_entry_price=Decimal("50000.00"),
@@ -345,7 +341,6 @@ async def test_block_risk_for_group_integration(position_group_repo: PositionGro
         status=PositionGroupStatus.ACTIVE,
         pyramid_count=1,
         max_pyramids=5,
-        replacement_count=0,
         total_dca_legs=5,
         filled_dca_legs=1,
         base_entry_price=Decimal("50000.00"),
@@ -404,7 +399,6 @@ async def test_unblock_risk_for_group_integration(position_group_repo: PositionG
         status=PositionGroupStatus.ACTIVE,
         pyramid_count=1,
         max_pyramids=5,
-        replacement_count=0,
         total_dca_legs=5,
         filled_dca_legs=1,
         base_entry_price=Decimal("50000.00"),
@@ -463,7 +457,6 @@ async def test_skip_next_risk_evaluation_integration(position_group_repo: Positi
         status=PositionGroupStatus.ACTIVE,
         pyramid_count=1,
         max_pyramids=5,
-        replacement_count=0,
         total_dca_legs=5,
         filled_dca_legs=1,
         base_entry_price=Decimal("50000.00"),

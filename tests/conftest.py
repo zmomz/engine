@@ -16,11 +16,9 @@ from decimal import Decimal
 
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "tv_user")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "postgres")
-POSTGRES_DB = os.environ.get("POSTGRES_DB", "tv_engine_db_test")
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", 
-    f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@db:5432/tv_engine_db_test"
-)
+# Always use test database for tests - ignore the environment DATABASE_URL
+POSTGRES_DB = "tv_engine_db_test"
+DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@db:5432/{POSTGRES_DB}"
 TEST_PASSWORD = "testpassword"
 
 @pytest.fixture(scope="function")
@@ -91,44 +89,32 @@ async def create_user_with_configs(db_session: AsyncSession):
             return [convert_decimals_to_str(elem) for elem in obj]
         return obj
 
-    async def _factory(username: str = "testuser", email: str = "test@example.com", 
+    async def _factory(username: str = "testuser", email: str = "test@example.com",
                        exchange: str = "binance", webhook_secret: str = "secret") -> User:
         hashed_pwd = get_password_hash(TEST_PASSWORD)
-        
+
         # Generate valid encrypted keys
         encryption_service = EncryptionService()
         valid_encrypted_keys = {
             "binance": encryption_service.encrypt_keys("dummy_api", "dummy_secret"),
             "mock": encryption_service.encrypt_keys("dummy_mock_api", "dummy_mock_secret")
         }
-        
+
         # Use the actual config schemas and then convert to JSON serializable dict
-        from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
+        from app.schemas.grid_config import RiskEngineConfig
 
         risk_config_data = RiskEngineConfig().model_dump()
-        dca_grid_config_data = DCAGridConfig(
-            levels=[
-                {"gap_percent": Decimal("0.0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("1.0")},
-                {"gap_percent": Decimal("-0.5"), "weight_percent": Decimal("20"), "tp_percent": Decimal("0.5")},
-                {"gap_percent": Decimal("-1.0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("0.5")},
-                {"gap_percent": Decimal("-2.0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("0.5")},
-                {"gap_percent": Decimal("-4.0"), "weight_percent": Decimal("20"), "tp_percent": Decimal("0.5")}
-            ],
-            tp_mode="per_leg",
-            tp_aggregate_percent=Decimal("0")
-        ).model_dump()
 
         user = User(
             id=uuid.uuid4(),
-            username=username, 
-            email=email, 
-            hashed_password=hashed_pwd, 
-            exchange=exchange, 
-            webhook_secret=webhook_secret, 
+            username=username,
+            email=email,
+            hashed_password=hashed_pwd,
+            exchange=exchange,
+            webhook_secret=webhook_secret,
             is_active=True,
             encrypted_api_keys=valid_encrypted_keys,
-            risk_config=convert_decimals_to_str(risk_config_data),
-            dca_grid_config=convert_decimals_to_str(dca_grid_config_data)
+            risk_config=convert_decimals_to_str(risk_config_data)
         )
         db_session.add(user)
         await db_session.commit()
