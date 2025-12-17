@@ -1,6 +1,10 @@
 import ccxt.async_support as ccxt
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
+from app.core.cache import get_cache
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BinanceConnector(ExchangeInterface):
     """
@@ -23,6 +27,7 @@ class BinanceConnector(ExchangeInterface):
     async def get_precision_rules(self):
         """
         Fetches market data to get precision rules for all symbols.
+        Uses Redis cache with 24h TTL to avoid repeated expensive API calls.
         Returns a normalized dictionary:
         {
             "SYMBOL": {
@@ -33,6 +38,14 @@ class BinanceConnector(ExchangeInterface):
             }
         }
         """
+        # Try to get from cache first
+        cache = await get_cache()
+        cached_rules = await cache.get_precision_rules("binance")
+        if cached_rules:
+            logger.debug("Using cached precision rules for binance")
+            return cached_rules
+
+        logger.info("Fetching precision rules from Binance API (cache miss)")
         markets = await self.exchange.load_markets()
         precision_rules = {}
 
@@ -40,7 +53,7 @@ class BinanceConnector(ExchangeInterface):
             # Normalize precision (handle decimal places vs float)
             # Binance via CCXT usually uses DECIMAL_PLACES (int) for precision
             # We need to convert to float step (e.g. 2 -> 0.01)
-            
+
             price_precision = market['precision']['price']
             if isinstance(price_precision, int):
                 tick_size = 1 / (10 ** price_precision)
@@ -59,17 +72,21 @@ class BinanceConnector(ExchangeInterface):
             # Handle 'BTCUSDT' vs 'BTC/USDT' mapping if needed, but usually we use the unified symbol 'BTC/USDT'
             # The test uses "BTCUSDT" (TradingView format) so we might need to map or the caller handles it.
             # For now, we store by the key CCXT uses (BTC/USDT) AND the id (BTCUSDT) to be safe.
-            
+
             rules = {
                 "tick_size": tick_size,
                 "step_size": step_size,
                 "min_qty": min_qty,
                 "min_notional": min_notional
             }
-            
+
             precision_rules[symbol] = rules
             if market.get('id'):
                 precision_rules[market['id']] = rules
+
+        # Cache the results
+        await cache.set_precision_rules("binance", precision_rules)
+        logger.info(f"Cached precision rules for binance ({len(precision_rules)} symbols)")
 
         return precision_rules
 
