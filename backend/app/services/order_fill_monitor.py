@@ -200,20 +200,21 @@ class OrderFillMonitorService:
                                 orders_by_exchange[ex] = []
                             orders_by_exchange[ex].append(order)
                             
-                        # Process each exchange
+                        # Process each exchange - reuse connector for all orders on same exchange
                         for raw_exchange_name, orders_to_check in orders_by_exchange.items():
                              exchange_name = raw_exchange_name.lower()
-                             # Decrypt keys for this exchange
+                             # Decrypt keys for this exchange - done once per exchange
                              try:
                                  exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
 
                                  if not exchange_keys_data:
                                      logger.warning(f"No API keys found for exchange {exchange_name} (from {raw_exchange_name}) for user {user.id}, skipping orders for this exchange.")
                                      continue
-                                 
+
                                  api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
-                                 
-                                 logger.debug(f"Setting up connector for {exchange_name}")
+
+                                 # Create connector ONCE per exchange per monitoring cycle
+                                 logger.debug(f"Setting up connector for {exchange_name} (will be reused for {len(orders_to_check)} orders)")
                                  connector = get_exchange_connector(
                                     exchange_name,
                                     exchange_config=exchange_keys_data
@@ -221,19 +222,20 @@ class OrderFillMonitorService:
                              except Exception as e:
                                  logger.error(f"Failed to setup connector for {exchange_name}: {e}")
                                  continue
-                             
+
                              try:
+                                 # Create services ONCE per exchange - reused for all orders
                                  order_service = self.order_service_class(
                                     session=session,
                                     user=user,
                                     exchange_connector=connector
                                  )
-                                 
+
                                  position_manager = self.position_manager_service_class(
                                     session_factory=self.session_factory,
                                     user=user,
                                     position_group_repository_class=self.position_group_repository_class,
-                                    grid_calculator_service=None, 
+                                    grid_calculator_service=None,
                                     order_service_class=None
                                  )
 

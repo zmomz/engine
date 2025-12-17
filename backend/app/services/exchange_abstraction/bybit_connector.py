@@ -2,8 +2,9 @@ import asyncio
 import ccxt.async_support as ccxt
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
+from app.core.cache import get_cache
 import logging
-from typing import List, Dict, Any, Optional # Added Optional
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +58,23 @@ class BybitConnector(ExchangeInterface):
     async def get_precision_rules(self):
         """
         Fetches market data to get precision rules for all symbols.
+        Uses Redis cache with 24h TTL to avoid repeated expensive API calls.
         Returns a normalized dictionary.
         """
+        # Try to get from cache first
+        cache = await get_cache()
+        cache_key = f"bybit{'_testnet' if self.testnet_mode else ''}"
+        cached_rules = await cache.get_precision_rules(cache_key)
+        if cached_rules:
+            logger.debug(f"Using cached precision rules for {cache_key}")
+            return cached_rules
+
+        logger.info(f"Fetching precision rules from Bybit API (cache miss)")
         markets = await self.exchange.load_markets()
         precision_rules = {}
 
         for symbol, market in markets.items():
-            
+
             price_precision = market['precision']['price']
             if isinstance(price_precision, int):
                 tick_size = 1 / (10 ** price_precision)
@@ -78,11 +89,11 @@ class BybitConnector(ExchangeInterface):
 
             min_qty = 0.001
             min_notional = 5.0
-            
+
             if 'limits' in market:
                 if 'amount' in market['limits'] and market['limits']['amount'].get('min'):
                      min_qty = float(market['limits']['amount']['min'])
-                
+
                 if 'cost' in market['limits'] and market['limits']['cost'].get('min'):
                      min_notional = float(market['limits']['cost']['min'])
 
@@ -92,10 +103,14 @@ class BybitConnector(ExchangeInterface):
                 "min_qty": min_qty,
                 "min_notional": min_notional
             }
-            
+
             precision_rules[symbol] = rules
             if market.get('id'):
                 precision_rules[market['id']] = rules
+
+        # Cache the results
+        await cache.set_precision_rules(cache_key, precision_rules)
+        logger.info(f"Cached precision rules for {cache_key} ({len(precision_rules)} symbols)")
 
         return precision_rules
 

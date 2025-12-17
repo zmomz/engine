@@ -12,14 +12,29 @@ services:
       - LOG_FILE_PATH=logs/app.log
       - PYTHONPATH=/app/backend
       - HOME=/tmp
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - db
+      - redis
     command: sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     ports:
       - "8000:8000"
     dns:
       - 8.8.8.8
       - 8.8.4.4
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db:
     image: postgres:15
@@ -44,3 +59,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
