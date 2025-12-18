@@ -1,7 +1,7 @@
 import api from '../services/api';
 
 export type EntryOrderType = 'limit' | 'market';
-export type TPMode = 'per_leg' | 'aggregate' | 'hybrid';
+export type TPMode = 'per_leg' | 'aggregate' | 'hybrid' | 'pyramid_aggregate';
 
 export interface DCALevelConfig {
     gap_percent: number;
