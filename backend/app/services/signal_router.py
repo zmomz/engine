@@ -346,6 +346,8 @@ class SignalRouterService:
 
                 if existing_group:
                     # Pyramid Logic Check
+                    # pyramid_count starts at 0 for initial entry
+                    # max_pyramids is the maximum pyramid_count value allowed
                     if existing_group.pyramid_count < dca_config.max_pyramids:
                         # Check Priority Rules for Bypass
                         priority_rules = risk_config.priority_rules
@@ -366,7 +368,7 @@ class SignalRouterService:
                         else:
                             response_message = await queue_signal("Pool full (Rule Disabled).")
                     else:
-                        logger.warning(f"Max pyramids reached for {signal.tv.symbol} (count: {existing_group.pyramid_count}, max: {dca_config.max_pyramids}). Signal ignored.")
+                        logger.warning(f"Max pyramids reached for {signal.tv.symbol} (pyramid_count: {existing_group.pyramid_count}, max: {dca_config.max_pyramids}). Signal ignored.")
                         response_message = "Max pyramids reached. Signal ignored."
 
                 else:

@@ -126,6 +126,12 @@ const PositionsPage: React.FC = () => {
     }
   };
 
+  // Helper to format UUID - show first 8 chars
+  const formatGroupId = (id: string) => {
+    if (!id) return '-';
+    return id.substring(0, 8);
+  };
+
   const activeColumns: GridColDef[] = [
     {
       field: 'expand',
@@ -141,6 +147,16 @@ const PositionsPage: React.FC = () => {
         >
           {expandedRows[params.row.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
         </IconButton>
+      ),
+    },
+    {
+      field: 'id',
+      headerName: 'Group ID',
+      width: 100,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+          {formatGroupId(params.value)}
+        </Typography>
       ),
     },
     { field: 'exchange', headerName: 'Exchange', width: 100 },
@@ -169,7 +185,7 @@ const PositionsPage: React.FC = () => {
       field: 'pyramid_count',
       headerName: 'Pyramids',
       width: 100,
-      valueGetter: (value: any, row: PositionGroup) => `${(row.pyramid_count || 0) + 1} / ${row.max_pyramids || 5}`,
+      valueGetter: (value: any, row: PositionGroup) => `${row.pyramid_count || 0} / ${row.max_pyramids || 5}`,
     },
     {
       field: 'filled_dca_legs',
@@ -222,6 +238,16 @@ const PositionsPage: React.FC = () => {
   ];
 
   const historyColumns: GridColDef[] = [
+    {
+      field: 'id',
+      headerName: 'Group ID',
+      width: 100,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+          {formatGroupId(params.value)}
+        </Typography>
+      ),
+    },
     { field: 'exchange', headerName: 'Exchange', width: 100 },
     { field: 'symbol', headerName: 'Symbol', width: 120 },
     {
@@ -248,7 +274,7 @@ const PositionsPage: React.FC = () => {
       field: 'pyramid_count',
       headerName: 'Pyramids',
       width: 90,
-      valueGetter: (value: any, row: PositionGroup) => (row.pyramid_count || 0) + 1,
+      valueGetter: (value: any, row: PositionGroup) => row.pyramid_count || 0,
     },
     {
       field: 'total_invested_usd',

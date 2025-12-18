@@ -579,7 +579,9 @@ class QueueManagerService:
                     # because now that we have a slot, if it matches an active group, we MUST pyramid.
                     target_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
 
-                    if target_group and target_group.pyramid_count < dca_config.max_pyramids - 1:
+                    # pyramid_count starts at 0 for initial entry
+                    # max_pyramids is the maximum pyramid_count value allowed
+                    if target_group and target_group.pyramid_count < dca_config.max_pyramids:
                          logger.info(f"Signal {best_signal.symbol} matches active group {target_group.id}. Executing as Pyramid.")
                          await pos_manager.handle_pyramid_continuation(
                                 session=session,

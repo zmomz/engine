@@ -137,9 +137,13 @@ class TelegramBroadcaster:
     ) -> str:
         """Build entry signal message"""
 
+        # Format group ID (first 8 chars)
+        group_id_short = str(position_group.id)[:8]
+
         # Header
         message = f"📈 Entry Setup\n"
-        message += f"{position_group.exchange.capitalize()}:{position_group.symbol}\n\n"
+        message += f"{position_group.exchange.capitalize()}:{position_group.symbol}\n"
+        message += f"🆔 {group_id_short}\n\n"
 
         # Entry levels
         message += "🟩 Entries Levels\n"
@@ -201,9 +205,13 @@ class TelegramBroadcaster:
         result_emoji = "📈" if is_profit else "📉"
         result_color = "🟢" if is_profit else "🔴"
 
+        # Format group ID (first 8 chars)
+        group_id_short = str(position_group.id)[:8]
+
         # Header with symbol info
         message = f"{icon} {title}\n"
         message += f"{position_group.exchange.upper()} | {position_group.symbol}\n"
+        message += f"🆔 {group_id_short}\n"
         message += f"{'─' * 25}\n\n"
 
         # Position details
