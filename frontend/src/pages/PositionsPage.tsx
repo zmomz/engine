@@ -7,6 +7,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import useConfirmStore from '../store/confirmStore';
 import usePositionsStore, { PositionGroup } from '../store/positionsStore';
 import { format } from 'date-fns';
+import { PositionsPageSkeleton } from '../components/PositionsSkeleton';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -237,6 +238,11 @@ const PositionsPage: React.FC = () => {
     },
   ];
 
+  // Show skeleton on initial load
+  if (loading && positions.length === 0 && positionHistory.length === 0) {
+    return <PositionsPageSkeleton />;
+  }
+
   const historyColumns: GridColDef[] = [
     {
       field: 'id',
@@ -327,15 +333,23 @@ const PositionsPage: React.FC = () => {
   ];
 
   return (
-    <Box sx={{ flexGrow: 1, p: 3, height: '85vh', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">
+    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 2,
+        flexWrap: 'wrap',
+        gap: 1
+      }}>
+        <Typography variant="h4" sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
           Positions
         </Typography>
         <Box>
           <IconButton
             onClick={() => { fetchPositions(); fetchPositionHistory(); }}
             color="primary"
+            size="medium"
           >
             <RefreshIcon />
           </IconButton>
@@ -346,9 +360,22 @@ const PositionsPage: React.FC = () => {
 
       <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={tabValue} onChange={handleTabChange} aria-label="positions tabs">
-            <Tab label={`Active Positions (${positions.length})`} />
-            <Tab label={`Position History (${positionHistory.length})`} />
+          <Tabs
+            value={tabValue}
+            onChange={handleTabChange}
+            aria-label="positions tabs"
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+          >
+            <Tab
+              label={`Active (${positions.length})`}
+              sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
+            />
+            <Tab
+              label={`History (${positionHistory.length})`}
+              sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
+            />
           </Tabs>
         </Box>
 
@@ -365,6 +392,17 @@ const PositionsPage: React.FC = () => {
                 pagination: { paginationModel: { pageSize: 10 } },
               }}
               pageSizeOptions={[5, 10, 20]}
+              sx={{
+                '& .MuiDataGrid-root': {
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                },
+                '& .MuiDataGrid-columnHeaders': {
+                  minHeight: { xs: '40px !important', sm: '56px !important' },
+                },
+                '& .MuiDataGrid-cell': {
+                  padding: { xs: '4px', sm: '8px 16px' },
+                },
+              }}
             />
           </CustomTabPanel>
 
@@ -383,6 +421,17 @@ const PositionsPage: React.FC = () => {
                 pagination: { paginationModel: { pageSize: 10 } },
               }}
               pageSizeOptions={[5, 10, 20, 50]}
+              sx={{
+                '& .MuiDataGrid-root': {
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                },
+                '& .MuiDataGrid-columnHeaders': {
+                  minHeight: { xs: '40px !important', sm: '56px !important' },
+                },
+                '& .MuiDataGrid-cell': {
+                  padding: { xs: '4px', sm: '8px 16px' },
+                },
+              }}
             />
           </CustomTabPanel>
         </Box>

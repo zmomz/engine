@@ -6,6 +6,7 @@ import useQueueStore from '../store/queueStore';
 import useConfigStore from '../store/configStore';
 import useConfirmStore from '../store/confirmStore';
 import { format } from 'date-fns';
+import { QueuePageSkeleton } from '../components/QueueSkeleton';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -245,47 +246,81 @@ const QueuePage: React.FC = () => {
     },
   ];
 
+  // Show skeleton on initial load
+  if (loading && queuedSignals.length === 0 && queueHistory.length === 0) {
+    return <QueuePageSkeleton />;
+  }
+
   // Helper to show active rules
   const activeRules = settings?.risk_config?.priority_rules?.priority_order?.filter(
     (rule: string) => (settings?.risk_config?.priority_rules?.priority_rules_enabled as any)?.[rule]
   ) || [];
 
   return (
-    <Box sx={{ flexGrow: 1, p: 3, height: '85vh', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4">
+    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 2,
+        flexWrap: 'wrap',
+        gap: 1
+      }}>
+        <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
           Queue Management
         </Typography>
         <Box>
-          <IconButton onClick={() => { fetchQueuedSignals(); fetchQueueHistory(); }} color="primary">
+          <IconButton onClick={() => { fetchQueuedSignals(); fetchQueueHistory(); }} color="primary" size="medium">
             <RefreshIcon />
           </IconButton>
         </Box>
       </Box>
 
       {/* Active Rules Summary */}
-      < Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="subtitle2" color="text.secondary">Active Priority Logic:</Typography>
-          {activeRules.length > 0 ? activeRules.map((rule: string, index: number) => (
-            <Chip
-              key={rule}
-              label={`${index + 1}. ${rule.replace(/_/g, ' ')}`}
-              size="small"
-              variant="outlined"
-              color="primary"
-            />
-          )) : <Chip label="No rules enabled (FIFO Fallback)" size="small" color="warning" />}
+      <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, mb: 2, bgcolor: 'background.default' }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+        >
+          <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+            Active Priority Logic:
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {activeRules.length > 0 ? activeRules.map((rule: string, index: number) => (
+              <Chip
+                key={rule}
+                label={`${index + 1}. ${rule.replace(/_/g, ' ')}`}
+                size="small"
+                variant="outlined"
+                color="primary"
+                sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}
+              />
+            )) : <Chip label="No rules enabled (FIFO Fallback)" size="small" color="warning" />}
+          </Box>
         </Stack>
-      </Paper >
+      </Paper>
 
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
 
       <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={tabValue} onChange={handleTabChange} aria-label="queue tabs">
-            <Tab label={`Active Queue (${queuedSignals.length})`} />
-            <Tab label="Queue History" />
+          <Tabs
+            value={tabValue}
+            onChange={handleTabChange}
+            aria-label="queue tabs"
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+          >
+            <Tab
+              label={`Active (${queuedSignals.length})`}
+              sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
+            />
+            <Tab
+              label="History"
+              sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
+            />
           </Tabs>
         </Box>
 

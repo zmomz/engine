@@ -17,17 +17,18 @@ import GlobalConfirmDialog from './components/GlobalConfirmDialog';
 import { Box, Toolbar } from '@mui/material';
 
 function App() {
-  // For now, a dummy function. In a real app, this might toggle a mobile sidebar.
-  const handleMenuClick = () => {
-    // Menu icon clicked
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
   };
 
   return (
     <Layout>
       <NotificationManager />
       <GlobalConfirmDialog />
-      <Header onMenuClick={handleMenuClick} />
-      <Sidebar />
+      <Header onMenuClick={handleDrawerToggle} />
+      <Sidebar mobileOpen={mobileOpen} onClose={handleDrawerToggle} />
       <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
         <Toolbar /> {/* This is important for spacing below the AppBar */}
         <Routes>
