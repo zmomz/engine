@@ -233,9 +233,8 @@ def sample_queued_signal(user_id_fixture):
 def sample_risk_config():
     return RiskEngineConfig(
         loss_threshold_percent=Decimal("-5.0"),
-        require_full_pyramids=True,
-        timer_start_condition="after_all_dca_filled",
-        post_full_wait_minutes=60,
+        required_pyramids_for_timer=3,
+        post_pyramids_wait_minutes=60,
         max_winners_to_combine=3
     )
 
@@ -381,9 +380,9 @@ async def test_handle_pyramid_continuation_increment_count(
     assert updated_pg.pyramid_count == initial_pyramid_count + 1
 
 @pytest.mark.asyncio
-async def test_handle_pyramid_continuation_reset_timer(
+async def test_handle_pyramid_continuation_clears_timer(
     position_manager_service,
-    mock_db_session, 
+    mock_db_session,
     mock_position_group_repository_class,
     sample_queued_signal,
     sample_risk_config,
@@ -391,12 +390,13 @@ async def test_handle_pyramid_continuation_reset_timer(
     sample_total_capital_usd,
     sample_position_group
 ):
-    """Test handling a pyramid continuation resets the timer when configured."""
-    sample_risk_config.reset_timer_on_replacement = True # Set config to reset timer
-    initial_timer_expires = sample_position_group.risk_timer_expires
+    """Test handling a pyramid continuation clears the timer for risk engine re-evaluation."""
+    # Set initial timer values
+    sample_position_group.risk_timer_start = datetime.utcnow() - timedelta(minutes=5)
+    sample_position_group.risk_timer_expires = datetime.utcnow() + timedelta(minutes=10)
 
     updated_pg = await position_manager_service.handle_pyramid_continuation(
-        session=mock_db_session, 
+        session=mock_db_session,
         user_id=sample_queued_signal.user_id,
         signal=sample_queued_signal,
         existing_position_group=sample_position_group,
@@ -405,39 +405,9 @@ async def test_handle_pyramid_continuation_reset_timer(
         total_capital_usd=sample_total_capital_usd
     )
 
-    assert updated_pg.risk_timer_start is not None
-    assert updated_pg.risk_timer_expires is not None
-    expected_expiry = updated_pg.risk_timer_start + timedelta(minutes=sample_risk_config.post_full_wait_minutes)
-    assert abs((updated_pg.risk_timer_expires - expected_expiry).total_seconds()) < 1
-
-@pytest.mark.asyncio
-async def test_handle_pyramid_continuation_no_reset_timer(
-    position_manager_service,
-    mock_db_session, 
-    mock_position_group_repository_class,
-    sample_queued_signal,
-    sample_risk_config,
-    sample_dca_grid_config,
-    sample_total_capital_usd,
-    sample_position_group
-):
-    """Test handling a pyramid continuation does not reset the timer when not configured."""
-    sample_risk_config.reset_timer_on_replacement = False # Set config to NOT reset timer
-    initial_timer_start = sample_position_group.risk_timer_start
-    initial_timer_expires = sample_position_group.risk_timer_expires
-
-    updated_pg = await position_manager_service.handle_pyramid_continuation(
-        session=mock_db_session, 
-        user_id=sample_queued_signal.user_id,
-        signal=sample_queued_signal,
-        existing_position_group=sample_position_group,
-        risk_config=sample_risk_config,
-        dca_grid_config=sample_dca_grid_config,
-        total_capital_usd=sample_total_capital_usd
-    )
-
-    assert updated_pg.risk_timer_start == initial_timer_start # Timer should NOT have been reset
-    assert updated_pg.risk_timer_expires == initial_timer_expires # Timer should NOT have been reset
+    # Timer should be cleared - risk engine will re-evaluate and set it if conditions are met
+    assert updated_pg.risk_timer_start is None
+    assert updated_pg.risk_timer_expires is None
 
 
 # --- Exit Logic Test ---
@@ -484,20 +454,18 @@ async def test_handle_exit_signal(
 
 
 @pytest.mark.asyncio
-async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_position_group_repository_class, user_id_fixture):
+async def test_update_risk_timer_defers_to_risk_engine(position_manager_service, mock_position_group_repository_class, user_id_fixture):
     """
-    Test that the risk timer starts correctly when the 'after_5_pyramids'
-    condition is met.
+    Test that update_risk_timer defers timer management to the risk engine.
+    The position manager no longer starts timers directly - it logs and defers to risk engine evaluation.
     """
-    # Arrange
-    now = datetime.utcnow()
     config = RiskEngineConfig(
         loss_threshold_percent=Decimal("-5.0"),
-        max_winners_to_combine=3,
-        timer_start_condition="after_5_pyramids",
-        post_full_wait_minutes=60
+        required_pyramids_for_timer=3,
+        post_pyramids_wait_minutes=15,
+        max_winners_to_combine=3
     )
-    
+
     position_group = PositionGroup(
         id=uuid.uuid4(),
         user_id=user_id_fixture,
@@ -516,117 +484,11 @@ async def test_risk_timer_start_after_5_pyramids(position_manager_service, mock_
     mock_repo_instance = mock_position_group_repository_class.return_value
     mock_repo_instance.get.return_value = position_group
 
-    # Act
+    # Act - this should just log and return, not update the timer directly
     await position_manager_service.update_risk_timer(position_group.id, config)
 
-    # Assert
-    mock_position_group_repository_class.return_value.update.assert_called_once()
-    updated_pg = mock_position_group_repository_class.return_value.update.call_args[0][0]
-    assert updated_pg.risk_timer_expires is not None
-    expected_expiry = now + timedelta(minutes=60)
-    assert updated_pg.risk_timer_expires > now
-    assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
-
-
-@pytest.mark.asyncio
-async def test_risk_timer_start_after_all_dca_submitted(position_manager_service, mock_position_group_repository_class, user_id_fixture):
-    """
-    Test that the risk timer starts correctly when the 'after_all_dca_submitted'
-    condition is met.
-    """
-    # Arrange
-    now = datetime.utcnow()
-    config = RiskEngineConfig(
-        loss_threshold_percent=Decimal("-5.0"),
-        max_winners_to_combine=3,
-        timer_start_condition="after_all_dca_submitted",
-        post_full_wait_minutes=30
-    )
-
-    position_group = PositionGroup(
-        id=uuid.uuid4(),
-        user_id=user_id_fixture,
-        exchange="binance",
-        symbol="ETHUSDT",
-        timeframe=60,
-        side="short",
-        status=PositionGroupStatus.ACTIVE,
-        pyramid_count=5,
-        max_pyramids=5,
-        total_dca_legs=3,
-        filled_dca_legs=2, # Not all filled
-        base_entry_price=Decimal(2000),
-        weighted_avg_entry=Decimal(2000),
-        tp_mode="aggregate" # Added missing tp_mode
-    )
-    mock_repo_instance = mock_position_group_repository_class.return_value
-    mock_repo_instance.get.return_value = position_group
-
-    # Mock DCAOrderRepository to return orders with submitted_at timestamps
-    mock_orders = [
-        MagicMock(submitted_at=datetime.utcnow()),
-        MagicMock(submitted_at=datetime.utcnow()),
-        MagicMock(submitted_at=datetime.utcnow()),  # 3 submitted orders == total_dca_legs
-    ]
-    with patch("app.repositories.dca_order.DCAOrderRepository") as MockDCAOrderRepo:
-        MockDCAOrderRepo.return_value.get_all_orders_by_group_id = AsyncMock(return_value=mock_orders)
-
-        # Act
-        await position_manager_service.update_risk_timer(position_group.id, config)
-
-        # Assert
-        mock_position_group_repository_class.return_value.update.assert_called_once()
-        updated_pg = mock_position_group_repository_class.return_value.update.call_args[0][0]
-        assert updated_pg.risk_timer_expires is not None
-        expected_expiry = now + timedelta(minutes=30)
-        assert updated_pg.risk_timer_expires > now
-        assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
-
-
-@pytest.mark.asyncio
-async def test_risk_timer_start_after_all_dca_filled(position_manager_service, mock_position_group_repository_class, user_id_fixture):
-    """
-    Test that the risk timer starts correctly when the 'after_all_dca_filled'
-    condition is met.
-    """
-    # Arrange
-    now = datetime.utcnow()
-    config = RiskEngineConfig(
-        loss_threshold_percent=Decimal("-5.0"),
-        max_winners_to_combine=3,
-        timer_start_condition="after_all_dca_filled",
-        post_full_wait_minutes=15
-    )
-    
-    position_group = PositionGroup(
-        id=uuid.uuid4(),
-        user_id=user_id_fixture,
-        exchange="binance",
-        symbol="SOLUSDT",
-        timeframe=5,
-        side="long",
-        status=PositionGroupStatus.ACTIVE,
-        pyramid_count=5,
-        max_pyramids=5,
-        total_dca_legs=4,
-        filled_dca_legs=4, # All filled
-        base_entry_price=Decimal(50),
-        weighted_avg_entry=Decimal(50),
-        tp_mode="hybrid"
-    )
-    mock_repo_instance = mock_position_group_repository_class.return_value
-    mock_repo_instance.get.return_value = position_group
-
-    # Act
-    await position_manager_service.update_risk_timer(position_group.id, config)
-
-    # Assert
-    mock_position_group_repository_class.return_value.update.assert_called_once()
-    updated_pg = mock_position_group_repository_class.return_value.update.call_args[0][0]
-    assert updated_pg.risk_timer_expires is not None
-    expected_expiry = now + timedelta(minutes=15)
-    assert updated_pg.risk_timer_expires > now
-    assert updated_pg.risk_timer_expires < expected_expiry + timedelta(seconds=1)
+    # Assert - timer management is deferred to risk engine, no direct updates
+    mock_repo_instance.update.assert_not_called()
 
 
 # --- Additional Coverage Tests ---
@@ -765,15 +627,15 @@ async def test_update_position_stats_position_not_found(
 
 
 @pytest.mark.asyncio
-async def test_update_risk_timer_already_set(
+async def test_update_risk_timer_with_existing_timer(
     position_manager_service,
     mock_position_group_repository_class,
     user_id_fixture
 ):
-    """Test that update_risk_timer doesn't reset an already running timer."""
+    """Test that update_risk_timer defers to risk engine even when timer exists."""
     config = RiskEngineConfig(
-        timer_start_condition="after_5_pyramids",
-        post_full_wait_minutes=60
+        required_pyramids_for_timer=3,
+        post_pyramids_wait_minutes=60
     )
 
     position_group = PositionGroup(
@@ -798,7 +660,7 @@ async def test_update_risk_timer_already_set(
 
     await position_manager_service.update_risk_timer(position_group.id, config)
 
-    # Should NOT call update since timer is already set
+    # Timer management is deferred to risk engine - no direct updates by position manager
     mock_repo_instance.update.assert_not_called()
 
 

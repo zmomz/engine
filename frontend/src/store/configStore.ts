@@ -3,8 +3,6 @@ import api from '../services/api';
 import useAuthStore from './authStore';
 import useNotificationStore from './notificationStore';
 
-
-
 export interface PriorityRulesConfig {
   priority_rules_enabled: {
     same_pair_timeframe: boolean;
@@ -19,18 +17,13 @@ export interface RiskEngineConfig {
   max_open_positions_global: number;
   max_open_positions_per_symbol: number;
   max_total_exposure_usd: number;
-  max_daily_loss_usd: number;
+  max_realized_loss_usd: number;
   loss_threshold_percent: number;
-  timer_start_condition: string;
-  post_full_wait_minutes: number;
+  required_pyramids_for_timer: number;
+  post_pyramids_wait_minutes: number;
   max_winners_to_combine: number;
-  use_trade_age_filter: boolean;
-  age_threshold_minutes: number;
-  require_full_pyramids: boolean;
-  reset_timer_on_replacement: boolean;
-  partial_close_enabled: boolean;
-  min_close_notional: number;
-  priority_rules: PriorityRulesConfig;
+  // Priority rules are internal but exposed for QueuePage display
+  priority_rules?: PriorityRulesConfig;
 }
 
 export interface TelegramConfig {

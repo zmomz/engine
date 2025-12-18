@@ -198,26 +198,33 @@ class RiskEngineConfig(BaseModel):
     max_open_positions_global: int = 10
     max_open_positions_per_symbol: int = 1
     max_total_exposure_usd: Decimal = Decimal("10000")
-    max_daily_loss_usd: Decimal = Decimal("500") # Circuit breaker
+
+    # Max Realized Loss - Circuit breaker for the queue (not risk engine)
+    max_realized_loss_usd: Decimal = Field(
+        default=Decimal("500"),
+        description="Maximum realized loss in USD. When reached, queue stops releasing trades but risk engine continues."
+    )
 
     # Position Sizing
     risk_per_position_percent: Decimal = Field(Decimal("10.0"), description="Percentage of available capital to allocate to a single position group.")
     risk_per_position_cap_usd: Optional[Decimal] = Field(None, description="Maximum absolute USD amount to allocate to a single position group (optional cap).")
 
-    # Post-trade Risk Management
-    loss_threshold_percent: Decimal = Decimal("-1.5")
-    timer_start_condition: str = "after_all_dca_filled"
-    post_full_wait_minutes: int = 15
-    max_winners_to_combine: int = 3
-    use_trade_age_filter: bool = False
-    age_threshold_minutes: int = 120
-    require_full_pyramids: bool = True
-    reset_timer_on_replacement: bool = False
-    partial_close_enabled: bool = True
-    min_close_notional: Decimal = Decimal("10")
-    cancel_orders_on_partial_close: bool = Field(
-        default=True,
-        description="Cancel pending DCA/TP orders on winners after partial close by Risk Engine"
+    # Post-trade Risk Management - Timer Conditions
+    loss_threshold_percent: Decimal = Field(
+        default=Decimal("-1.5"),
+        description="Loss percentage threshold that must be exceeded for timer to start (e.g., -1.5 means -1.5% or worse)"
+    )
+    required_pyramids_for_timer: int = Field(
+        default=3,
+        description="Number of pyramids that must be filled (all DCAs complete) before timer can start"
+    )
+    post_pyramids_wait_minutes: int = Field(
+        default=15,
+        description="Minutes to wait after required pyramids are filled AND loss threshold is met"
+    )
+    max_winners_to_combine: int = Field(
+        default=3,
+        description="Maximum number of winning positions to partially close for offsetting a loss"
     )
 
     # Risk Engine Evaluation Triggers
@@ -240,7 +247,7 @@ class RiskEngineConfig(BaseModel):
         description="Action when slippage exceeds threshold: 'warn' (log only) or 'reject' (raise error)"
     )
 
-    # Queue Priority Rules Configuration
+    # Queue Priority Rules Configuration (internal use - not exposed in frontend settings)
     priority_rules: PriorityRulesConfig = Field(
         default_factory=PriorityRulesConfig,
         description="Configuration for queue priority rules (enabled/disabled and execution order)"
@@ -252,10 +259,49 @@ class RiskEngineConfig(BaseModel):
         description="Configuration for exchange precision validation (cache TTL, fallback rules)"
     )
 
+    # Engine State Management
+    engine_paused_by_loss_limit: bool = Field(
+        default=False,
+        description="True if engine was automatically paused due to reaching max realized loss"
+    )
+    engine_force_stopped: bool = Field(
+        default=False,
+        description="True if engine was manually force stopped by user"
+    )
+
     @model_validator(mode='before')
     @classmethod
     def convert_floats_to_decimals(cls, values):
-        for key in ['loss_threshold_percent', 'max_total_exposure_usd', 'max_daily_loss_usd', 'min_close_notional', 'risk_per_position_percent', 'risk_per_position_cap_usd']:
+        decimal_fields = [
+            'loss_threshold_percent',
+            'max_total_exposure_usd',
+            'max_realized_loss_usd',
+            'risk_per_position_percent',
+            'risk_per_position_cap_usd'
+        ]
+        for key in decimal_fields:
             if key in values and isinstance(values[key], float):
                 values[key] = Decimal(str(values[key]))
+
+        # Handle migration from old field names
+        if 'max_daily_loss_usd' in values and 'max_realized_loss_usd' not in values:
+            values['max_realized_loss_usd'] = values.pop('max_daily_loss_usd')
+        if 'post_full_wait_minutes' in values and 'post_pyramids_wait_minutes' not in values:
+            values['post_pyramids_wait_minutes'] = values.pop('post_full_wait_minutes')
+
+        # Remove deprecated fields if present
+        deprecated_fields = [
+            'max_daily_loss_usd',
+            'timer_start_condition',
+            'use_trade_age_filter',
+            'age_threshold_minutes',
+            'require_full_pyramids',
+            'reset_timer_on_replacement',
+            'min_close_notional',
+            'cancel_orders_on_partial_close',
+            'post_full_wait_minutes'
+        ]
+        for field in deprecated_fields:
+            values.pop(field, None)
+
         return values

@@ -1,25 +1,68 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Button, Collapse, IconButton } from '@mui/material';
-import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
+import { Box, Typography, Button, Collapse, IconButton, Paper, Tabs, Tab, Chip } from '@mui/material';
+import { DataGrid, GridColDef, GridRenderCellParams, GridToolbar } from '@mui/x-data-grid';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import useConfirmStore from '../store/confirmStore';
 import usePositionsStore, { PositionGroup } from '../store/positionsStore';
+import { format } from 'date-fns';
+
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+function CustomTabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      {...other}
+      style={{ height: '100%', display: value === index ? 'block' : 'none' }}
+    >
+      {value === index && (
+        <Box sx={{ p: 0, height: '100%' }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 const PositionsPage: React.FC = () => {
-  const { positions, loading, error, fetchPositions, closePosition } = usePositionsStore();
+  const {
+    positions,
+    positionHistory,
+    loading,
+    error,
+    fetchPositions,
+    fetchPositionHistory,
+    closePosition
+  } = usePositionsStore();
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [tabValue, setTabValue] = useState(0);
 
   useEffect(() => {
     fetchPositions();
+    fetchPositionHistory();
 
     // Set up polling for active positions
     const interval = setInterval(() => {
-      fetchPositions(true);
+      if (tabValue === 0) fetchPositions(true);
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchPositions]);
+  }, [fetchPositions, fetchPositionHistory, tabValue]);
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+    if (newValue === 0) fetchPositions();
+    if (newValue === 1) fetchPositionHistory();
+  };
 
   const handleForceClose = async (groupId: string) => {
     const confirmed = await useConfirmStore.getState().requestConfirm({
@@ -31,6 +74,8 @@ const PositionsPage: React.FC = () => {
 
     if (confirmed) {
       await closePosition(groupId);
+      // Refresh history after close
+      fetchPositionHistory();
     }
   };
 
@@ -41,7 +86,47 @@ const PositionsPage: React.FC = () => {
     }));
   };
 
-  const columns: GridColDef[] = [
+  const formatCurrency = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined) return '-';
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return '-';
+    return `$${numValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const formatPercentage = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined) return '-';
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return '-';
+    return `${numValue >= 0 ? '+' : ''}${numValue.toFixed(2)}%`;
+  };
+
+  const getPnlColor = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined) return 'text.primary';
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    return numValue < 0 ? 'error.main' : 'success.main';
+  };
+
+  const formatDuration = (createdAt: string | null, closedAt: string | null) => {
+    if (!createdAt || !closedAt) return '-';
+    try {
+      const start = new Date(createdAt);
+      const end = new Date(closedAt);
+      const durationMs = end.getTime() - start.getTime();
+      const hours = Math.floor(durationMs / (1000 * 60 * 60));
+      const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        const remainingHours = hours % 24;
+        return `${days}d ${remainingHours}h`;
+      }
+      return `${hours}h ${minutes}m`;
+    } catch {
+      return '-';
+    }
+  };
+
+  const activeColumns: GridColDef[] = [
     {
       field: 'expand',
       headerName: '',
@@ -60,15 +145,25 @@ const PositionsPage: React.FC = () => {
     },
     { field: 'exchange', headerName: 'Exchange', width: 100 },
     { field: 'symbol', headerName: 'Symbol', width: 120 },
-    { field: 'side', headerName: 'Side', width: 80 },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 80,
+      renderCell: (params) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
+        />
+      )
+    },
     { field: 'status', headerName: 'Status', width: 120 },
     {
       field: 'weighted_avg_entry',
       headerName: 'Avg Entry',
       width: 120,
-      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        params.value ? `$${Number(params.value).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'
-      ),
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => formatCurrency(params.value),
     },
     {
       field: 'pyramid_count',
@@ -103,8 +198,8 @@ const PositionsPage: React.FC = () => {
       headerName: 'PnL ($)',
       width: 120,
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography color={(params.value || 0) >= 0 ? 'success.main' : 'error.main'}>
-          {params.value != null ? `$${Number(params.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'N/A'}
+        <Typography color={getPnlColor(params.value)}>
+          {formatCurrency(params.value)}
         </Typography>
       ),
     },
@@ -126,27 +221,149 @@ const PositionsPage: React.FC = () => {
     },
   ];
 
-  return (
-    <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Positions
-      </Typography>
-      {error && <Typography color="error">Error: {error}</Typography>}
-      <div style={{ height: 400, width: '100%' }}>
-        <DataGrid
-          rows={positions}
-          columns={columns}
-          getRowId={(row) => row.id}
-          loading={loading}
-          pageSizeOptions={[5, 10, 20]}
-          initialState={{
-            pagination: {
-              paginationModel: { pageSize: 10, page: 0 },
-            },
-          }}
+  const historyColumns: GridColDef[] = [
+    { field: 'exchange', headerName: 'Exchange', width: 100 },
+    { field: 'symbol', headerName: 'Symbol', width: 120 },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 80,
+      renderCell: (params) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
         />
-      </div>
-      {positions.map((position) => (
+      )
+    },
+    { field: 'timeframe', headerName: 'TF', width: 70 },
+    {
+      field: 'weighted_avg_entry',
+      headerName: 'Entry Price',
+      width: 130,
+      renderCell: (params) => formatCurrency(params.value),
+    },
+    {
+      field: 'pyramid_count',
+      headerName: 'Pyramids',
+      width: 90,
+      valueGetter: (value: any, row: PositionGroup) => (row.pyramid_count || 0) + 1,
+    },
+    {
+      field: 'total_invested_usd',
+      headerName: 'Invested',
+      width: 110,
+      renderCell: (params) => formatCurrency(params.value),
+    },
+    {
+      field: 'realized_pnl_usd',
+      headerName: 'PnL ($)',
+      width: 120,
+      renderCell: (params) => (
+        <Typography
+          color={getPnlColor(params.value)}
+          fontWeight="bold"
+        >
+          {formatCurrency(params.value)}
+        </Typography>
+      ),
+    },
+    {
+      field: 'unrealized_pnl_percent',
+      headerName: 'PnL (%)',
+      width: 100,
+      renderCell: (params) => (
+        <Typography color={getPnlColor(params.value)}>
+          {formatPercentage(params.value)}
+        </Typography>
+      ),
+    },
+    {
+      field: 'duration',
+      headerName: 'Duration',
+      width: 100,
+      valueGetter: (value: any, row: PositionGroup) => formatDuration(row.created_at, row.closed_at),
+    },
+    {
+      field: 'closed_at',
+      headerName: 'Closed At',
+      width: 180,
+      renderCell: (params) => {
+        if (!params.value) return '-';
+        try {
+          return format(new Date(params.value), 'yyyy-MM-dd HH:mm:ss');
+        } catch {
+          return params.value;
+        }
+      }
+    },
+  ];
+
+  return (
+    <Box sx={{ flexGrow: 1, p: 3, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4">
+          Positions
+        </Typography>
+        <Box>
+          <IconButton
+            onClick={() => { fetchPositions(); fetchPositionHistory(); }}
+            color="primary"
+          >
+            <RefreshIcon />
+          </IconButton>
+        </Box>
+      </Box>
+
+      {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
+
+      <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={tabValue} onChange={handleTabChange} aria-label="positions tabs">
+            <Tab label={`Active Positions (${positions.length})`} />
+            <Tab label={`Position History (${positionHistory.length})`} />
+          </Tabs>
+        </Box>
+
+        <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+          <CustomTabPanel value={tabValue} index={0}>
+            <DataGrid
+              rows={positions}
+              columns={activeColumns}
+              getRowId={(row) => row.id}
+              loading={loading}
+              disableRowSelectionOnClick
+              slots={{ toolbar: GridToolbar }}
+              initialState={{
+                pagination: { paginationModel: { pageSize: 10 } },
+              }}
+              pageSizeOptions={[5, 10, 20]}
+            />
+          </CustomTabPanel>
+
+          <CustomTabPanel value={tabValue} index={1}>
+            <DataGrid
+              rows={positionHistory}
+              columns={historyColumns}
+              getRowId={(row) => row.id}
+              loading={loading}
+              disableRowSelectionOnClick
+              slots={{ toolbar: GridToolbar }}
+              initialState={{
+                sorting: {
+                  sortModel: [{ field: 'closed_at', sort: 'desc' }],
+                },
+                pagination: { paginationModel: { pageSize: 10 } },
+              }}
+              pageSizeOptions={[5, 10, 20, 50]}
+            />
+          </CustomTabPanel>
+        </Box>
+      </Paper>
+
+      {/* Expanded pyramid details for active positions */}
+      {tabValue === 0 && positions.map((position) => (
         <Collapse in={expandedRows[position.id]} key={position.id} timeout="auto" unmountOnExit>
           <Box sx={{ margin: 1, ml: 5 }}>
             <Typography variant="h6" gutterBottom component="div">

@@ -36,83 +36,202 @@ def round_to_step_size(value: Decimal, step_size: Decimal) -> Decimal:
 
 # --- Standalone functions for selection logic (as per EP.md 6.2) ---
 
+def _check_pyramids_complete(pg: PositionGroup, required_pyramids: int) -> bool:
+    """
+    Check if the required number of pyramids have ALL their DCAs filled.
+    A pyramid is considered complete when all its DCA orders are filled.
+
+    Args:
+        pg: Position group to check
+        required_pyramids: Number of pyramids that must be complete (default 3)
+
+    Returns:
+        True if at least required_pyramids have all DCAs filled
+    """
+    # pyramid_count tracks how many pyramids have been added
+    # For a pyramid to be complete, all its DCAs must be filled
+    # The position group tracks filled_dca_legs vs total_dca_legs for all pyramids combined
+
+    # If pyramid_count >= required_pyramids, check if all DCAs for those pyramids are filled
+    if pg.pyramid_count < required_pyramids:
+        return False
+
+    # Check if all DCA legs for the current pyramids are filled
+    # filled_dca_legs should equal total_dca_legs for pyramid completion
+    return pg.filled_dca_legs >= pg.total_dca_legs
+
+
 def _filter_eligible_losers(position_groups: List[PositionGroup], config: RiskEngineConfig) -> List[PositionGroup]:
-    """Helper to filter positions eligible for loss offset."""
+    """
+    Helper to filter positions eligible for loss offset.
+
+    A position is eligible when:
+    1. Status is ACTIVE
+    2. Required number of pyramids are filled (all DCAs complete)
+    3. Loss threshold is exceeded
+    4. Timer has expired (timer starts when conditions 2 & 3 are both met)
+    5. Not blocked or skip_once flagged
+    """
     eligible_losers = []
     for pg in position_groups:
-        # Must meet all conditions
-        if not all([
-            pg.status == PositionGroupStatus.ACTIVE.value,
-            pg.pyramid_count >= pg.max_pyramids if config.require_full_pyramids else True,
-            pg.risk_timer_expires and pg.risk_timer_expires <= datetime.utcnow(),
-            pg.unrealized_pnl_percent <= config.loss_threshold_percent,
-            not pg.risk_blocked,
-            not pg.risk_skip_once
-        ]):
+        # Basic status check
+        if pg.status != PositionGroupStatus.ACTIVE.value:
             continue
-        
-        # Age filter (optional)
-        if config.use_trade_age_filter:
-            age_minutes = (datetime.utcnow() - pg.created_at).total_seconds() / 60
-            if age_minutes < config.age_threshold_minutes:
-                continue
-        
+
+        # Must not be blocked or skip_once
+        if pg.risk_blocked or pg.risk_skip_once:
+            continue
+
+        # Check if required pyramids are complete (all DCAs filled)
+        pyramids_complete = _check_pyramids_complete(pg, config.required_pyramids_for_timer)
+
+        # Check if loss threshold is exceeded
+        loss_exceeded = pg.unrealized_pnl_percent <= config.loss_threshold_percent
+
+        # Both conditions must be met for timer to be valid
+        if not (pyramids_complete and loss_exceeded):
+            continue
+
+        # Timer must exist and be expired
+        if not pg.risk_timer_expires or pg.risk_timer_expires > datetime.utcnow():
+            continue
+
         eligible_losers.append(pg)
     return eligible_losers
 
-def _select_top_winners(position_groups: List[PositionGroup], count: int) -> List[PositionGroup]:
+def _select_top_winners(position_groups: List[PositionGroup], count: int, exclude_id: uuid.UUID = None) -> List[PositionGroup]:
     """Helper to select top profitable positions."""
     winning_positions = [
         pg for pg in position_groups
-        if pg.status == PositionGroupStatus.ACTIVE.value and pg.unrealized_pnl_usd > 0
+        if pg.status == PositionGroupStatus.ACTIVE.value
+        and pg.unrealized_pnl_usd > 0
+        and (exclude_id is None or pg.id != exclude_id)
     ]
-    
+
     # Sort by USD profit (descending)
     winning_positions.sort(
         key=lambda pg: pg.unrealized_pnl_usd,
         reverse=True
     )
-    
+
     # Take up to max_winners_to_combine
     return winning_positions[:count]
+
+
+async def update_risk_timers(
+    position_groups: List[PositionGroup],
+    config: RiskEngineConfig,
+    session: 'AsyncSession'
+) -> None:
+    """
+    Update risk timers for all positions based on current conditions.
+
+    Timer Logic:
+    - Timer STARTS when BOTH conditions are met:
+      1. Required pyramids are complete (all DCAs filled)
+      2. Loss threshold is exceeded
+
+    - Timer RESETS (stops and clears) when:
+      - A new pyramid is received (pyramid_count increases)
+      - Loss threshold is no longer exceeded (price improved)
+      - Pyramids are no longer complete (should not happen normally)
+
+    Args:
+        position_groups: List of active positions to check
+        config: Risk engine configuration
+        session: Database session for updates
+    """
+    now = datetime.utcnow()
+
+    for pg in position_groups:
+        if pg.status != PositionGroupStatus.ACTIVE.value:
+            continue
+
+        # Check current conditions
+        pyramids_complete = _check_pyramids_complete(pg, config.required_pyramids_for_timer)
+        loss_exceeded = pg.unrealized_pnl_percent <= config.loss_threshold_percent
+
+        # Both conditions must be met for timer to run
+        both_conditions_met = pyramids_complete and loss_exceeded
+
+        if both_conditions_met:
+            # Start timer if not already started
+            if pg.risk_timer_start is None:
+                pg.risk_timer_start = now
+                pg.risk_timer_expires = now + timedelta(minutes=config.post_pyramids_wait_minutes)
+                pg.risk_eligible = False
+                logger.info(
+                    f"Risk timer STARTED for {pg.symbol} (ID: {pg.id}). "
+                    f"Pyramids: {pg.pyramid_count}/{config.required_pyramids_for_timer}, "
+                    f"Loss: {pg.unrealized_pnl_percent}% <= {config.loss_threshold_percent}%. "
+                    f"Expires: {pg.risk_timer_expires}"
+                )
+            # Check if timer expired
+            elif pg.risk_timer_expires and now >= pg.risk_timer_expires:
+                pg.risk_eligible = True
+                logger.info(f"Risk timer EXPIRED for {pg.symbol} (ID: {pg.id}). Now eligible for offset.")
+        else:
+            # Conditions not met - reset timer if it was running
+            if pg.risk_timer_start is not None:
+                reason = []
+                if not pyramids_complete:
+                    reason.append(f"pyramids incomplete ({pg.pyramid_count}/{config.required_pyramids_for_timer})")
+                if not loss_exceeded:
+                    reason.append(f"loss improved ({pg.unrealized_pnl_percent}% > {config.loss_threshold_percent}%)")
+
+                logger.info(
+                    f"Risk timer RESET for {pg.symbol} (ID: {pg.id}). "
+                    f"Reason: {', '.join(reason)}"
+                )
+
+            pg.risk_timer_start = None
+            pg.risk_timer_expires = None
+            pg.risk_eligible = False
 
 def select_loser_and_winners(
     position_groups: List[PositionGroup],
     config: RiskEngineConfig
 ) -> Tuple[Optional[PositionGroup], List[PositionGroup], Decimal]:
     """
-    Risk Engine selection logic (SoW Section 4.4 & 4.5):
-    
+    Risk Engine selection logic:
+
     Loser Selection (by % loss):
     1. Highest loss percentage
     2. If tied → highest unrealized loss USD
     3. If tied → oldest trade
-    
+
     Winner Selection (by $ profit):
     - Rank all winning positions by unrealized profit USD
     - Select up to max_winners_to_combine (default: 3)
-    
+    - Exclude the loser from winner selection
+
     Offset Execution:
-    - Calculate required_usd to cover loser
-    - Close winners partially to realize that amount
+    - Calculate required_usd to cover loser (exact loss amount)
+    - Close winners partially to realize that exact amount
     """
-    
+
     eligible_losers = _filter_eligible_losers(position_groups, config)
-    
+
     if not eligible_losers:
         return None, [], Decimal("0")
-    
+
     # Sort losers by priority
     selected_loser = max(eligible_losers, key=lambda pg: (
         abs(pg.unrealized_pnl_percent),  # Primary: highest loss %
         abs(pg.unrealized_pnl_usd),      # Secondary: highest loss $
         -pg.created_at.timestamp()        # Tertiary: oldest
     ))
-    
+
+    # Required USD is the exact loss amount to cover
     required_usd = abs(selected_loser.unrealized_pnl_usd)
-    
-    selected_winners = _select_top_winners(position_groups, config.max_winners_to_combine)
-    
+
+    # Select winners, excluding the loser
+    selected_winners = _select_top_winners(
+        position_groups,
+        config.max_winners_to_combine,
+        exclude_id=selected_loser.id
+    )
+
     return selected_loser, selected_winners, required_usd
 
 async def calculate_partial_close_quantities(
@@ -282,42 +401,44 @@ class RiskEngineService:
         allocated_capital_usd: Decimal,
         session: AsyncSession,
         is_pyramid_continuation: bool = False
-    ) -> bool:
+    ) -> Tuple[bool, Optional[str]]:
         """
         Performs pre-trade risk checks before promoting a signal.
+
+        Returns:
+            Tuple of (is_allowed, rejection_reason)
         """
-        # 0. Max Open Positions Global
-        # If it's a pyramid continuation, we are adding to an existing group, so we don't count against "new" positions
+        # 0. Check if engine is paused or force stopped
+        if self.config.engine_paused_by_loss_limit:
+            return False, "Engine paused due to max realized loss limit"
+        if self.config.engine_force_stopped:
+            return False, "Engine force stopped by user"
+
+        # 1. Max Open Positions Global
         if not is_pyramid_continuation:
             active_groups_count = len(active_positions)
             if active_groups_count >= self.config.max_open_positions_global:
-                logger.info(f"Risk Check Failed: Max global positions reached ({active_groups_count}/{self.config.max_open_positions_global})")
-                return False
+                return False, f"Max global positions reached ({active_groups_count}/{self.config.max_open_positions_global})"
 
-        # 1. Max Open Positions Per Symbol
-        # If it's a pyramid continuation, we are adding to an existing group, so we don't count against "new" positions per symbol
+        # 2. Max Open Positions Per Symbol
         if not is_pyramid_continuation:
             symbol_positions = [p for p in active_positions if p.symbol == signal.symbol]
             if len(symbol_positions) >= self.config.max_open_positions_per_symbol:
-                logger.info(f"Risk Check Failed: Max positions for {signal.symbol} reached ({len(symbol_positions)}/{self.config.max_open_positions_per_symbol})")
-                return False
+                return False, f"Max positions for {signal.symbol} reached ({len(symbol_positions)}/{self.config.max_open_positions_per_symbol})"
 
-        # 2. Max Total Exposure
+        # 3. Max Total Exposure
         current_exposure = sum(p.total_invested_usd for p in active_positions)
         if (current_exposure + allocated_capital_usd) > self.config.max_total_exposure_usd:
-             logger.info(f"Risk Check Failed: Max exposure reached ({current_exposure + allocated_capital_usd} > {self.config.max_total_exposure_usd})")
-             return False
+            return False, f"Max exposure reached ({current_exposure + allocated_capital_usd} > {self.config.max_total_exposure_usd})"
 
-        # 3. Daily Loss Limit (Circuit Breaker)
+        # 4. Max Realized Loss Check (Circuit Breaker for Queue)
         position_group_repo = self.position_group_repository_class(session)
         daily_pnl = await position_group_repo.get_daily_realized_pnl(user_id=signal.user_id)
-        
-        # If daily_pnl is negative and its absolute value exceeds max_daily_loss_usd
-        if daily_pnl < 0 and abs(daily_pnl) >= self.config.max_daily_loss_usd:
-             logger.info(f"Risk Check Failed: Daily loss limit reached ({daily_pnl} USD). Max loss allowed: {self.config.max_daily_loss_usd}")
-             return False
-        
-        return True
+
+        if daily_pnl < 0 and abs(daily_pnl) >= self.config.max_realized_loss_usd:
+            return False, f"Max realized loss limit reached ({daily_pnl} USD). Limit: {self.config.max_realized_loss_usd}"
+
+        return True, None
 
     async def _evaluate_positions(self):
         """
@@ -340,14 +461,22 @@ class RiskEngineService:
     async def _evaluate_user_positions(self, session, user):
         """
         Evaluates positions for a single user.
+
+        Process:
+        1. Update timers for all positions based on current conditions
+        2. Select eligible loser and winners
+        3. Execute offset (close loser and partial close winners SIMULTANEOUSLY)
         """
         try:
             position_group_repo = self.position_group_repository_class(session)
             risk_action_repo = self.risk_action_repository_class(session)
-            
+
             # 1. Get User Positions
             all_positions = await position_group_repo.get_all_active_by_user(user.id)
-            
+
+            if not all_positions:
+                return
+
             # 2. Determine Risk Config (User > Global)
             config = self.config
             if user.risk_config:
@@ -357,33 +486,37 @@ class RiskEngineService:
                 except Exception as e:
                     logger.warning(f"Risk Engine: Invalid config for user {user.id}, using default. Error: {e}")
 
-            # 3. Select Loser and Winners
+            # 3. Update risk timers for all positions
+            await update_risk_timers(all_positions, config, session)
+            await session.commit()
+
+            # 4. Select Loser and Winners
             loser, winners, required_usd = select_loser_and_winners(all_positions, config)
 
             if loser and winners:
-                logger.info(f"Risk Engine: Identified loser {loser.symbol} for user {user.id} (loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners.")
-                
-                # Decrypt keys and get exchange connector
-                encryption_service = EncryptionService()
+                logger.info(
+                    f"Risk Engine: Identified loser {loser.symbol} for user {user.id} "
+                    f"(loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners."
+                )
+
+                # Get exchange connector
                 try:
-                    # Fix for multi-key: Use loser.exchange
                     exchange_config = {}
                     encrypted_data = user.encrypted_api_keys
                     target_exchange = loser.exchange.lower()
 
                     if isinstance(encrypted_data, dict):
-                         if target_exchange in encrypted_data:
-                             exchange_config = encrypted_data[target_exchange]
-                         elif "encrypted_data" not in encrypted_data:
-                             logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}. Skipping.")
-                             return
-                         else:
-                             # Fallback for old single-key setup where encrypted_api_keys might directly be the encrypted_data string
-                             exchange_config = {"encrypted_data": encrypted_data}
+                        if target_exchange in encrypted_data:
+                            exchange_config = encrypted_data[target_exchange]
+                        elif "encrypted_data" not in encrypted_data:
+                            logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}. Skipping.")
+                            return
+                        else:
+                            exchange_config = {"encrypted_data": encrypted_data}
                     elif isinstance(encrypted_data, str):
                         exchange_config = {"encrypted_data": encrypted_data}
                     else:
-                        logger.error(f"Risk Engine: Invalid format for encrypted_api_keys for user {user.id}. Expected dict or str. Skipping.")
+                        logger.error(f"Risk Engine: Invalid format for encrypted_api_keys for user {user.id}. Skipping.")
                         return
 
                     exchange_connector = get_exchange_connector(
@@ -391,8 +524,8 @@ class RiskEngineService:
                         exchange_config=exchange_config
                     )
                 except Exception as e:
-                        logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
-                        return
+                    logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
+                    return
 
                 # Instantiate OrderService
                 order_service = self.order_service_class(
@@ -401,20 +534,13 @@ class RiskEngineService:
                     exchange_connector=exchange_connector
                 )
 
-                # Get Precision Rules
-                try:
-                    full_precision_rules = await exchange_connector.get_precision_rules()
-                except Exception as e:
-                    logger.error(f"Risk Engine: Failed to fetch precision rules for user {user.id}: {e}")
-                    return
-                
+                # Calculate partial close quantities
                 close_plan = await calculate_partial_close_quantities(user, winners, required_usd)
 
                 if not close_plan and required_usd > 0:
                     logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
                     return
 
-                # Close the loser
                 # Get pyramid for loser
                 loser_pyramid_result = await session.execute(
                     select(Pyramid).where(Pyramid.group_id == loser.id).limit(1)
@@ -424,18 +550,24 @@ class RiskEngineService:
                     logger.error(f"Risk Engine: No pyramid found for loser {loser.symbol}. Cannot place close order.")
                     return
 
-                await order_service.place_market_order(
-                    user_id=loser.user_id,
-                    exchange=loser.exchange,
-                    symbol=loser.symbol,
-                    side="sell" if loser.side == "long" else "buy",
-                    quantity=loser.total_filled_quantity,
-                    position_group_id=loser.id,
-                    pyramid_id=loser_pyramid.id,
-                    record_in_db=True
-                )
-                logger.info(f"Risk Engine: Closed loser {loser.symbol} (ID: {loser.id}).")
+                # Prepare all close orders for SIMULTANEOUS execution
+                close_tasks = []
 
+                # Add loser close task
+                close_tasks.append(
+                    order_service.place_market_order(
+                        user_id=loser.user_id,
+                        exchange=loser.exchange,
+                        symbol=loser.symbol,
+                        side="sell" if loser.side == "long" else "buy",
+                        quantity=loser.total_filled_quantity,
+                        position_group_id=loser.id,
+                        pyramid_id=loser_pyramid.id,
+                        record_in_db=True
+                    )
+                )
+
+                # Prepare winner close tasks
                 winner_details = []
                 for winner_pg, quantity_to_close in close_plan:
                     # Get pyramid for winner
@@ -447,40 +579,64 @@ class RiskEngineService:
                         logger.warning(f"Risk Engine: No pyramid found for winner {winner_pg.symbol}. Skipping.")
                         continue
 
-                    # Cancel pending orders on winner if configured
-                    if config.cancel_orders_on_partial_close:
-                        try:
-                            await order_service.cancel_open_orders_for_group(winner_pg.id)
-                            logger.info(f"Risk Engine: Cancelled pending orders for winner {winner_pg.symbol} (ID: {winner_pg.id}) before partial close.")
-                        except Exception as cancel_err:
-                            logger.warning(f"Risk Engine: Failed to cancel orders for winner {winner_pg.symbol}: {cancel_err}")
+                    # Cancel pending orders on winner before closing
+                    try:
+                        await order_service.cancel_open_orders_for_group(winner_pg.id)
+                        logger.info(f"Risk Engine: Cancelled pending orders for winner {winner_pg.symbol} (ID: {winner_pg.id}).")
+                    except Exception as cancel_err:
+                        logger.warning(f"Risk Engine: Failed to cancel orders for winner {winner_pg.symbol}: {cancel_err}")
 
-                    await order_service.place_market_order(
-                        user_id=winner_pg.user_id,
-                        exchange=winner_pg.exchange,
-                        symbol=winner_pg.symbol,
-                        side="sell" if winner_pg.side == "long" else "buy",
-                        quantity=quantity_to_close,
-                        position_group_id=winner_pg.id,
-                        pyramid_id=winner_pyramid.id,
-                        record_in_db=True
+                    # Add winner close task
+                    close_tasks.append(
+                        order_service.place_market_order(
+                            user_id=winner_pg.user_id,
+                            exchange=winner_pg.exchange,
+                            symbol=winner_pg.symbol,
+                            side="sell" if winner_pg.side == "long" else "buy",
+                            quantity=quantity_to_close,
+                            position_group_id=winner_pg.id,
+                            pyramid_id=winner_pyramid.id,
+                            record_in_db=True
+                        )
                     )
-                    logger.info(f"Risk Engine: Partially closed winner {winner_pg.symbol} (ID: {winner_pg.id}) for {quantity_to_close} units.")
                     winner_details.append({
                         "group_id": str(winner_pg.id),
+                        "symbol": winner_pg.symbol,
                         "pnl_usd": str(winner_pg.unrealized_pnl_usd),
-                        "quantity_closed": str(quantity_to_close),
-                        "orders_cancelled": config.cancel_orders_on_partial_close
+                        "quantity_closed": str(quantity_to_close)
                     })
-                
+
+                # Execute ALL close orders SIMULTANEOUSLY
+                logger.info(f"Risk Engine: Executing {len(close_tasks)} close orders simultaneously...")
+                results = await asyncio.gather(*close_tasks, return_exceptions=True)
+
+                # Check results
+                success_count = 0
+                error_count = 0
+                for idx, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        error_count += 1
+                        logger.error(f"Risk Engine: Close order {idx} failed: {result}")
+                    else:
+                        success_count += 1
+
+                logger.info(f"Risk Engine: Simultaneous execution completed. Success: {success_count}, Errors: {error_count}")
+
+                # Record risk action
                 risk_action = RiskAction(
                     group_id=loser.id,
                     action_type=RiskActionType.OFFSET_LOSS,
                     loser_group_id=loser.id,
                     loser_pnl_usd=loser.unrealized_pnl_usd,
-                    winner_details=winner_details
+                    winner_details=winner_details,
+                    notes=f"Simultaneous execution: {success_count} success, {error_count} errors"
                 )
                 await risk_action_repo.create(risk_action)
+
+                # Clear skip_once flag if it was set
+                if loser.risk_skip_once:
+                    loser.risk_skip_once = False
+
                 await session.commit()
                 logger.info(f"Risk Engine: Offset for {loser.symbol} successfully executed and recorded.")
             else:
@@ -593,11 +749,9 @@ class RiskEngineService:
                         timer_remaining = int((loser.risk_timer_expires - now).total_seconds() / 60)  # minutes
                         timer_status = "active"
 
-                # Check age
-                age_minutes = int((datetime.utcnow() - loser.created_at).total_seconds() / 60) if loser.created_at else 0
-                age_filter_passed = True
-                if self.config.use_trade_age_filter:
-                    age_filter_passed = age_minutes >= self.config.age_threshold_minutes
+                # Check pyramid completion
+                pyramids_complete = _check_pyramids_complete(loser, self.config.required_pyramids_for_timer)
+                loss_exceeded = loser.unrealized_pnl_percent <= self.config.loss_threshold_percent
 
                 loser_info = {
                     "id": str(loser.id),
@@ -609,11 +763,12 @@ class RiskEngineService:
                     "risk_timer_expires": loser.risk_timer_expires.isoformat() if loser.risk_timer_expires else None,
                     "timer_remaining_minutes": timer_remaining,
                     "timer_status": timer_status,
-                    "pyramids_reached": loser.pyramid_count >= loser.max_pyramids,
+                    "pyramids_complete": pyramids_complete,
                     "pyramid_count": loser.pyramid_count,
-                    "max_pyramids": loser.max_pyramids,
-                    "age_minutes": age_minutes,
-                    "age_filter_passed": age_filter_passed,
+                    "required_pyramids": self.config.required_pyramids_for_timer,
+                    "filled_dca_legs": loser.filled_dca_legs,
+                    "total_dca_legs": loser.total_dca_legs,
+                    "loss_threshold_exceeded": loss_exceeded,
                 }
 
             # Enhanced winners info
@@ -663,6 +818,9 @@ class RiskEngineService:
                             timer_remaining = int((pos.risk_timer_expires - now).total_seconds() / 60)
                             timer_status = "countdown"
 
+                    pyramids_complete = _check_pyramids_complete(pos, self.config.required_pyramids_for_timer)
+                    loss_exceeded = pos.unrealized_pnl_percent <= self.config.loss_threshold_percent
+
                     at_risk_positions.append({
                         "id": str(pos.id),
                         "symbol": pos.symbol,
@@ -673,6 +831,9 @@ class RiskEngineService:
                         "is_eligible": is_eligible,
                         "is_selected": loser and pos.id == loser.id,
                         "risk_blocked": pos.risk_blocked,
+                        "pyramids_complete": pyramids_complete,
+                        "pyramid_count": pos.pyramid_count,
+                        "loss_exceeded": loss_exceeded,
                     })
 
             # Sort by loss percent (worst first)
@@ -691,6 +852,11 @@ class RiskEngineService:
                     "action_type": action.action_type.value if action.action_type else "unknown",
                 })
 
+            # Get daily realized PnL for loss limit status
+            daily_realized_pnl = Decimal("0")
+            if self.user:
+                daily_realized_pnl = await position_group_repo.get_daily_realized_pnl(user_id=self.user.id)
+
             return {
                 "identified_loser": loser_info,
                 "identified_winners": winners_info,
@@ -700,6 +866,10 @@ class RiskEngineService:
                 "at_risk_positions": at_risk_positions,
                 "recent_actions": recent_actions_info,
                 "risk_engine_running": self._running,
+                "engine_paused_by_loss_limit": self.config.engine_paused_by_loss_limit,
+                "engine_force_stopped": self.config.engine_force_stopped,
+                "daily_realized_pnl": float(daily_realized_pnl),
+                "max_realized_loss_usd": float(self.config.max_realized_loss_usd),
                 "config": self.config.model_dump()
             }
 
@@ -733,3 +903,354 @@ class RiskEngineService:
             await self._evaluate_user_positions(session, user)
         except Exception as e:
             logger.error(f"Risk Engine: Fill-triggered evaluation failed for user {user.id}: {e}")
+
+    async def force_stop_engine(self, user: User, session: AsyncSession, send_notification: bool = True) -> dict:
+        """
+        Force stop the queue from releasing trades. Risk engine continues running.
+
+        Args:
+            user: The user requesting the stop
+            session: Database session
+            send_notification: Whether to send Telegram notification
+
+        Returns:
+            Status dict with engine state information
+        """
+        from sqlalchemy import update
+
+        # Update user's risk config
+        risk_config_data = user.risk_config or {}
+        if isinstance(risk_config_data, str):
+            import json
+            risk_config_data = json.loads(risk_config_data)
+
+        risk_config_data['engine_force_stopped'] = True
+        risk_config_data['engine_paused_by_loss_limit'] = False  # Clear auto-pause flag
+
+        # Update directly in database to ensure persistence
+        await session.execute(
+            update(User).where(User.id == user.id).values(risk_config=risk_config_data)
+        )
+        await session.commit()
+
+        # Update local user object as well
+        user.risk_config = risk_config_data
+
+        # Update local config
+        self.config = RiskEngineConfig(**risk_config_data)
+
+        logger.info(f"Engine force stopped by user {user.id}")
+
+        # Gather status info
+        position_group_repo = self.position_group_repository_class(session)
+        all_positions = await position_group_repo.get_all_active_by_user(user.id)
+
+        status_info = await self._get_engine_status_summary(user, session, all_positions)
+
+        # Send Telegram notification if enabled
+        if send_notification:
+            await self._send_engine_state_notification(
+                user=user,
+                action="FORCE_STOPPED",
+                reason="Manually stopped by user",
+                status_info=status_info
+            )
+
+        return {
+            "status": "force_stopped",
+            "message": "Engine force stopped. Queue will not release new trades. Risk engine continues running.",
+            **status_info
+        }
+
+    async def force_start_engine(self, user: User, session: AsyncSession, send_notification: bool = True) -> dict:
+        """
+        Force start the queue after it was stopped (either by loss limit or manual stop).
+
+        Args:
+            user: The user requesting the start
+            session: Database session
+            send_notification: Whether to send Telegram notification
+
+        Returns:
+            Status dict with engine state information
+        """
+        from sqlalchemy import update
+
+        # Update user's risk config
+        risk_config_data = user.risk_config or {}
+        if isinstance(risk_config_data, str):
+            import json
+            risk_config_data = json.loads(risk_config_data)
+
+        was_paused_by_loss = risk_config_data.get('engine_paused_by_loss_limit', False)
+        was_force_stopped = risk_config_data.get('engine_force_stopped', False)
+
+        risk_config_data['engine_force_stopped'] = False
+        risk_config_data['engine_paused_by_loss_limit'] = False
+
+        # Update directly in database to ensure persistence
+        await session.execute(
+            update(User).where(User.id == user.id).values(risk_config=risk_config_data)
+        )
+        await session.commit()
+
+        # Update local user object as well
+        user.risk_config = risk_config_data
+
+        # Update local config
+        self.config = RiskEngineConfig(**risk_config_data)
+
+        logger.info(f"Engine force started by user {user.id}")
+
+        # Gather status info
+        position_group_repo = self.position_group_repository_class(session)
+        all_positions = await position_group_repo.get_all_active_by_user(user.id)
+
+        status_info = await self._get_engine_status_summary(user, session, all_positions)
+
+        # Determine reason
+        if was_paused_by_loss:
+            reason = "Resumed after max realized loss was reached"
+        elif was_force_stopped:
+            reason = "Resumed after manual force stop"
+        else:
+            reason = "Engine started"
+
+        # Send Telegram notification if enabled
+        if send_notification:
+            await self._send_engine_state_notification(
+                user=user,
+                action="FORCE_STARTED",
+                reason=reason,
+                status_info=status_info
+            )
+
+        return {
+            "status": "running",
+            "message": "Engine started. Queue will now release trades normally.",
+            **status_info
+        }
+
+    async def pause_engine_for_loss_limit(self, user: User, session: AsyncSession, realized_loss: Decimal) -> dict:
+        """
+        Automatically pause the queue when max realized loss is reached.
+
+        Args:
+            user: The user whose loss limit was hit
+            session: Database session
+            realized_loss: The current realized loss amount
+
+        Returns:
+            Status dict
+        """
+        from sqlalchemy import update
+
+        # Update user's risk config
+        risk_config_data = user.risk_config or {}
+        if isinstance(risk_config_data, str):
+            import json
+            risk_config_data = json.loads(risk_config_data)
+
+        risk_config_data['engine_paused_by_loss_limit'] = True
+
+        # Update directly in database to ensure persistence
+        await session.execute(
+            update(User).where(User.id == user.id).values(risk_config=risk_config_data)
+        )
+        await session.commit()
+
+        # Update local user object as well
+        user.risk_config = risk_config_data
+
+        # Update local config
+        self.config = RiskEngineConfig(**risk_config_data)
+
+        logger.warning(f"Engine auto-paused for user {user.id} due to max realized loss ({realized_loss} USD)")
+
+        # Gather status info
+        position_group_repo = self.position_group_repository_class(session)
+        all_positions = await position_group_repo.get_all_active_by_user(user.id)
+
+        status_info = await self._get_engine_status_summary(user, session, all_positions)
+
+        # Send Telegram notification
+        await self._send_engine_state_notification(
+            user=user,
+            action="AUTO_PAUSED",
+            reason=f"Max realized loss limit reached ({realized_loss} USD / {self.config.max_realized_loss_usd} USD)",
+            status_info=status_info
+        )
+
+        return {
+            "status": "paused_by_loss_limit",
+            "message": f"Engine paused due to max realized loss ({realized_loss} USD)",
+            **status_info
+        }
+
+    async def _get_engine_status_summary(self, user: User, session: AsyncSession, positions: List[PositionGroup]) -> dict:
+        """Get a summary of the engine status for notifications."""
+        from app.repositories.queued_signal import QueuedSignalRepository
+
+        # Count positions by status
+        active_count = sum(1 for p in positions if p.status == PositionGroupStatus.ACTIVE.value)
+        total_unrealized_pnl = sum(float(p.unrealized_pnl_usd) for p in positions)
+
+        # Get queue count
+        queue_repo = QueuedSignalRepository(session)
+        queued_signals = await queue_repo.get_all_queued_signals_for_user(user.id)
+        queue_count = len(queued_signals)
+
+        # Get daily realized PnL
+        position_group_repo = self.position_group_repository_class(session)
+        daily_realized_pnl = await position_group_repo.get_daily_realized_pnl(user_id=user.id)
+
+        return {
+            "open_positions": active_count,
+            "total_unrealized_pnl": total_unrealized_pnl,
+            "queued_signals": queue_count,
+            "daily_realized_pnl": float(daily_realized_pnl),
+            "risk_engine_running": self._running,
+        }
+
+    async def _send_engine_state_notification(
+        self,
+        user: User,
+        action: str,
+        reason: str,
+        status_info: dict
+    ) -> None:
+        """Send Telegram notification about engine state change."""
+        from app.schemas.telegram_config import TelegramConfig
+        from app.services.telegram_broadcaster import TelegramBroadcaster
+
+        if not user.telegram_config:
+            logger.debug(f"No Telegram config for user {user.id}, skipping notification")
+            return
+
+        try:
+            telegram_config = TelegramConfig(**user.telegram_config)
+            if not telegram_config.enabled:
+                return
+
+            broadcaster = TelegramBroadcaster(telegram_config)
+
+            # Build notification message
+            emoji_map = {
+                "FORCE_STOPPED": "🛑",
+                "FORCE_STARTED": "▶️",
+                "AUTO_PAUSED": "⚠️"
+            }
+            emoji = emoji_map.get(action, "ℹ️")
+
+            message = f"{emoji} Engine Status: {action}\n\n"
+            message += f"📋 Reason: {reason}\n\n"
+            message += "📊 Current Status:\n"
+            message += f"  • Open Positions: {status_info['open_positions']}\n"
+            message += f"  • Unrealized PnL: ${status_info['total_unrealized_pnl']:.2f}\n"
+            message += f"  • Queued Signals: {status_info['queued_signals']}\n"
+            message += f"  • Daily Realized PnL: ${status_info['daily_realized_pnl']:.2f}\n"
+            message += f"  • Risk Engine: {'Running' if status_info['risk_engine_running'] else 'Stopped'}\n"
+
+            if action == "AUTO_PAUSED":
+                message += f"\n⚡ Use Force Start to resume trading."
+
+            await broadcaster._send_message(message)
+            logger.info(f"Sent engine state notification to user {user.id}: {action}")
+
+        except Exception as e:
+            logger.error(f"Failed to send engine state notification: {e}")
+
+    async def sync_with_exchange(self, user: User, session: AsyncSession) -> dict:
+        """
+        Synchronize local position data with exchange data.
+
+        This can help resolve any drift between local state and exchange state.
+
+        Args:
+            user: The user to sync
+            session: Database session
+
+        Returns:
+            Sync result with details of any corrections made
+        """
+        position_group_repo = self.position_group_repository_class(session)
+        all_positions = await position_group_repo.get_all_active_by_user(user.id)
+
+        if not all_positions:
+            return {"status": "success", "message": "No active positions to sync", "corrections": []}
+
+        corrections = []
+        exchanges_synced = set()
+
+        for pg in all_positions:
+            exchange_name = pg.exchange.lower()
+
+            try:
+                # Get exchange connector
+                exchange_config = {}
+                encrypted_data = user.encrypted_api_keys
+
+                if isinstance(encrypted_data, dict) and exchange_name in encrypted_data:
+                    exchange_config = encrypted_data[exchange_name]
+                else:
+                    continue
+
+                exchange_connector = get_exchange_connector(
+                    exchange_type=exchange_name,
+                    exchange_config=exchange_config
+                )
+
+                # Fetch current position from exchange
+                try:
+                    exchange_positions = await exchange_connector.get_positions()
+                    exchange_pos = next(
+                        (p for p in exchange_positions if p.get('symbol') == pg.symbol),
+                        None
+                    )
+
+                    if exchange_pos:
+                        # Update mark price and PnL
+                        old_pnl = pg.unrealized_pnl_usd
+                        current_price = Decimal(str(exchange_pos.get('markPrice', 0)))
+
+                        if pg.side == "long":
+                            new_pnl = (current_price - pg.weighted_avg_entry) * pg.total_filled_quantity
+                            new_pnl_percent = ((current_price - pg.weighted_avg_entry) / pg.weighted_avg_entry * 100)
+                        else:
+                            new_pnl = (pg.weighted_avg_entry - current_price) * pg.total_filled_quantity
+                            new_pnl_percent = ((pg.weighted_avg_entry - current_price) / pg.weighted_avg_entry * 100)
+
+                        if abs(new_pnl - old_pnl) > Decimal("0.01"):
+                            pg.unrealized_pnl_usd = new_pnl
+                            pg.unrealized_pnl_percent = new_pnl_percent
+                            corrections.append({
+                                "symbol": pg.symbol,
+                                "field": "unrealized_pnl",
+                                "old_value": float(old_pnl),
+                                "new_value": float(new_pnl)
+                            })
+                    else:
+                        # Position not found on exchange - might be closed
+                        corrections.append({
+                            "symbol": pg.symbol,
+                            "field": "status",
+                            "warning": "Position not found on exchange"
+                        })
+
+                except Exception as e:
+                    logger.warning(f"Failed to fetch position for {pg.symbol}: {e}")
+
+                exchanges_synced.add(exchange_name)
+                await exchange_connector.close()
+
+            except Exception as e:
+                logger.error(f"Error syncing position {pg.symbol}: {e}")
+
+        await session.commit()
+
+        return {
+            "status": "success",
+            "message": f"Synced {len(all_positions)} positions across {len(exchanges_synced)} exchanges",
+            "corrections": corrections,
+            "exchanges_synced": list(exchanges_synced)
+        }

@@ -27,11 +27,11 @@ def mock_config():
         max_open_positions_global=2,
         max_open_positions_per_symbol=1,
         max_total_exposure_usd=1000.0,
-        max_daily_loss_usd=500.0,
+        max_realized_loss_usd=500.0,
         loss_threshold_percent=-5.0,  # -5% loss triggers offset
         max_winners_to_combine=2,
-        min_close_notional=10.0,
-        require_full_pyramids=False # Simplified for testing
+        required_pyramids_for_timer=3,
+        post_pyramids_wait_minutes=15
     )
 
 @pytest.fixture

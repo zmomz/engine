@@ -15,6 +15,8 @@ from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.pyramid import Pyramid, PyramidStatus
 from app.models.queued_signal import QueuedSignal
 from app.models.user import User
+from app.models.risk_action import RiskAction, RiskActionType
+from app.repositories.risk_action import RiskActionRepository
 from app.repositories.position_group import PositionGroupRepository
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.schemas.webhook_payloads import WebhookPayload
@@ -317,11 +319,14 @@ class PositionManagerService:
         )
         # Refresh the local object to reflect DB changes
         await session.refresh(existing_position_group)
-        
-        # Reset risk timer only if it was already running (condition previously met)
-        if risk_config.reset_timer_on_replacement and existing_position_group.risk_timer_expires is not None:
-            existing_position_group.risk_timer_start = datetime.utcnow()
-            existing_position_group.risk_timer_expires = existing_position_group.risk_timer_start + timedelta(minutes=risk_config.post_full_wait_minutes)
+
+        # Reset risk timer on new pyramid - timer restarts when conditions are re-evaluated by risk engine
+        # The risk engine handles timer start based on required_pyramids_for_timer and loss_threshold_percent
+        if existing_position_group.risk_timer_expires is not None:
+            # Clear timer - it will be re-evaluated by risk engine with new pyramid count
+            existing_position_group.risk_timer_start = None
+            existing_position_group.risk_timer_expires = None
+            logger.info(f"Risk timer reset for PositionGroup {existing_position_group.id} due to new pyramid")
 
         # 5. Create New Pyramid
         new_pyramid = Pyramid(
@@ -382,7 +387,8 @@ class PositionManagerService:
         position_group_id: uuid.UUID,
         session: Optional[AsyncSession] = None,
         max_slippage_percent: float = 1.0,
-        slippage_action: str = "warn"
+        slippage_action: str = "warn",
+        exit_reason: str = "engine"
     ):
         """
         Handles an exit signal for a position group.
@@ -394,15 +400,16 @@ class PositionManagerService:
             session: Optional database session
             max_slippage_percent: Maximum acceptable slippage (default 1%)
             slippage_action: "warn" to log only, "reject" to raise error
+            exit_reason: Reason for exit ("manual", "engine", "tp_hit", "risk_offset")
         """
         if session:
             await self._execute_handle_exit_signal(
-                position_group_id, session, max_slippage_percent, slippage_action
+                position_group_id, session, max_slippage_percent, slippage_action, exit_reason
             )
         else:
             async with self.session_factory() as new_session:
                 await self._execute_handle_exit_signal(
-                    position_group_id, new_session, max_slippage_percent, slippage_action
+                    position_group_id, new_session, max_slippage_percent, slippage_action, exit_reason
                 )
                 await new_session.commit()
 
@@ -411,7 +418,8 @@ class PositionManagerService:
         position_group_id: uuid.UUID,
         session: AsyncSession,
         max_slippage_percent: float = 1.0,
-        slippage_action: str = "warn"
+        slippage_action: str = "warn",
+        exit_reason: str = "engine"
     ):
         """
         Core logic for handling an exit signal within a provided session.
@@ -480,8 +488,18 @@ class PositionManagerService:
                     await position_group_repo.update(position_group)
                     logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
 
+                    # Save risk action to history
+                    await self._save_close_action(
+                        session=session,
+                        position_group=position_group,
+                        exit_price=current_price,
+                        exit_reason=exit_reason,
+                        realized_pnl=realized_pnl,
+                        quantity_closed=total_filled_quantity
+                    )
+
                     # Broadcast exit signal to Telegram
-                    await broadcast_exit_signal(position_group, current_price, session)
+                    await broadcast_exit_signal(position_group, current_price, session, exit_reason)
 
                 except Exception as e:
                     logger.error(f"DEBUG: Caught exception in handle_exit_signal: {type(e)} - {e}")
@@ -526,8 +544,18 @@ class PositionManagerService:
                                 await position_group_repo.update(position_group)
                                 logger.info(f"PositionGroup {position_group.id} closed after retry. Realized PnL: {realized_pnl}")
 
+                                # Save risk action to history
+                                await self._save_close_action(
+                                    session=session,
+                                    position_group=position_group,
+                                    exit_price=current_price,
+                                    exit_reason=exit_reason,
+                                    realized_pnl=realized_pnl,
+                                    quantity_closed=available_balance
+                                )
+
                                 # Broadcast exit signal to Telegram
-                                await broadcast_exit_signal(position_group, current_price, session)
+                                await broadcast_exit_signal(position_group, current_price, session, exit_reason)
 
                             else:
                                 logger.error(f"No balance found for {base_currency}. Cannot retry close.")
@@ -546,6 +574,75 @@ class PositionManagerService:
         finally:
             await exchange_connector.close()
 
+    async def _save_close_action(
+        self,
+        session: AsyncSession,
+        position_group: PositionGroup,
+        exit_price: Decimal,
+        exit_reason: str,
+        realized_pnl: Decimal,
+        quantity_closed: Decimal
+    ):
+        """
+        Saves a close action to the risk_actions history table.
+
+        Args:
+            session: Database session
+            position_group: The position group being closed
+            exit_price: The exit price
+            exit_reason: Reason for exit ("manual", "engine", "tp_hit", "risk_offset")
+            realized_pnl: Realized PnL in USD
+            quantity_closed: Quantity that was closed
+        """
+        try:
+            # Map exit_reason to RiskActionType
+            action_type_map = {
+                "manual": RiskActionType.MANUAL_CLOSE,
+                "engine": RiskActionType.ENGINE_CLOSE,
+                "tp_hit": RiskActionType.TP_HIT,
+                "risk_offset": RiskActionType.OFFSET_LOSS,
+            }
+            action_type = action_type_map.get(exit_reason, RiskActionType.ENGINE_CLOSE)
+
+            # Calculate PnL percentage
+            entry_price = position_group.weighted_avg_entry
+            if entry_price and entry_price > 0:
+                if position_group.side == "long":
+                    pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+                else:
+                    pnl_percent = ((entry_price - exit_price) / entry_price) * 100
+            else:
+                pnl_percent = Decimal("0")
+
+            # Calculate duration in seconds
+            duration_seconds = None
+            if position_group.created_at:
+                close_time = position_group.closed_at or datetime.utcnow()
+                duration = close_time - position_group.created_at
+                duration_seconds = Decimal(str(duration.total_seconds()))
+
+            # Create risk action record
+            risk_action = RiskAction(
+                group_id=position_group.id,
+                action_type=action_type,
+                exit_price=exit_price,
+                entry_price=entry_price,
+                pnl_percent=pnl_percent,
+                realized_pnl_usd=realized_pnl,
+                quantity_closed=quantity_closed,
+                duration_seconds=duration_seconds,
+                notes=f"Position closed via {exit_reason}. Symbol: {position_group.symbol}, Side: {position_group.side}"
+            )
+
+            risk_action_repo = RiskActionRepository(session)
+            await risk_action_repo.create(risk_action)
+            await session.flush()
+
+            logger.info(f"Saved {action_type.value} action for PositionGroup {position_group.id}")
+
+        except Exception as e:
+            logger.error(f"Error saving close action for PositionGroup {position_group.id}: {e}")
+            # Don't raise - history saving should not break the close flow
 
     async def update_risk_timer(self, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, session: AsyncSession = None, position_group: Optional[PositionGroup] = None):
         if session:
@@ -556,6 +653,11 @@ class PositionManagerService:
                 await new_session.commit()
 
     async def _execute_update_risk_timer(self, session: AsyncSession, position_group_id: uuid.UUID, risk_config: RiskEngineConfig, position_group: Optional[PositionGroup] = None):
+        """
+        Legacy timer check - the main timer logic is now handled by risk_engine.update_risk_timers().
+        This just does a basic pyramid count check for initial setup.
+        The risk engine handles the full logic including loss threshold validation.
+        """
         position_group_repo = self.position_group_repository_class(session)
         if not position_group:
             position_group = await position_group_repo.get(position_group_id)
@@ -563,33 +665,14 @@ class PositionManagerService:
         if not position_group:
             return
 
-        # Check if timer is already set/active to avoid resetting it unless intended (though this logic mainly STARTS it)
-        if position_group.risk_timer_expires is not None:
-             # Timer already running.
-             # Logic for resetting on replacement is handled in handle_pyramid_continuation
-             return
-
-        timer_started = False
-        if risk_config.timer_start_condition == "after_5_pyramids" and position_group.pyramid_count >= 5:
-            timer_started = True
-        elif risk_config.timer_start_condition == "after_all_dca_submitted":
-            # Check if all DCA orders have been submitted to the exchange
-            # An order is submitted when it has a submitted_at timestamp (status is no longer PENDING/TRIGGER_PENDING)
-            from app.repositories.dca_order import DCAOrderRepository
-            dca_order_repo = DCAOrderRepository(session)
-            all_orders = await dca_order_repo.get_all_orders_by_group_id(str(position_group.id))
-            submitted_count = sum(1 for order in all_orders if order.submitted_at is not None)
-            if submitted_count >= position_group.total_dca_legs:
-                timer_started = True
-        elif risk_config.timer_start_condition == "after_all_dca_filled" and position_group.filled_dca_legs == position_group.total_dca_legs:
-            timer_started = True
-
-        if timer_started:
-            expires_at = datetime.utcnow() + timedelta(minutes=risk_config.post_full_wait_minutes)
-            position_group.risk_timer_expires = expires_at
-            await position_group_repo.update(position_group)
-            # await session.commit() -> handled by caller or wrapper
-            logger.info(f"Risk timer started for PositionGroup {position_group.id}. Expires at {expires_at}")
+        # Timer is now managed by risk_engine.update_risk_timers() which checks BOTH:
+        # 1. pyramid_count >= required_pyramids_for_timer
+        # 2. unrealized_pnl_percent <= loss_threshold_percent
+        #
+        # This function is called on position creation/pyramid but the actual timer
+        # start is deferred to the risk engine's periodic evaluation.
+        # We don't start the timer here anymore - the risk engine handles it.
+        logger.debug(f"Risk timer update called for PositionGroup {position_group.id}. Timer management deferred to risk engine.")
 
 
     async def update_position_stats(self, group_id: uuid.UUID, session: AsyncSession = None) -> Optional[PositionGroup]:

@@ -51,6 +51,10 @@ interface RiskStatus {
     action_type: string;
   }>;
   risk_engine_running: boolean;
+  engine_force_stopped: boolean;
+  engine_paused_by_loss_limit: boolean;
+  daily_realized_pnl: number;
+  max_realized_loss_usd: number;
   config: any;
 }
 
@@ -63,6 +67,9 @@ interface RiskStore {
   blockGroup: (groupId: string) => Promise<void>;
   unblockGroup: (groupId: string) => Promise<void>;
   skipGroup: (groupId: string) => Promise<void>;
+  forceStop: () => Promise<void>;
+  forceStart: () => Promise<void>;
+  syncExchange: () => Promise<void>;
 }
 
 const useRiskStore = create<RiskStore>((set) => ({
@@ -120,6 +127,33 @@ const useRiskStore = create<RiskStore>((set) => ({
       useRiskStore.getState().fetchStatus();
     } catch (error: any) {
       set({ error: error.response?.data?.detail || 'Failed to skip group' });
+    }
+  },
+
+  forceStop: async () => {
+    try {
+      await api.post('/risk/force-stop');
+      useRiskStore.getState().fetchStatus();
+    } catch (error: any) {
+      set({ error: error.response?.data?.detail || 'Failed to force stop engine' });
+    }
+  },
+
+  forceStart: async () => {
+    try {
+      await api.post('/risk/force-start');
+      useRiskStore.getState().fetchStatus();
+    } catch (error: any) {
+      set({ error: error.response?.data?.detail || 'Failed to force start engine' });
+    }
+  },
+
+  syncExchange: async () => {
+    try {
+      await api.post('/risk/sync-exchange');
+      useRiskStore.getState().fetchStatus();
+    } catch (error: any) {
+      set({ error: error.response?.data?.detail || 'Failed to sync with exchange' });
     }
   },
 }));

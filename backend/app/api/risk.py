@@ -165,3 +165,65 @@ async def skip_next_risk_evaluation(
         raise e
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/force-stop")
+async def force_stop_engine(
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_current_active_user)
+):
+    """
+    Force stop the queue from releasing trades.
+
+    - Queue can still receive trades but will not release them to execution.
+    - Risk engine continues running normally.
+    - Sends Telegram notification with current status.
+    """
+    try:
+        risk_engine_service = create_risk_engine_service(session, user)
+        result = await risk_engine_service.force_stop_engine(user, session)
+        return result
+    except Exception as e:
+        logger.error(f"Error force stopping engine: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/force-start")
+async def force_start_engine(
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_current_active_user)
+):
+    """
+    Force start the queue after it was stopped.
+
+    - Resumes queue releasing trades to execution.
+    - Use this after max realized loss was hit or after manual force stop.
+    - Sends Telegram notification with current status.
+    """
+    try:
+        risk_engine_service = create_risk_engine_service(session, user)
+        result = await risk_engine_service.force_start_engine(user, session)
+        return result
+    except Exception as e:
+        logger.error(f"Error force starting engine: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/sync-exchange")
+async def sync_with_exchange(
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(get_current_active_user)
+):
+    """
+    Synchronize local position data with exchange data.
+
+    Use this to resolve any drift between local state and actual exchange positions.
+    Updates unrealized PnL and identifies positions that may have been closed externally.
+    """
+    try:
+        risk_engine_service = create_risk_engine_service(session, user)
+        result = await risk_engine_service.sync_with_exchange(user, session)
+        return result
+    except Exception as e:
+        logger.error(f"Error syncing with exchange: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
