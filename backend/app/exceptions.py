@@ -8,7 +8,12 @@ class APIError(Exception):
         super().__init__(self.message)
 
 class InvalidCredentialsError(APIError):
-    def __init__(self, message: str = "Invalid API Credentials.", status_code: int = 401):
+    """
+    Exchange API credentials error (not JWT auth failure).
+    Uses 403 to distinguish from 401 which is reserved for JWT/session auth failures.
+    This prevents the frontend from logging out the user when exchange API keys are invalid.
+    """
+    def __init__(self, message: str = "Invalid Exchange API Credentials.", status_code: int = 403):
         super().__init__(message, status_code)
 
 class InsufficientFundsError(APIError):
