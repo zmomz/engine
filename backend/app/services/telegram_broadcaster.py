@@ -169,9 +169,12 @@ class TelegramBroadcaster:
             message += f"\nTP aggregate: {float(aggregate_tp):.2f}\n"
 
         # Engine notes
+        side_text = "Long only" if position_group.side == "long" else "Short only"
+        pyramid_num = pyramid.pyramid_index + 1 if pyramid else 1
         message += "\n🧩 Engine Notes\n"
-        message += "• Long only\n"
-        message += f"• Up to {num_levels} pyramids\n"
+        message += f"• {side_text}\n"
+        message += f"• Pyramid {pyramid_num} of {position_group.max_pyramids}\n"
+        message += f"• {num_levels} DCA levels\n"
         message += "• This message will be updated as new levels fill\n"
         message += "• Unknown levels remain as TBD\n"
         message += "• The exit is one trigger that closes the full position"
