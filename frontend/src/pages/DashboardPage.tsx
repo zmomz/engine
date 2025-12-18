@@ -33,14 +33,16 @@ import {
 } from 'recharts';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import StopIcon from '@mui/icons-material/Stop';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import SyncIcon from '@mui/icons-material/Sync';
 import PauseIcon from '@mui/icons-material/Pause';
 import useDashboardStore, { startDashboardPolling, stopDashboardPolling } from '../store/dashboardStore';
 import useRiskStore from '../store/riskStore';
+import { LiveDashboardSkeleton, PerformanceDashboardSkeleton } from '../components/DashboardSkeleton';
+import { AnimatedStatusChip } from '../components/AnimatedStatusChip';
+import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
+import { AnimatedCurrency } from '../components/AnimatedValue';
 
 const DashboardPage: React.FC = () => {
   const { data, loading, error, fetchDashboardData } = useDashboardStore();
@@ -54,12 +56,21 @@ const DashboardPage: React.FC = () => {
   } = useRiskStore();
   const [activeTab, setActiveTab] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    fetchDashboardData();
-    fetchRiskStatus();
+    const fetchData = async () => {
+      await fetchDashboardData();
+      await fetchRiskStatus();
+      setLastUpdated(new Date());
+    };
+
+    fetchData();
     startDashboardPolling();
-    const riskInterval = setInterval(() => fetchRiskStatus(true), 5000);
+    const riskInterval = setInterval(async () => {
+      await fetchRiskStatus(true);
+      setLastUpdated(new Date());
+    }, 5000);
     return () => {
       stopDashboardPolling();
       clearInterval(riskInterval);
@@ -87,11 +98,17 @@ const DashboardPage: React.FC = () => {
 
   if (loading && !data) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Box>
-          <LinearProgress sx={{ mb: 2 }} />
-          <Typography>Loading Dashboard...</Typography>
+      <Box sx={{ flexGrow: 1, p: 3 }}>
+        <Typography variant="h4" gutterBottom>
+          Trading Dashboard
+        </Typography>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+          <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
+            <Tab label="Live Dashboard" />
+            <Tab label="Performance Analytics" />
+          </Tabs>
         </Box>
+        {activeTab === 0 ? <LiveDashboardSkeleton /> : <PerformanceDashboardSkeleton />}
       </Box>
     );
   }
@@ -151,21 +168,37 @@ const DashboardPage: React.FC = () => {
     .slice(0, 10);
 
   return (
-    <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Trading Dashboard
-      </Typography>
+    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 } }}>
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: { xs: 'flex-start', sm: 'center' },
+        flexDirection: { xs: 'column', sm: 'row' },
+        gap: { xs: 1, sm: 0 },
+        mb: 2
+      }}>
+        <Typography variant="h4" sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+          Trading Dashboard
+        </Typography>
+        <DataFreshnessIndicator lastUpdated={lastUpdated} />
+      </Box>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
-          <Tab label="Live Dashboard" />
-          <Tab label="Performance Analytics" />
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+        >
+          <Tab label="Live Dashboard" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }} />
+          <Tab label="Performance Analytics" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }} />
         </Tabs>
       </Box>
 
       {/* LIVE DASHBOARD TAB */}
       {activeTab === 0 && (
-        <Grid container spacing={3}>
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
           {/* Risk Error Alert */}
           {riskError && (
             <Grid size={{ xs: 12 }}>
@@ -177,14 +210,22 @@ const DashboardPage: React.FC = () => {
           <Grid size={{ xs: 12 }}>
             <Card sx={{ bgcolor: riskStatus?.engine_force_stopped ? 'error.light' : riskStatus?.engine_paused_by_loss_limit ? 'warning.light' : 'inherit' }}>
               <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                <Box sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: { xs: 'flex-start', sm: 'center' },
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  flexWrap: 'wrap',
+                  gap: 2
+                }}>
                   {/* Queue Status (Force Stop affects this) */}
-                  <Box>
-                    <Typography variant="h6">Queue Status</Typography>
-                    <Chip
+                  <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
+                    <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>Queue Status</Typography>
+                    <AnimatedStatusChip
                       label={engineStatusInfo.label}
                       color={engineStatusInfo.color}
                       icon={engineStatusInfo.icon}
+                      pulsing={engineStatusInfo.color === 'success'}
                       sx={{ mt: 0.5 }}
                     />
                     <Typography variant="caption" display="block" color="text.secondary">
@@ -193,27 +234,34 @@ const DashboardPage: React.FC = () => {
                   </Box>
 
                   {/* Daily Realized PnL */}
-                  <Box>
+                  <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
                     <Typography variant="body2" color="text.secondary">Daily Realized PnL</Typography>
-                    <Typography
+                    <AnimatedCurrency
+                      value={riskStatus?.daily_realized_pnl ?? 0}
                       variant="h5"
-                      color={(riskStatus?.daily_realized_pnl ?? 0) >= 0 ? 'success.main' : 'error.main'}
-                    >
-                      {formatCurrency(riskStatus?.daily_realized_pnl ?? 0)}
-                    </Typography>
+                      showTrend={true}
+                    />
                     <Typography variant="caption" color="text.secondary">
                       Limit: {formatCurrency(riskStatus?.max_realized_loss_usd ?? 0)}
                     </Typography>
                   </Box>
 
                   {/* Engine Controls */}
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Box sx={{
+                    display: 'flex',
+                    gap: 1,
+                    alignItems: 'center',
+                    width: { xs: '100%', sm: 'auto' },
+                    flexDirection: { xs: 'column', sm: 'row' }
+                  }}>
                     {riskStatus?.engine_force_stopped ? (
                       <Button
                         variant="contained"
                         color="success"
                         startIcon={<PlayArrowIcon />}
                         onClick={forceStart}
+                        fullWidth
+                        sx={{ width: { xs: '100%', sm: 'auto' } }}
                       >
                         Force Start
                       </Button>
@@ -223,6 +271,8 @@ const DashboardPage: React.FC = () => {
                         color="error"
                         startIcon={<StopIcon />}
                         onClick={forceStop}
+                        fullWidth
+                        sx={{ width: { xs: '100%', sm: 'auto' } }}
                       >
                         Force Stop
                       </Button>
@@ -232,6 +282,8 @@ const DashboardPage: React.FC = () => {
                       startIcon={<SyncIcon />}
                       onClick={handleSyncExchange}
                       disabled={syncing}
+                      fullWidth
+                      sx={{ width: { xs: '100%', sm: 'auto' } }}
                     >
                       {syncing ? 'Syncing...' : 'Sync Exchange'}
                     </Button>
@@ -261,33 +313,42 @@ const DashboardPage: React.FC = () => {
           <Grid size={{ xs: 12 }}>
             <Card>
               <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                  <Box>
-                    <Typography variant="h6">System Status</Typography>
-                    <Chip
+                <Box sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: { xs: 'flex-start', sm: 'center' },
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  flexWrap: 'wrap',
+                  gap: 2
+                }}>
+                  <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
+                    <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>System Status</Typography>
+                    <AnimatedStatusChip
                       label={live.engine_status}
                       color={live.engine_status === 'running' ? 'success' : 'error'}
                       icon={live.engine_status === 'running' ? <CheckCircleIcon /> : <CancelIcon />}
+                      pulsing={live.engine_status === 'running'}
                     />
                     <Typography variant="caption" display="block" color="text.secondary">
                       Main engine loop
                     </Typography>
                   </Box>
-                  <Box>
-                    <Typography variant="h6">Risk Engine</Typography>
-                    <Chip
+                  <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
+                    <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>Risk Engine</Typography>
+                    <AnimatedStatusChip
                       label={live.risk_engine_status}
                       color={live.risk_engine_status === 'active' ? 'success' : 'default'}
+                      pulsing={live.risk_engine_status === 'active'}
                     />
                     <Typography variant="caption" display="block" color="text.secondary">
                       Position monitoring
                     </Typography>
                   </Box>
-                  <Box>
+                  <Box sx={{ width: { xs: '100%', sm: 'auto' } }}>
                     <Typography variant="body2" color="text.secondary">
                       Last Webhook
                     </Typography>
-                    <Typography variant="body1">
+                    <Typography variant="body1" sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>
                       {live.last_webhook_timestamp
                         ? new Date(live.last_webhook_timestamp).toLocaleString()
                         : 'No signals yet'}
@@ -305,10 +366,11 @@ const DashboardPage: React.FC = () => {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   Total PnL
                 </Typography>
-                <Typography variant="h4" color={live.total_pnl_usd >= 0 ? 'success.main' : 'error.main'}>
-                  {formatCurrency(live.total_pnl_usd)}
-                </Typography>
-                {live.total_pnl_usd >= 0 ? <TrendingUpIcon color="success" /> : <TrendingDownIcon color="error" />}
+                <AnimatedCurrency
+                  value={live.total_pnl_usd}
+                  variant="h4"
+                  showTrend={true}
+                />
               </CardContent>
             </Card>
           </Grid>
@@ -363,21 +425,28 @@ const DashboardPage: React.FC = () => {
           <Grid size={{ xs: 12, md: 6 }}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>
+                <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
                   Capital Allocation
                 </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'space-around', mt: 3 }}>
+                <Box sx={{
+                  display: 'flex',
+                  justifyContent: 'space-around',
+                  mt: 3,
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: { xs: 2, sm: 0 }
+                }}>
                   <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h3" color="primary">
+                    <Typography variant="h3" color="primary" sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
                       {formatCurrency(live.tvl - live.free_usdt)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Deployed
                     </Typography>
                   </Box>
-                  <Divider orientation="vertical" flexItem />
+                  <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+                  <Divider sx={{ display: { xs: 'block', sm: 'none' } }} />
                   <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h3" color="success.main">
+                    <Typography variant="h3" color="success.main" sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
                       {formatCurrency(live.free_usdt)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -393,17 +462,17 @@ const DashboardPage: React.FC = () => {
           <Grid size={{ xs: 12, md: 6 }}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>
+                <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
                   Queue Status
                 </Typography>
                 <Box sx={{ mt: 3 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography>Active Positions</Typography>
-                    <Typography variant="h6">{live.total_active_position_groups}</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, alignItems: 'center' }}>
+                    <Typography sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Active Positions</Typography>
+                    <Typography variant="h6" sx={{ fontSize: { xs: '1.125rem', sm: '1.25rem' } }}>{live.total_active_position_groups}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                    <Typography>Queued Signals</Typography>
-                    <Chip label={live.queued_signals_count} color={live.queued_signals_count > 0 ? 'warning' : 'default'} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, alignItems: 'center' }}>
+                    <Typography sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}>Queued Signals</Typography>
+                    <Chip label={live.queued_signals_count} color={live.queued_signals_count > 0 ? 'warning' : 'default'} size="medium" />
                   </Box>
                 </Box>
               </CardContent>
@@ -414,7 +483,7 @@ const DashboardPage: React.FC = () => {
 
       {/* PERFORMANCE DASHBOARD TAB */}
       {activeTab === 1 && (
-        <Grid container spacing={3}>
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
           {/* PnL Summary Cards */}
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card>

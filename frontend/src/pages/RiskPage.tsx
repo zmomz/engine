@@ -22,6 +22,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import TimerIcon from '@mui/icons-material/Timer';
 import useRiskStore from '../store/riskStore';
 import useConfirmStore from '../store/confirmStore';
+import { RiskPageSkeleton } from '../components/RiskSkeleton';
 
 const RiskPage: React.FC = () => {
   const { status, loading, error, fetchStatus, runEvaluation, blockGroup, unblockGroup, skipGroup } = useRiskStore();
@@ -81,15 +82,31 @@ const RiskPage: React.FC = () => {
     return new Date(timestamp).toLocaleString();
   };
 
+  // Show skeleton on initial load
+  if (loading && !status) {
+    return <RiskPageSkeleton />;
+  }
+
   return (
-    <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Risk Control Panel</Typography>
+    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 } }}>
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: { xs: 'flex-start', sm: 'center' },
+        flexDirection: { xs: 'column', sm: 'row' },
+        mb: 3,
+        gap: 2
+      }}>
+        <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+          Risk Control Panel
+        </Typography>
         <Button
           variant="contained"
           color="primary"
           onClick={handleRunEvaluation}
           disabled={loading}
+          fullWidth
+          sx={{ width: { xs: '100%', sm: 'auto' } }}
         >
           Run Evaluation Now
         </Button>
@@ -99,7 +116,7 @@ const RiskPage: React.FC = () => {
       {error && <Typography color="error" sx={{ mb: 2 }}>Error: {error}</Typography>}
 
       {status && (
-        <Grid container spacing={3}>
+        <Grid container spacing={{ xs: 2, sm: 3 }}>
           {/* Statistics Dashboard */}
           <Grid size={{ xs: 12 }}>
             <Card>
