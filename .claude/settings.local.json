@@ -15,7 +15,9 @@
       "Bash(docker images:*)",
       "Bash(curl:*)",
       "Bash(python3:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(.venvScriptspython.exe -m pytest --tb=short -v)"
     ]
   }
 }

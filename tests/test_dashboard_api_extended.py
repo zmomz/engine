@@ -12,12 +12,14 @@ async def test_get_account_summary_multi_exchange(authorized_client):
     """
     mock_connector_binance = AsyncMock()
     mock_connector_binance.fetch_balance.return_value = {"total": {"USDT": 1000.0, "BTC": 0.1}, "free": {"USDT": 1000.0}}
-    mock_connector_binance.get_current_price.side_effect = lambda symbol: {"BTC/USDT": 40000.0}.get(symbol)
+    mock_connector_binance.get_current_price.return_value = 40000.0
+    mock_connector_binance.get_all_tickers.return_value = {"BTC/USDT": {"last": 40000.0}}
     mock_connector_binance.exchange = AsyncMock()
 
     mock_connector_bybit = AsyncMock()
     mock_connector_bybit.fetch_balance.return_value = {"total": {"USDT": 500.0, "ETH": 10.0}, "free": {"USDT": 500.0}}
-    mock_connector_bybit.get_current_price.side_effect = lambda symbol: {"ETH/USDT": 3000.0}.get(symbol)
+    mock_connector_bybit.get_current_price.return_value = 3000.0
+    mock_connector_bybit.get_all_tickers.return_value = {"ETH/USDT": {"last": 3000.0}}
     mock_connector_bybit.exchange = AsyncMock()
 
     def side_effect_get_connector(exchange_type, **kwargs):
@@ -39,14 +41,24 @@ async def test_get_account_summary_multi_exchange(authorized_client):
     app.dependency_overrides[get_current_active_user] = mock_get_user
 
     try:
+        # Mock the cache to ensure no cached data interferes
+        mock_cache = AsyncMock()
+        mock_cache.get_dashboard = AsyncMock(return_value=None)
+        mock_cache.get_balance = AsyncMock(return_value=None)
+        mock_cache.get_tickers = AsyncMock(return_value=None)
+        mock_cache.set_dashboard = AsyncMock()
+        mock_cache.set_balance = AsyncMock()
+        mock_cache.set_tickers = AsyncMock()
+
         with patch("app.api.dashboard.get_exchange_connector", side_effect=side_effect_get_connector), \
-             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
-            
+             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls, \
+             patch("app.api.dashboard.get_cache", AsyncMock(return_value=mock_cache)):
+
             mock_encrypt_service = mock_encrypt_service_cls.return_value
             mock_encrypt_service.decrypt_keys.return_value = ("key", "secret")
 
             response = await authorized_client.get("/api/v1/dashboard/account-summary")
-            
+
             assert response.status_code == 200
             data = response.json()
             # Binance: 1000 + 0.1*40000 = 5000
@@ -54,7 +66,7 @@ async def test_get_account_summary_multi_exchange(authorized_client):
             # Total: 35500
             assert data["tvl"] == 35500.0
             assert data["free_usdt"] == 1500.0
-            
+
     finally:
         del app.dependency_overrides[get_current_active_user]
 
@@ -84,21 +96,31 @@ async def test_get_account_summary_partial_failure(authorized_client):
     app.dependency_overrides[get_current_active_user] = mock_get_user
 
     try:
+        # Mock the cache to ensure no cached data interferes
+        mock_cache = AsyncMock()
+        mock_cache.get_dashboard = AsyncMock(return_value=None)
+        mock_cache.get_balance = AsyncMock(return_value=None)
+        mock_cache.get_tickers = AsyncMock(return_value=None)
+        mock_cache.set_dashboard = AsyncMock()
+        mock_cache.set_balance = AsyncMock()
+        mock_cache.set_tickers = AsyncMock()
+
         with patch("app.api.dashboard.get_exchange_connector", side_effect=side_effect_get_connector), \
-             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
-            
+             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls, \
+             patch("app.api.dashboard.get_cache", AsyncMock(return_value=mock_cache)):
+
             mock_encrypt_service = mock_encrypt_service_cls.return_value
             mock_encrypt_service.decrypt_keys.return_value = ("key", "secret")
 
             response = await authorized_client.get("/api/v1/dashboard/account-summary")
-            
+
             assert response.status_code == 200
             data = response.json()
             # Binance: 0
             # Bybit: 500 (USDT) + 0 (SOL failed) = 500
             assert data["tvl"] == 500.0
             assert data["free_usdt"] == 500.0
-            
+
     finally:
         del app.dependency_overrides[get_current_active_user]
 
@@ -148,10 +170,12 @@ async def test_get_pnl_multi_exchange(authorized_client, test_user, db_session):
     # 3. Mock Connectors
     mock_binance = AsyncMock()
     mock_binance.get_current_price.return_value = 55000.0
+    mock_binance.get_all_tickers.return_value = {"BTC/USDT": {"last": 55000.0}}
     mock_binance.exchange = AsyncMock()
 
     mock_bybit = AsyncMock()
     mock_bybit.get_current_price.return_value = 2000.0
+    mock_bybit.get_all_tickers.return_value = {"ETH/USDT": {"last": 2000.0}}
     mock_bybit.exchange = AsyncMock()
 
     def side_effect_get_connector(exchange_type, **kwargs):
@@ -167,9 +191,17 @@ async def test_get_pnl_multi_exchange(authorized_client, test_user, db_session):
     app.dependency_overrides[get_current_active_user] = mock_get_user
 
     try:
+        # Mock the cache
+        mock_cache = AsyncMock()
+        mock_cache.get_dashboard = AsyncMock(return_value=None)
+        mock_cache.get_tickers = AsyncMock(return_value=None)
+        mock_cache.set_dashboard = AsyncMock()
+        mock_cache.set_tickers = AsyncMock()
+
         with patch("app.api.dashboard.get_exchange_connector", side_effect=side_effect_get_connector), \
-             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls:
-            
+             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls, \
+             patch("app.api.dashboard.get_cache", AsyncMock(return_value=mock_cache)):
+
             mock_encrypt_service = mock_encrypt_service_cls.return_value
             mock_encrypt_service.decrypt_keys.return_value = ("k", "s")
 

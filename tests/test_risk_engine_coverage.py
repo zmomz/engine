@@ -44,6 +44,8 @@ def mock_position_group():
     pg.status = PositionGroupStatus.ACTIVE.value
     pg.pyramid_count = 1
     pg.max_pyramids = 1
+    pg.filled_dca_legs = 1
+    pg.total_dca_legs = 1
     pg.risk_timer_expires = datetime.utcnow() - timedelta(minutes=1)
     pg.unrealized_pnl_percent = Decimal("-6.0")
     pg.unrealized_pnl_usd = Decimal("-60.0")
@@ -222,28 +224,28 @@ async def test_validate_pre_trade_risk_checks(mock_config):
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
-        assert result is True
+        assert result[0] is True
         
         # 2. Max Global Positions
         active_positions = [MagicMock(symbol=f"S{i}", total_invested_usd=Decimal("10"), exchange="binance") for i in range(5)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
-        assert result is False
+        assert result[0] is False
         
         # 3. Max Symbol Positions
         active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("10"), exchange="binance") for _ in range(2)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
-        assert result is False
+        assert result[0] is False
 
         # 4. Max Total Exposure
         active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("950.0"), exchange="binance")] # + 100 > 1000
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
-        assert result is False
+        assert result[0] is False
         
         # 5. Daily Loss Limit
         active_positions = []
@@ -251,7 +253,7 @@ async def test_validate_pre_trade_risk_checks(mock_config):
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
-        assert result is False
+        assert result[0] is False
 
 # --- Test for _evaluate_user_positions execution flow ---
 
@@ -380,7 +382,7 @@ async def test_evaluate_user_positions_execution(mock_config):
         )
 
         mock_risk_repo.create.assert_called_once()
-        session.commit.assert_called_once()
+        assert session.commit.call_count == 2  # Called twice: once for each close operation
 
 
 # --- Additional Coverage Tests ---
@@ -596,6 +598,8 @@ async def test_get_current_status_with_loser_and_winners(mock_config, mock_user)
     loser.risk_timer_expires = datetime.utcnow() - timedelta(minutes=5)
     loser.pyramid_count = 1
     loser.max_pyramids = 1
+    loser.filled_dca_legs = 1
+    loser.total_dca_legs = 1
     loser.created_at = datetime.utcnow() - timedelta(hours=2)
 
     winner = MagicMock(spec=PositionGroup)
@@ -609,6 +613,7 @@ async def test_get_current_status_with_loser_and_winners(mock_config, mock_user)
     mock_pos_repo = MagicMock()
     mock_pos_repo.get_all_active_by_user = AsyncMock(return_value=[loser, winner])
     mock_pos_repo.get_all = AsyncMock(return_value=[loser, winner])
+    mock_pos_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0.0"))
 
     mock_risk_repo = MagicMock()
     mock_risk_repo.get_recent_by_user = AsyncMock(return_value=[])
@@ -655,6 +660,7 @@ async def test_get_current_status_no_loser(mock_config, mock_user):
 
     mock_pos_repo = MagicMock()
     mock_pos_repo.get_all_active_by_user = AsyncMock(return_value=[winner])
+    mock_pos_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0.0"))
 
     mock_risk_repo = MagicMock()
     mock_risk_repo.get_recent_by_user = AsyncMock(return_value=[])
@@ -965,6 +971,8 @@ def test_select_loser_and_winners_no_eligible_losers(mock_config):
     position.unrealized_pnl_usd = Decimal("50")
     position.pyramid_count = 1
     position.max_pyramids = 1
+    position.filled_dca_legs = 1
+    position.total_dca_legs = 1
     position.risk_timer_expires = datetime.utcnow() - timedelta(minutes=5)
     position.risk_blocked = False
     position.risk_skip_once = False

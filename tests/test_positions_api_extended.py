@@ -61,9 +61,9 @@ async def test_force_close_position_multi_exchange_success(authorized_client, te
         
         assert response.status_code == 200
         assert response.json()["status"] == "closing"
-        
+
         mock_order_service.execute_force_close.assert_called_once_with(pg.id)
-        mock_pm_service.handle_exit_signal.assert_called_once_with(pg.id, session=db_session)
+        mock_pm_service.handle_exit_signal.assert_called_once_with(pg.id, session=db_session, exit_reason="manual")
 
 
 

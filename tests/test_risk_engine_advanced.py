@@ -70,6 +70,8 @@ def mock_positions():
         risk_skip_once=False,
         pyramid_count=5,
         max_pyramids=5,
+        filled_dca_legs=5,
+        total_dca_legs=5,
         exchange="binance",
         user_id="user1"
     )
@@ -87,6 +89,10 @@ def mock_positions():
         weighted_avg_entry=Decimal("3000.0"),
         risk_blocked=False,
         risk_skip_once=False,
+        pyramid_count=2,
+        max_pyramids=5,
+        filled_dca_legs=2,
+        total_dca_legs=2,
         exchange="binance",
         user_id="user1"
     )
@@ -105,7 +111,7 @@ async def test_validate_pre_trade_risk_max_global(risk_service, mock_config):
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
     )
-    assert result is False
+    assert result[0] is False
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_max_per_symbol(risk_service):
@@ -119,7 +125,7 @@ async def test_validate_pre_trade_risk_max_per_symbol(risk_service):
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
     )
-    assert result is False
+    assert result[0] is False
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_max_exposure(risk_service):
@@ -134,7 +140,7 @@ async def test_validate_pre_trade_risk_max_exposure(risk_service):
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
     )
-    assert result is False
+    assert result[0] is False
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_daily_loss(risk_service):
@@ -150,7 +156,7 @@ async def test_validate_pre_trade_risk_daily_loss(risk_service):
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), mock_session, is_pyramid_continuation=False
     )
-    assert result is False
+    assert result[0] is False
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_pyramid_bypass(risk_service):
@@ -171,8 +177,8 @@ async def test_validate_pre_trade_risk_pyramid_bypass(risk_service):
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=True
     )
     # Should only check exposure and daily loss, which pass here
-    
-    assert result is True
+
+    assert result[0] is True
 
 # --- Test Cases: Loser/Winner Selection (Pure Logic) ---
 
@@ -205,11 +211,13 @@ def test_select_loser_sorting_logic(mock_config):
     """Verify losers are sorted by Loss % -> Loss $ -> Age."""
     p1 = PositionGroup(
         id=uuid.uuid4(), symbol="A", status="active", unrealized_pnl_percent=Decimal("-7.0"), unrealized_pnl_usd=Decimal("-50"),
-        created_at=datetime.utcnow(), risk_timer_expires=datetime.min, risk_blocked=False, risk_skip_once=False
+        created_at=datetime.utcnow(), risk_timer_expires=datetime.min, risk_blocked=False, risk_skip_once=False,
+        pyramid_count=3, filled_dca_legs=3, total_dca_legs=3
     )
     p2 = PositionGroup(
         id=uuid.uuid4(), symbol="B", status="active", unrealized_pnl_percent=Decimal("-8.0"), unrealized_pnl_usd=Decimal("-40"),
-        created_at=datetime.utcnow(), risk_timer_expires=datetime.min, risk_blocked=False, risk_skip_once=False
+        created_at=datetime.utcnow(), risk_timer_expires=datetime.min, risk_blocked=False, risk_skip_once=False,
+        pyramid_count=3, filled_dca_legs=3, total_dca_legs=3
     )
     
     # P2 has higher loss % (-8 vs -7)
