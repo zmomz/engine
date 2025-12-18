@@ -880,10 +880,137 @@ class PositionManagerService:
                         # Mark group as CLOSING
                         position_group.status = PositionGroupStatus.CLOSING
                         await position_group_repo.update(position_group)
-                        
+
                         logger.info(f"Executed Aggregate TP Market Close for Group {group_id}")
+
+                # --- 5. Pyramid Aggregate TP Execution Logic ---
+                # Close individual pyramids when their aggregate TP is hit
+                elif position_group.tp_mode == "pyramid_aggregate" and position_group.tp_aggregate_percent > 0:
+                    await self._check_pyramid_aggregate_tp(
+                        session=session,
+                        position_group=position_group,
+                        filled_orders=filled_orders,
+                        current_price=current_price,
+                        user=user,
+                        exchange_connector=exchange_connector,
+                        position_group_repo=position_group_repo
+                    )
         finally:
             # Always close the exchange connector
             await exchange_connector.close()
-        
+
         return position_group
+
+    async def _check_pyramid_aggregate_tp(
+        self,
+        session: AsyncSession,
+        position_group: PositionGroup,
+        filled_orders: List[DCAOrder],
+        current_price: Decimal,
+        user: User,
+        exchange_connector: ExchangeInterface,
+        position_group_repo: PositionGroupRepository
+    ) -> None:
+        """
+        Check and execute pyramid-level aggregate TP.
+        Each pyramid is closed independently when its weighted average entry reaches the TP target.
+        """
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        # Get all pyramids for this position group
+        result = await session.execute(
+            select(Pyramid)
+            .where(Pyramid.group_id == position_group.id)
+            .options(selectinload(Pyramid.dca_orders))
+        )
+        pyramids = result.scalars().all()
+
+        for pyramid in pyramids:
+            # Skip already closed pyramids or those with no filled orders
+            pyramid_filled_orders = [
+                o for o in filled_orders
+                if o.pyramid_id == pyramid.id
+                and o.status == OrderStatus.FILLED
+                and o.leg_index != 999  # Exclude TP fill records
+                and not o.tp_hit
+            ]
+
+            if not pyramid_filled_orders:
+                continue
+
+            # Check if all orders in this pyramid have been TP'd
+            pyramid_all_orders = [o for o in filled_orders if o.pyramid_id == pyramid.id and o.leg_index != 999]
+            pyramid_tp_hit_orders = [o for o in pyramid_all_orders if o.tp_hit]
+
+            # If all legs already hit TP, skip
+            if len(pyramid_tp_hit_orders) >= len(pyramid_all_orders) and len(pyramid_all_orders) > 0:
+                continue
+
+            # Calculate weighted average entry for this pyramid
+            total_qty = Decimal("0")
+            total_value = Decimal("0")
+
+            for order in pyramid_filled_orders:
+                qty = order.filled_quantity or order.quantity
+                price = order.avg_fill_price or order.price
+                total_qty += qty
+                total_value += qty * price
+
+            if total_qty <= 0:
+                continue
+
+            pyramid_avg_entry = total_value / total_qty
+
+            # Calculate pyramid TP target
+            tp_percent = position_group.tp_aggregate_percent
+            if position_group.side.lower() == "long":
+                pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
+                tp_triggered = current_price >= pyramid_tp_price
+            else:
+                pyramid_tp_price = pyramid_avg_entry * (Decimal("1") - tp_percent / Decimal("100"))
+                tp_triggered = current_price <= pyramid_tp_price
+
+            if tp_triggered:
+                logger.info(
+                    f"Pyramid Aggregate TP Triggered for Pyramid {pyramid.pyramid_index} in Group {position_group.id} "
+                    f"at {current_price} (Target: {pyramid_tp_price}, Avg Entry: {pyramid_avg_entry})"
+                )
+
+                # Instantiate OrderService
+                order_service = self.order_service_class(
+                    session=session,
+                    user=user,
+                    exchange_connector=exchange_connector
+                )
+
+                # Cancel any open orders for this pyramid's legs
+                for order in pyramid_filled_orders:
+                    if order.tp_order_id:
+                        try:
+                            await exchange_connector.cancel_order(
+                                order.tp_order_id,
+                                position_group.symbol
+                            )
+                            logger.info(f"Cancelled TP order {order.tp_order_id} for pyramid {pyramid.pyramid_index}")
+                        except Exception as e:
+                            logger.warning(f"Failed to cancel TP order {order.tp_order_id}: {e}")
+
+                # Execute Market Close for pyramid quantity
+                close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                await order_service.place_market_order(
+                    user_id=user.id,
+                    exchange=position_group.exchange,
+                    symbol=position_group.symbol,
+                    side=close_side,
+                    quantity=total_qty,
+                    position_group_id=position_group.id,
+                    record_in_db=True
+                )
+
+                # Mark pyramid orders as TP hit
+                for order in pyramid_filled_orders:
+                    order.tp_hit = True
+                    order.tp_executed_at = datetime.utcnow()
+
+                logger.info(f"Executed Pyramid Aggregate TP Market Close for Pyramid {pyramid.pyramid_index}, Qty: {total_qty}")

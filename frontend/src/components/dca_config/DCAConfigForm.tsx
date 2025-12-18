@@ -48,7 +48,7 @@ const formSchema = z.object({
         }
     }),
     pyramid_specific_levels: z.record(z.string(), z.array(dcaLevelSchema)).optional(),
-    tp_mode: z.enum(["per_leg", "aggregate", "hybrid"]),
+    tp_mode: z.enum(["per_leg", "aggregate", "hybrid", "pyramid_aggregate"]),
     tp_settings: z.object({
         tp_aggregate_percent: z.coerce.number().optional()
     }),
@@ -104,7 +104,7 @@ const DCALevelsEditor: React.FC<{
                             <Controller
                                 name={`${name}.${index}.tp_percent` as any}
                                 control={control}
-                                render={({ field }) => <TextField {...field} label="TP %" size="small" type="number" fullWidth disabled={tpMode === 'aggregate'} />}
+                                render={({ field }) => <TextField {...field} label="TP %" size="small" type="number" fullWidth disabled={tpMode === 'aggregate' || tpMode === 'pyramid_aggregate'} />}
                             />
                         </Grid>
                         <Grid size={{ xs: 2 }}>
@@ -278,12 +278,13 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                         <MenuItem value="per_leg">Per Leg</MenuItem>
                                         <MenuItem value="aggregate">Aggregate</MenuItem>
                                         <MenuItem value="hybrid">Hybrid</MenuItem>
+                                        <MenuItem value="pyramid_aggregate">Pyramid Aggregate</MenuItem>
                                     </TextField>
                                 )}
                             />
                         </Grid>
 
-                        {(tpMode === 'aggregate' || tpMode === 'hybrid') && (
+                        {(tpMode === 'aggregate' || tpMode === 'hybrid' || tpMode === 'pyramid_aggregate') && (
                             <Grid size={{ xs: 12, md: 6 }}>
                                 <Controller
                                     name="tp_settings.tp_aggregate_percent"

@@ -27,6 +27,7 @@ class TakeProfitMode(str, PyEnum):
     PER_LEG = "per_leg"
     AGGREGATE = "aggregate"
     HYBRID = "hybrid"
+    PYRAMID_AGGREGATE = "pyramid_aggregate"
 
 class DCAConfiguration(Base):
     """
