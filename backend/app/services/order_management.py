@@ -495,7 +495,8 @@ class OrderService:
             avg_price = Decimal("0")
 
             if expected_price and max_slippage_percent is not None:
-                avg_price = Decimal(str(exchange_order_data.get("average", exchange_order_data.get("price", "0"))))
+                avg_price_raw = exchange_order_data.get("average") or exchange_order_data.get("price") or "0"
+                avg_price = Decimal(str(avg_price_raw)) if avg_price_raw else Decimal("0")
                 if avg_price > 0:
                     # Calculate actual slippage
                     if side_value == "BUY":
@@ -525,8 +526,10 @@ class OrderService:
                 # We'll use a special leg_index -1 for ad-hoc market orders to differentiate.
                 
                 # Extract fill details
-                filled_qty = Decimal(str(exchange_order_data.get("filled", quantity))) # Fallback to req qty if missing
-                avg_price = Decimal(str(exchange_order_data.get("average", exchange_order_data.get("price", "0"))))
+                filled_qty_raw = exchange_order_data.get("filled") or quantity
+                filled_qty = Decimal(str(filled_qty_raw))
+                avg_price_raw = exchange_order_data.get("average") or exchange_order_data.get("price") or "0"
+                avg_price = Decimal(str(avg_price_raw)) if avg_price_raw else Decimal("0")
 
                 # If avg_price is 0 (common in immediate response), might need to fetch order? 
                 # For now, trust exchange or use 0 and let monitor fix it? 

@@ -74,8 +74,8 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
                                                 exchange_connector = get_exchange_connector("mock", mock_exchange_config)
                                                 risk_engine_config = RiskEngineConfig(
                                                     loss_threshold_percent=Decimal("-1.5"),
-                                                    timer_start_condition="after_all_dca_filled",
-                                                    post_full_wait_minutes=15,
+                                                    required_pyramids_for_timer=3,
+                                                    post_pyramids_wait_minutes=15,
                                                     max_winners_to_combine=3
                                                 )
                                                 dca_grid_config = DCAGridConfig.model_validate({

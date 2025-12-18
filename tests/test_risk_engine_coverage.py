@@ -31,12 +31,11 @@ def mock_config():
         max_open_positions_global=5,
         max_open_positions_per_symbol=2,
         max_total_exposure_usd=1000.0,
-        max_daily_loss_usd=100.0,
+        max_realized_loss_usd=100.0,
         loss_threshold_percent=Decimal("-5.0"),
         max_winners_to_combine=3,
-        require_full_pyramids=True,
-        use_trade_age_filter=True,
-        age_threshold_minutes=60
+        required_pyramids_for_timer=1,
+        post_pyramids_wait_minutes=15
     )
 
 @pytest.fixture
@@ -82,16 +81,20 @@ def test_filter_eligible_losers_pnl_not_reached(mock_position_group, mock_config
     results = _filter_eligible_losers([mock_position_group], mock_config)
     assert len(results) == 0
 
-def test_filter_eligible_losers_incomplete_pyramid(mock_position_group, mock_config):
-    mock_position_group.pyramid_count = 0
-    mock_position_group.max_pyramids = 2
-    mock_config.require_full_pyramids = True
+def test_filter_eligible_losers_insufficient_pyramids(mock_position_group, mock_config):
+    """Test that positions with insufficient pyramids are not eligible."""
+    mock_position_group.pyramid_count = 1
+    mock_position_group.max_pyramids = 5
+    mock_config.required_pyramids_for_timer = 3  # Requires 3 pyramids
     results = _filter_eligible_losers([mock_position_group], mock_config)
     assert len(results) == 0
 
-def test_filter_eligible_losers_age_filter(mock_position_group, mock_config):
-    mock_position_group.created_at = datetime.utcnow() - timedelta(minutes=10) # Less than 60
-    mock_config.use_trade_age_filter = True
+def test_filter_eligible_losers_timer_not_expired(mock_position_group, mock_config):
+    """Test that positions with active (not expired) timers are not eligible."""
+    mock_position_group.pyramid_count = 3
+    mock_position_group.max_pyramids = 3
+    mock_config.required_pyramids_for_timer = 3
+    mock_position_group.risk_timer_expires = datetime.utcnow() + timedelta(minutes=10)  # Timer still active
     results = _filter_eligible_losers([mock_position_group], mock_config)
     assert len(results) == 0
 

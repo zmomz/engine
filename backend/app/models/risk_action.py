@@ -22,6 +22,9 @@ class RiskActionType(str, Enum):
     OFFSET_LOSS = "offset_loss"
     MANUAL_BLOCK = "manual_block"
     MANUAL_SKIP = "manual_skip"
+    MANUAL_CLOSE = "manual_close"
+    ENGINE_CLOSE = "engine_close"
+    TP_HIT = "tp_hit"
 
 
 class RiskAction(Base):
@@ -43,6 +46,14 @@ class RiskAction(Base):
 
     # Details for winners (JSON array of {group_id, pnl_usd, quantity_closed})
     winner_details = Column(JSON)
+
+    # Details for close actions (manual_close, engine_close, tp_hit)
+    exit_price = Column(Numeric(20, 10))
+    entry_price = Column(Numeric(20, 10))
+    pnl_percent = Column(Numeric(10, 4))
+    realized_pnl_usd = Column(Numeric(20, 10))
+    quantity_closed = Column(Numeric(20, 10))
+    duration_seconds = Column(Numeric(20, 2))  # Position duration in seconds
 
     notes = Column(String)
 

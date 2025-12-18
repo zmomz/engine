@@ -42,20 +42,24 @@ export interface PositionGroup {
   risk_eligible: boolean;
   risk_blocked: boolean;
   created_at: string;
+  closed_at: string | null;
   pyramids: Pyramid[];
 }
 
 interface PositionsState {
   positions: PositionGroup[];
+  positionHistory: PositionGroup[];
   loading: boolean;
   error: string | null;
   fetchPositions: (isBackground?: boolean) => Promise<void>;
+  fetchPositionHistory: (isBackground?: boolean) => Promise<void>;
   closePosition: (groupId: string) => Promise<void>;
   setPositions: (positions: PositionGroup[]) => void;
 }
 
 const usePositionsStore = create<PositionsState>((set, get) => ({
   positions: [],
+  positionHistory: [],
   loading: false,
   error: null,
 
@@ -70,6 +74,18 @@ const usePositionsStore = create<PositionsState>((set, get) => ({
       console.error("Failed to fetch positions", err);
       // Only set error if not background, or handle silently
       if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch positions', loading: false });
+    }
+  },
+
+  fetchPositionHistory: async (isBackground = false) => {
+    if (!isBackground) set({ loading: true, error: null });
+    try {
+      // Get user ID from the API (the backend will use current user)
+      const response = await api.get<PositionGroup[]>('/positions/history');
+      set({ positionHistory: response.data, loading: false });
+    } catch (err: any) {
+      console.error("Failed to fetch position history", err);
+      if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch position history', loading: false });
     }
   },
 

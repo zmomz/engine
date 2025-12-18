@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Button, TextField, Typography, CircularProgress, Alert, FormControlLabel, IconButton, Divider, Paper, Tabs, Tab, List, ListItem, ListItemText, ListItemSecondaryAction, Grid, Checkbox, MenuItem } from '@mui/material';
+import { Box, Button, TextField, Typography, CircularProgress, Alert, FormControlLabel, IconButton, Divider, Paper, Tabs, Tab, List, ListItem, ListItemText, ListItemSecondaryAction, Grid, Checkbox } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import { useForm, Controller, Resolver, FieldError, FieldErrors } from 'react-hook-form';
@@ -37,31 +37,16 @@ const exchangeSettingsSchema = z.object({
 
 
 const riskEngineConfigSchema = z.object({
+  // Pre-trade Risk Checks
   max_open_positions_global: z.coerce.number().min(0),
   max_open_positions_per_symbol: z.coerce.number().min(0),
   max_total_exposure_usd: z.coerce.number().min(0),
-  max_daily_loss_usd: z.coerce.number().min(0),
+  max_realized_loss_usd: z.coerce.number().min(0),
+  // Post-trade Risk Management - Timer Conditions
   loss_threshold_percent: z.coerce.number().max(0),
-  timer_start_condition: z.string().min(1),
-  post_full_wait_minutes: z.coerce.number().min(0),
+  required_pyramids_for_timer: z.coerce.number().min(1).max(10),
+  post_pyramids_wait_minutes: z.coerce.number().min(0),
   max_winners_to_combine: z.coerce.number().min(0),
-  use_trade_age_filter: z.boolean(),
-  age_threshold_minutes: z.coerce.number().min(0),
-  require_full_pyramids: z.boolean(),
-  reset_timer_on_replacement: z.boolean(),
-  partial_close_enabled: z.boolean(),
-  min_close_notional: z.coerce.number().min(0),
-  priority_rules: z.object({
-    priority_rules_enabled: z.object({
-      same_pair_timeframe: z.boolean(),
-      deepest_loss_percent: z.boolean(),
-      highest_replacement: z.boolean(),
-      fifo_fallback: z.boolean(),
-    }).refine((data) => Object.values(data).some(Boolean), {
-      message: "At least one priority rule must be enabled"
-    }),
-    priority_order: z.array(z.string()).length(4, "Must contain all 4 priority rules")
-  }),
 });
 
 const appSettingsSchema = z.object({
@@ -139,31 +124,11 @@ const SettingsPage: React.FC = () => {
         max_open_positions_global: 10,
         max_open_positions_per_symbol: 1,
         max_total_exposure_usd: 10000,
-        max_daily_loss_usd: 500,
+        max_realized_loss_usd: 500,
         loss_threshold_percent: -1.5,
-        timer_start_condition: "after_all_dca_filled",
-        post_full_wait_minutes: 15,
+        required_pyramids_for_timer: 3,
+        post_pyramids_wait_minutes: 15,
         max_winners_to_combine: 3,
-        use_trade_age_filter: false,
-        age_threshold_minutes: 120,
-        require_full_pyramids: true,
-        reset_timer_on_replacement: false,
-        partial_close_enabled: true,
-        min_close_notional: 10,
-        priority_rules: {
-          priority_rules_enabled: {
-            same_pair_timeframe: true,
-            deepest_loss_percent: true,
-            highest_replacement: true,
-            fifo_fallback: true
-          },
-          priority_order: [
-            "same_pair_timeframe",
-            "deepest_loss_percent",
-            "highest_replacement",
-            "fifo_fallback"
-          ]
-        }
       },
       appSettings: {
         username: settings?.username || '',
@@ -253,18 +218,12 @@ const SettingsPage: React.FC = () => {
     if (errors.exchangeSettings) {
       setCurrentTab(0);
     } else if (errors.riskEngineConfig) {
-      if (errors.riskEngineConfig.priority_rules) {
-        setCurrentTab(2);
-      } else {
-        setCurrentTab(1);
-      }
+      setCurrentTab(1);
     } else if (errors.appSettings) {
       setCurrentTab(4);
     } else if (errors.telegramSettings) {
       setCurrentTab(5);
     }
-    // Optional: show a snackbar or alert
-    // alert("Please correct the errors in the highlighted tab before saving.");
   };
 
   const handleDeleteKey = async (exchange: string) => {
@@ -501,6 +460,10 @@ const SettingsPage: React.FC = () => {
           <CustomTabPanel value={currentTab} index={1}>
             {/* Risk Engine Settings */}
             <Typography variant="h6" gutterBottom>Risk Engine Configuration</Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Timer starts when <strong>BOTH</strong> conditions are met: required pyramids filled AND loss threshold exceeded.
+              Timer resets if a new pyramid is received or loss improves above threshold.
+            </Alert>
             <Grid container spacing={2}>
               {Object.keys(riskEngineConfigSchema.shape).map((key) => {
                 const fieldError = errors.riskEngineConfig?.[key as keyof typeof errors.riskEngineConfig] as FieldError | undefined;
@@ -511,7 +474,29 @@ const SettingsPage: React.FC = () => {
                       control={control}
                       render={({ field }) => {
                         const isBoolean = typeof field.value === 'boolean';
-                        const isTimerStartCondition = key === 'timer_start_condition';
+
+                        // Create user-friendly labels and helper text
+                        const labelMap: Record<string, string> = {
+                          max_open_positions_global: 'Max Open Positions (Global)',
+                          max_open_positions_per_symbol: 'Max Open Positions (Per Symbol)',
+                          max_total_exposure_usd: 'Max Total Exposure (USD)',
+                          max_realized_loss_usd: 'Max Realized Loss (USD)',
+                          loss_threshold_percent: 'Loss Threshold (%)',
+                          required_pyramids_for_timer: 'Required Pyramids for Timer',
+                          post_pyramids_wait_minutes: 'Wait Time After Conditions Met (Minutes)',
+                          max_winners_to_combine: 'Max Winners to Combine',
+                        };
+
+                        const helperTextMap: Record<string, string> = {
+                          max_realized_loss_usd: 'Queue stops releasing trades when this limit is reached',
+                          loss_threshold_percent: 'e.g., -1.5 means timer starts when loss exceeds -1.5%',
+                          required_pyramids_for_timer: 'Number of pyramids (with all DCAs filled) required before timer can start',
+                          post_pyramids_wait_minutes: 'Timer countdown duration before offset execution',
+                          max_winners_to_combine: 'Maximum winning positions to partially close for offset',
+                        };
+
+                        const label = labelMap[key] || key.replace(/([A-Z])/g, ' $1').replace(/_([a-z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                        const helperText = fieldError?.message || helperTextMap[key] || '';
 
                         if (isBoolean) {
                           return (
@@ -522,40 +507,22 @@ const SettingsPage: React.FC = () => {
                                   onChange={(e) => field.onChange(e.target.checked)}
                                 />
                               }
-                              label={key.replace(/([A-Z])/g, ' $1').replace(/_([a-z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                              label={label}
                             />
-                          );
-                        }
-
-                        if (isTimerStartCondition) {
-                          return (
-                            <TextField
-                              {...field}
-                              select
-                              label="Timer Start Condition"
-                              fullWidth
-                              margin="normal"
-                              error={!!fieldError}
-                              helperText={fieldError?.message}
-                            >
-                              <MenuItem value="after_5_pyramids">After 5 Pyramids</MenuItem>
-                              <MenuItem value="after_all_dca_submitted">After All DCA Submitted</MenuItem>
-                              <MenuItem value="after_all_dca_filled">After All DCA Filled</MenuItem>
-                            </TextField>
                           );
                         }
 
                         return (
                           <TextField
                             {...field}
-                            label={key.replace(/([A-Z])/g, ' $1').replace(/_([a-z])/g, ' $1').replace(/^./, str => str.toUpperCase())} // Basic label formatting
+                            label={label}
                             fullWidth
                             margin="normal"
                             type='number'
                             inputProps={{ step: 'any' }}
                             onChange={(e) => field.onChange(e.target.value)}
                             error={!!fieldError}
-                            helperText={fieldError?.message}
+                            helperText={helperText}
                           />
                         );
                       }}

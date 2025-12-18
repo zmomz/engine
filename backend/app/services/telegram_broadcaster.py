@@ -81,7 +81,10 @@ class TelegramBroadcaster:
         position_group: PositionGroup,
         exit_price: Decimal,
         pnl_percent: Decimal,
-        pyramids_used: int
+        pyramids_used: int,
+        exit_reason: str = "engine",
+        pnl_usd: Optional[Decimal] = None,
+        duration_hours: Optional[float] = None
     ) -> Optional[int]:
         """
         Send exit signal message
@@ -91,6 +94,9 @@ class TelegramBroadcaster:
             exit_price: Exit price
             pnl_percent: PnL percentage
             pyramids_used: Number of pyramids used
+            exit_reason: Reason for exit ("manual", "engine", "tp_hit", "risk_offset")
+            pnl_usd: Realized PnL in USD
+            duration_hours: How long the position was open
 
         Returns:
             Message ID if sent successfully
@@ -103,7 +109,10 @@ class TelegramBroadcaster:
             position_group=position_group,
             exit_price=exit_price,
             pnl_percent=pnl_percent,
-            pyramids_used=pyramids_used
+            pyramids_used=pyramids_used,
+            exit_reason=exit_reason,
+            pnl_usd=pnl_usd,
+            duration_hours=duration_hours
         )
 
         # Send new message
@@ -170,15 +179,66 @@ class TelegramBroadcaster:
         position_group: PositionGroup,
         exit_price: Decimal,
         pnl_percent: Decimal,
-        pyramids_used: int
+        pyramids_used: int,
+        exit_reason: str = "engine",
+        pnl_usd: Optional[Decimal] = None,
+        duration_hours: Optional[float] = None
     ) -> str:
         """Build exit signal message"""
 
-        message = "🚪 Exit Triggered\n\n"
-        message += f"💰 Exit price: {float(exit_price):.2f}\n"
-        message += f"📉 Result: {float(pnl_percent):.1f} percent\n"
-        message += f"📦 Pyramids used: {pyramids_used}\n\n"
-        message += "🔍 Engine closed the full position based on market behavior."
+        # Exit reason icons and descriptions
+        reason_info = {
+            "manual": ("🖐️", "Manual Close", "Position manually closed by user"),
+            "engine": ("🤖", "Engine Exit", "Engine closed based on market conditions"),
+            "tp_hit": ("🎯", "Take Profit", "Take profit target reached"),
+            "risk_offset": ("⚖️", "Risk Offset", "Closed to offset losses from another position"),
+        }
+
+        icon, title, description = reason_info.get(exit_reason, ("🚪", "Exit", "Position closed"))
+
+        # Determine if profit or loss
+        is_profit = float(pnl_percent) >= 0
+        result_emoji = "📈" if is_profit else "📉"
+        result_color = "🟢" if is_profit else "🔴"
+
+        # Header with symbol info
+        message = f"{icon} {title}\n"
+        message += f"{position_group.exchange.upper()} | {position_group.symbol}\n"
+        message += f"{'─' * 25}\n\n"
+
+        # Position details
+        side_emoji = "🟢" if position_group.side == "long" else "🔴"
+        message += f"{side_emoji} Side: {position_group.side.upper()}\n"
+        message += f"📊 Timeframe: {position_group.timeframe}m\n\n"
+
+        # Price info
+        message += f"🎯 Entry: {float(position_group.weighted_avg_entry):.4f}\n"
+        message += f"💰 Exit: {float(exit_price):.4f}\n\n"
+
+        # PnL section
+        message += f"{result_color} Result\n"
+        message += f"  {result_emoji} {float(pnl_percent):+.2f}%\n"
+        if pnl_usd is not None:
+            message += f"  💵 {float(pnl_usd):+.2f} USD\n"
+        message += "\n"
+
+        # Trade info
+        message += f"📦 Pyramids: {pyramids_used}\n"
+        message += f"💼 Invested: {float(position_group.total_invested_usd):.2f} USD\n"
+
+        # Duration if available
+        if duration_hours is not None:
+            if duration_hours < 1:
+                duration_str = f"{int(duration_hours * 60)}m"
+            elif duration_hours < 24:
+                duration_str = f"{duration_hours:.1f}h"
+            else:
+                days = duration_hours / 24
+                duration_str = f"{days:.1f}d"
+            message += f"⏱️ Duration: {duration_str}\n"
+
+        message += f"\n{'─' * 25}\n"
+        message += f"💡 {description}"
 
         return message
 

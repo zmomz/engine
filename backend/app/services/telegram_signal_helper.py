@@ -174,7 +174,8 @@ async def broadcast_entry_signal(
 async def broadcast_exit_signal(
     position_group: PositionGroup,
     exit_price: Decimal,
-    session: AsyncSession
+    session: AsyncSession,
+    exit_reason: str = "engine"
 ) -> None:
     """
     Broadcast exit signal when a position is closed
@@ -183,6 +184,7 @@ async def broadcast_exit_signal(
         position_group: The position group being closed
         exit_price: The exit price
         session: Database session
+        exit_reason: Reason for exit ("manual", "engine", "tp_hit", "risk_offset")
     """
     try:
         # Get user and telegram config
@@ -201,10 +203,26 @@ async def broadcast_exit_signal(
 
         # Calculate PnL percentage
         entry_price = position_group.weighted_avg_entry
-        if position_group.side == "long":
-            pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+        if entry_price and entry_price > 0:
+            if position_group.side == "long":
+                pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+            else:
+                pnl_percent = ((entry_price - exit_price) / entry_price) * 100
         else:
-            pnl_percent = ((entry_price - exit_price) / entry_price) * 100
+            pnl_percent = Decimal("0")
+
+        # Get PnL in USD (use realized_pnl_usd if available)
+        pnl_usd = position_group.realized_pnl_usd
+
+        # Calculate duration
+        duration_hours = None
+        if position_group.created_at and position_group.closed_at:
+            duration = position_group.closed_at - position_group.created_at
+            duration_hours = duration.total_seconds() / 3600
+        elif position_group.created_at:
+            from datetime import datetime
+            duration = datetime.utcnow() - position_group.created_at
+            duration_hours = duration.total_seconds() / 3600
 
         # Count pyramids used
         pyramids_used = position_group.pyramid_count
@@ -215,10 +233,13 @@ async def broadcast_exit_signal(
             position_group=position_group,
             exit_price=exit_price,
             pnl_percent=pnl_percent,
-            pyramids_used=pyramids_used
+            pyramids_used=pyramids_used,
+            exit_reason=exit_reason,
+            pnl_usd=pnl_usd,
+            duration_hours=duration_hours
         )
 
-        logger.info(f"Sent exit signal for {position_group.symbol} at {exit_price}")
+        logger.info(f"Sent exit signal for {position_group.symbol} at {exit_price} (reason: {exit_reason})")
 
     except Exception as e:
         logger.error(f"Error broadcasting exit signal: {e}")

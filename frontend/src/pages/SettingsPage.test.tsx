@@ -37,17 +37,11 @@ describe('SettingsPage', () => {
           max_open_positions_global: 5,
           max_open_positions_per_symbol: 1,
           max_total_exposure_usd: 1000,
-          max_daily_loss_usd: 100,
+          max_realized_loss_usd: 100,
           loss_threshold_percent: -2,
-          timer_start_condition: 'after_all_dca_filled',
-          post_full_wait_minutes: 0,
+          required_pyramids_for_timer: 3,
+          post_pyramids_wait_minutes: 15,
           max_winners_to_combine: 1,
-          use_trade_age_filter: false,
-          age_threshold_minutes: 0,
-          require_full_pyramids: false,
-          reset_timer_on_replacement: false,
-          partial_close_enabled: false,
-          min_close_notional: 0
         },
         dca_grid_config: {
           levels: [

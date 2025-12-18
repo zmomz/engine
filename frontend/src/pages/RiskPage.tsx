@@ -276,21 +276,13 @@ const RiskPage: React.FC = () => {
                     <strong>Loss Threshold:</strong> {status.config?.loss_threshold_percent}%
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Age Filter:</strong> {status.config?.use_trade_age_filter ? 'Enabled' : 'Disabled'}
-                  </Typography>
-                  {status.config?.use_trade_age_filter && (
-                    <Typography variant="body2">
-                      <strong>Age Threshold:</strong> {status.config?.age_threshold_minutes} min
-                    </Typography>
-                  )}
-                  <Typography variant="body2">
-                    <strong>Require Full Pyramids:</strong> {status.config?.require_full_pyramids ? 'Yes' : 'No'}
+                    <strong>Required Pyramids for Timer:</strong> {status.config?.required_pyramids_for_timer}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Post-Full Wait:</strong> {status.config?.post_full_wait_minutes} min
+                    <strong>Post-Pyramids Wait:</strong> {status.config?.post_pyramids_wait_minutes} min
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Timer Start:</strong> {status.config?.timer_start_condition}
+                    <strong>Max Winners to Combine:</strong> {status.config?.max_winners_to_combine}
                   </Typography>
                 </Box>
               </CardContent>

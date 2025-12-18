@@ -130,7 +130,7 @@ def sample_user():
             "max_open_positions_global": 5,
             "max_open_positions_per_symbol": 1,
             "max_total_exposure_usd": 10000,
-            "max_daily_loss_usd": 500,
+            "max_realized_loss_usd": 500,
             "loss_threshold_percent": -2.0
         }
     )

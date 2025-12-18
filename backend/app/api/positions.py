@@ -93,6 +93,19 @@ async def get_current_user_active_positions(
     positions = await repo.get_active_position_groups_for_user(current_user.id)
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
+
+@router.get("/history", response_model=List[PositionGroupSchema])
+async def get_current_user_position_history(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Retrieves all historical (closed) position groups for the current authenticated user.
+    """
+    repo = PositionGroupRepository(db)
+    positions = await repo.get_closed_by_user(current_user.id)
+    return [PositionGroupSchema.from_orm(pos) for pos in positions]
+
 @router.get("/{user_id}", response_model=List[PositionGroupSchema])
 async def get_all_positions(
     user_id: uuid.UUID,
@@ -188,8 +201,8 @@ async def force_close_position(
             order_service_class=OrderService
         )
 
-        # Pass the session explicitly to handle_exit_signal
-        await position_manager.handle_exit_signal(updated_position.id, session=db)
+        # Pass the session explicitly to handle_exit_signal with manual exit reason
+        await position_manager.handle_exit_signal(updated_position.id, session=db, exit_reason="manual")
         
         # Refresh to get the latest state after all operations
         await db.refresh(updated_position)

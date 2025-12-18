@@ -15,7 +15,9 @@ import {
   TableHead,
   TableRow,
   LinearProgress,
-  Divider
+  Divider,
+  Button,
+  Alert
 } from '@mui/material';
 import {
   LineChart,
@@ -33,17 +35,55 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import StopIcon from '@mui/icons-material/Stop';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import SyncIcon from '@mui/icons-material/Sync';
+import PauseIcon from '@mui/icons-material/Pause';
 import useDashboardStore, { startDashboardPolling, stopDashboardPolling } from '../store/dashboardStore';
+import useRiskStore from '../store/riskStore';
 
 const DashboardPage: React.FC = () => {
   const { data, loading, error, fetchDashboardData } = useDashboardStore();
+  const {
+    status: riskStatus,
+    fetchStatus: fetchRiskStatus,
+    forceStop,
+    forceStart,
+    syncExchange,
+    error: riskError
+  } = useRiskStore();
   const [activeTab, setActiveTab] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
+    fetchRiskStatus();
     startDashboardPolling();
-    return () => stopDashboardPolling();
-  }, [fetchDashboardData]);
+    const riskInterval = setInterval(() => fetchRiskStatus(true), 5000);
+    return () => {
+      stopDashboardPolling();
+      clearInterval(riskInterval);
+    };
+  }, [fetchDashboardData, fetchRiskStatus]);
+
+  const handleSyncExchange = async () => {
+    setSyncing(true);
+    await syncExchange();
+    setSyncing(false);
+  };
+
+  const getEngineStatusInfo = () => {
+    if (riskStatus?.engine_force_stopped) {
+      return { label: 'Force Stopped', color: 'error' as const, icon: <StopIcon /> };
+    }
+    if (riskStatus?.engine_paused_by_loss_limit) {
+      return { label: 'Paused (Loss Limit)', color: 'warning' as const, icon: <PauseIcon /> };
+    }
+    // If not force stopped and not paused, queue is running (accepting trades)
+    return { label: 'Running', color: 'success' as const, icon: <CheckCircleIcon /> };
+  };
+
+  const engineStatusInfo = getEngineStatusInfo();
 
   if (loading && !data) {
     return (
@@ -126,18 +166,112 @@ const DashboardPage: React.FC = () => {
       {/* LIVE DASHBOARD TAB */}
       {activeTab === 0 && (
         <Grid container spacing={3}>
-          {/* Status Banner */}
+          {/* Risk Error Alert */}
+          {riskError && (
+            <Grid size={{ xs: 12 }}>
+              <Alert severity="error">{riskError}</Alert>
+            </Grid>
+          )}
+
+          {/* Engine Controls Banner */}
+          <Grid size={{ xs: 12 }}>
+            <Card sx={{ bgcolor: riskStatus?.engine_force_stopped ? 'error.light' : riskStatus?.engine_paused_by_loss_limit ? 'warning.light' : 'inherit' }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                  {/* Queue Status (Force Stop affects this) */}
+                  <Box>
+                    <Typography variant="h6">Queue Status</Typography>
+                    <Chip
+                      label={engineStatusInfo.label}
+                      color={engineStatusInfo.color}
+                      icon={engineStatusInfo.icon}
+                      sx={{ mt: 0.5 }}
+                    />
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Controls trade execution
+                    </Typography>
+                  </Box>
+
+                  {/* Daily Realized PnL */}
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Daily Realized PnL</Typography>
+                    <Typography
+                      variant="h5"
+                      color={(riskStatus?.daily_realized_pnl ?? 0) >= 0 ? 'success.main' : 'error.main'}
+                    >
+                      {formatCurrency(riskStatus?.daily_realized_pnl ?? 0)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Limit: {formatCurrency(riskStatus?.max_realized_loss_usd ?? 0)}
+                    </Typography>
+                  </Box>
+
+                  {/* Engine Controls */}
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    {riskStatus?.engine_force_stopped ? (
+                      <Button
+                        variant="contained"
+                        color="success"
+                        startIcon={<PlayArrowIcon />}
+                        onClick={forceStart}
+                      >
+                        Force Start
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="contained"
+                        color="error"
+                        startIcon={<StopIcon />}
+                        onClick={forceStop}
+                      >
+                        Force Stop
+                      </Button>
+                    )}
+                    <Button
+                      variant="outlined"
+                      startIcon={<SyncIcon />}
+                      onClick={handleSyncExchange}
+                      disabled={syncing}
+                    >
+                      {syncing ? 'Syncing...' : 'Sync Exchange'}
+                    </Button>
+                  </Box>
+                </Box>
+
+                {/* Warning message when paused by loss limit */}
+                {riskStatus?.engine_paused_by_loss_limit && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    Queue is paused because daily realized loss limit has been reached.
+                    No new positions will be opened until tomorrow or manual override.
+                  </Alert>
+                )}
+
+                {/* Warning message when force stopped */}
+                {riskStatus?.engine_force_stopped && (
+                  <Alert severity="error" sx={{ mt: 2 }}>
+                    Queue is force stopped. No new trades will be executed until you click Force Start.
+                    Risk engine continues monitoring but won't execute offsets.
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* System Status Banner */}
           <Grid size={{ xs: 12 }}>
             <Card>
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
                   <Box>
-                    <Typography variant="h6">Engine Status</Typography>
+                    <Typography variant="h6">System Status</Typography>
                     <Chip
                       label={live.engine_status}
                       color={live.engine_status === 'running' ? 'success' : 'error'}
                       icon={live.engine_status === 'running' ? <CheckCircleIcon /> : <CancelIcon />}
                     />
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Main engine loop
+                    </Typography>
                   </Box>
                   <Box>
                     <Typography variant="h6">Risk Engine</Typography>
@@ -145,6 +279,9 @@ const DashboardPage: React.FC = () => {
                       label={live.risk_engine_status}
                       color={live.risk_engine_status === 'active' ? 'success' : 'default'}
                     />
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Position monitoring
+                    </Typography>
                   </Box>
                   <Box>
                     <Typography variant="body2" color="text.secondary">
