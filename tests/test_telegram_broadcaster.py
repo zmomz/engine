@@ -60,7 +60,8 @@ def sample_position_group():
         pyramid_count=1,
         total_dca_legs=5,
         base_entry_price=Decimal("50000"),
-        weighted_avg_entry=Decimal("49500")
+        weighted_avg_entry=Decimal("49500"),
+        total_invested_usd=Decimal("10000")
     )
 
 
@@ -572,7 +573,7 @@ class TestTelegramBroadcaster:
             pyramids_used=2
         )
 
-        assert "Exit Triggered" in message
+        assert "Engine Exit" in message
         assert "51000" in message
         assert "2.5" in message
         assert "2" in message

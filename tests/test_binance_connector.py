@@ -78,14 +78,20 @@ async def test_get_precision_rules_success(mock_ccxt_binance):
         }
     }
     mock_ccxt_binance.load_markets = AsyncMock(return_value=mock_markets_response)
-    
-    with patch('ccxt.async_support.binance', return_value=mock_ccxt_binance):
+
+    # Mock the cache to return None (cache miss) so load_markets is called
+    mock_cache = AsyncMock()
+    mock_cache.get_precision_rules = AsyncMock(return_value=None)
+    mock_cache.set_precision_rules = AsyncMock()
+
+    with patch('ccxt.async_support.binance', return_value=mock_ccxt_binance), \
+         patch('app.services.exchange_abstraction.binance_connector.get_cache', AsyncMock(return_value=mock_cache)):
         connector = BinanceConnector(api_key="test_key", secret_key="test_secret")
-        
+
         rules = await connector.get_precision_rules()
-        
+
         mock_ccxt_binance.load_markets.assert_awaited_once()
-        
+
         expected_rules = {
             'BTC/USDT': {
                 'tick_size': 0.01,

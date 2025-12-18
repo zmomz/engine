@@ -121,7 +121,13 @@ class TestGetPrecisionRules:
         }
         mock_bybit_connector.exchange.load_markets.return_value = mock_markets
 
-        rules = await mock_bybit_connector.get_precision_rules()
+        # Mock the cache to return None (cache miss) so load_markets is called
+        mock_cache = AsyncMock()
+        mock_cache.get_precision_rules = AsyncMock(return_value=None)
+        mock_cache.set_precision_rules = AsyncMock()
+
+        with patch('app.services.exchange_abstraction.bybit_connector.get_cache', AsyncMock(return_value=mock_cache)):
+            rules = await mock_bybit_connector.get_precision_rules()
 
         assert 'BTC/USDT' in rules
         assert 'BTCUSDT' in rules  # ID should also be a key
@@ -142,7 +148,13 @@ class TestGetPrecisionRules:
         }
         mock_bybit_connector.exchange.load_markets.return_value = mock_markets
 
-        rules = await mock_bybit_connector.get_precision_rules()
+        # Mock the cache to return None (cache miss) so load_markets is called
+        mock_cache = AsyncMock()
+        mock_cache.get_precision_rules = AsyncMock(return_value=None)
+        mock_cache.set_precision_rules = AsyncMock()
+
+        with patch('app.services.exchange_abstraction.bybit_connector.get_cache', AsyncMock(return_value=mock_cache)):
+            rules = await mock_bybit_connector.get_precision_rules()
 
         assert rules['DOGE/USDT']['tick_size'] == 0.0001
         assert rules['DOGE/USDT']['step_size'] == 1.0
