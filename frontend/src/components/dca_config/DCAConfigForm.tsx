@@ -17,7 +17,9 @@ import {
     Tab,
     Box,
     FormControlLabel,
-    Checkbox
+    Checkbox,
+    useTheme,
+    useMediaQuery
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useForm, useFieldArray, Controller, Control, UseFormWatch } from 'react-hook-form';
@@ -80,44 +82,43 @@ const DCALevelsEditor: React.FC<{
 
     return (
         <Box>
-
             {fields.map((field, index) => (
-                <Paper key={field.id} variant="outlined" sx={{ p: 2, mb: 1 }}>
-                    <Grid container spacing={2} alignItems="center">
-                        <Grid size={{ xs: 1 }}>
-                            <Typography>#{index}</Typography>
+                <Paper key={field.id} variant="outlined" sx={{ p: { xs: 1, sm: 2 }, mb: 1 }}>
+                    <Grid container spacing={{ xs: 1, sm: 2 }} alignItems="center">
+                        <Grid size={{ xs: 2, sm: 1 }}>
+                            <Typography sx={{ fontSize: { xs: '0.75rem', sm: '1rem' } }}>#{index}</Typography>
                         </Grid>
-                        <Grid size={{ xs: 3 }}>
+                        <Grid size={{ xs: 10, sm: 3 }}>
                             <Controller
                                 name={`${name}.${index}.gap_percent` as any}
                                 control={control}
                                 render={({ field }) => <TextField {...field} label="Gap %" size="small" type="number" fullWidth />}
                             />
                         </Grid>
-                        <Grid size={{ xs: 3 }}>
+                        <Grid size={{ xs: 6, sm: 3 }}>
                             <Controller
                                 name={`${name}.${index}.weight_percent` as any}
                                 control={control}
                                 render={({ field }) => <TextField {...field} label="Weight %" size="small" type="number" fullWidth />}
                             />
                         </Grid>
-                        <Grid size={{ xs: 3 }}>
+                        <Grid size={{ xs: 6, sm: 3 }}>
                             <Controller
                                 name={`${name}.${index}.tp_percent` as any}
                                 control={control}
                                 render={({ field }) => <TextField {...field} label="TP %" size="small" type="number" fullWidth disabled={tpMode === 'aggregate' || tpMode === 'pyramid_aggregate'} />}
                             />
                         </Grid>
-                        <Grid size={{ xs: 2 }}>
-                            <IconButton color="error" onClick={() => remove(index)}>
-                                <DeleteIcon />
+                        <Grid size={{ xs: 12, sm: 2 }} sx={{ display: 'flex', justifyContent: { xs: 'flex-end', sm: 'center' } }}>
+                            <IconButton color="error" onClick={() => remove(index)} size="small">
+                                <DeleteIcon sx={{ fontSize: { xs: 18, sm: 24 } }} />
                             </IconButton>
                         </Grid>
                     </Grid>
                 </Paper>
             ))}
 
-            <Button variant="outlined" onClick={() => append({ gap_percent: 1, weight_percent: 0, tp_percent: 1 })} sx={{ mt: 1 }}>
+            <Button variant="outlined" onClick={() => append({ gap_percent: 1, weight_percent: 0, tp_percent: 1 })} sx={{ mt: 1 }} size="small">
                 Add Level
             </Button>
         </Box>
@@ -125,6 +126,9 @@ const DCALevelsEditor: React.FC<{
 };
 
 const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, initialData, isEdit }) => {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
     const { control, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -201,30 +205,33 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
     };
 
     return (
-        <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-            <DialogTitle>{isEdit ? 'Edit DCA Configuration' : 'Create DCA Configuration'}</DialogTitle>
+        <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth fullScreen={isMobile}>
+            <DialogTitle sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, py: { xs: 1.5, sm: 2 } }}>
+                {isEdit ? 'Edit DCA Configuration' : 'Create DCA Configuration'}
+            </DialogTitle>
             <form onSubmit={handleSubmit(handleFormSubmit)}>
-                <DialogContent dividers>
-                    <Grid container spacing={2}>
+                <DialogContent dividers sx={{ p: { xs: 1.5, sm: 3 } }}>
+                    <Grid container spacing={{ xs: 1.5, sm: 2 }}>
                         {/* Basic Info */}
-                        <Grid size={{ xs: 12, md: 4 }}>
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                             <Controller
                                 name="pair"
                                 control={control}
                                 render={({ field }) => (
-                                    <TextField {...field} label="Pair (e.g. BTC/USDT)" fullWidth error={!!errors.pair} helperText={errors.pair?.message} disabled={isEdit} />
+                                    <TextField {...field} label="Pair" size="small" fullWidth error={!!errors.pair} helperText={errors.pair?.message} disabled={isEdit} placeholder="BTC/USDT" />
                                 )}
                             />
                         </Grid>
-                        <Grid size={{ xs: 12, md: 4 }}>
+                        <Grid size={{ xs: 6, sm: 6, md: 4 }}>
                             <Controller
                                 name="timeframe"
                                 control={control}
                                 render={({ field }) => (
                                     <TextField
                                         {...field}
-                                        label="Timeframe (minutes)"
+                                        label="TF (min)"
                                         type="number"
+                                        size="small"
                                         fullWidth
                                         error={!!errors.timeframe}
                                         helperText={errors.timeframe?.message}
@@ -234,64 +241,64 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                 )}
                             />
                         </Grid>
-                        <Grid size={{ xs: 12, md: 4 }}>
+                        <Grid size={{ xs: 6, sm: 6, md: 4 }}>
                             <Controller
                                 name="exchange"
                                 control={control}
                                 render={({ field }) => (
-                                    <TextField {...field} label="Exchange" fullWidth error={!!errors.exchange} disabled={isEdit} />
+                                    <TextField {...field} label="Exchange" size="small" fullWidth error={!!errors.exchange} disabled={isEdit} />
                                 )}
                             />
                         </Grid>
 
-                        <Grid size={{ xs: 12, md: 6 }}>
+                        <Grid size={{ xs: 6, sm: 6 }}>
                             <Controller
                                 name="entry_order_type"
                                 control={control}
                                 render={({ field }) => (
-                                    <TextField {...field} select label="Entry Order Type" fullWidth>
+                                    <TextField {...field} select label="Entry Type" size="small" fullWidth>
                                         <MenuItem value="limit">Limit</MenuItem>
-                                        <MenuItem value="market">Market (Watch Price)</MenuItem>
+                                        <MenuItem value="market">Market</MenuItem>
                                     </TextField>
                                 )}
                             />
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}>
+                        <Grid size={{ xs: 6, sm: 6 }}>
                             <Controller
                                 name="max_pyramids"
                                 control={control}
                                 render={({ field }) => (
-                                    <TextField {...field} type="number" label="Max Pyramids" fullWidth error={!!errors.max_pyramids} />
+                                    <TextField {...field} type="number" label="Max Pyramids" size="small" fullWidth error={!!errors.max_pyramids} />
                                 )}
                             />
                         </Grid>
 
                         {/* TP Settings */}
                         <Grid size={{ xs: 12 }}>
-                            <Typography variant="subtitle1" sx={{ mt: 2 }}>Take Profit Strategy</Typography>
+                            <Typography variant="subtitle2" sx={{ mt: 1, fontWeight: 600 }}>Take Profit</Typography>
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}>
+                        <Grid size={{ xs: 6 }}>
                             <Controller
                                 name="tp_mode"
                                 control={control}
                                 render={({ field }) => (
-                                    <TextField {...field} select label="TP Mode" fullWidth>
+                                    <TextField {...field} select label="TP Mode" size="small" fullWidth>
                                         <MenuItem value="per_leg">Per Leg</MenuItem>
                                         <MenuItem value="aggregate">Aggregate</MenuItem>
                                         <MenuItem value="hybrid">Hybrid</MenuItem>
-                                        <MenuItem value="pyramid_aggregate">Pyramid Aggregate</MenuItem>
+                                        <MenuItem value="pyramid_aggregate">Pyr Aggregate</MenuItem>
                                     </TextField>
                                 )}
                             />
                         </Grid>
 
                         {(tpMode === 'aggregate' || tpMode === 'hybrid' || tpMode === 'pyramid_aggregate') && (
-                            <Grid size={{ xs: 12, md: 6 }}>
+                            <Grid size={{ xs: 6 }}>
                                 <Controller
                                     name="tp_settings.tp_aggregate_percent"
                                     control={control}
                                     render={({ field }) => (
-                                        <TextField {...field} type="number" label="Aggregate TP %" fullWidth inputProps={{ step: "0.01" }} />
+                                        <TextField {...field} type="number" label="Agg TP %" size="small" fullWidth inputProps={{ step: "0.01" }} />
                                     )}
                                 />
                             </Grid>
@@ -300,18 +307,31 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
 
                         {/* Levels Tabs */}
                         <Grid size={{ xs: 12 }}>
-                            <Typography variant="subtitle1" sx={{ mt: 2 }}>DCA Levels Configuration</Typography>
+                            <Typography variant="subtitle2" sx={{ mt: 1, fontWeight: 600 }}>DCA Levels</Typography>
                             <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                                <Tabs value={tabIndex} onChange={handleTabChange} variant="scrollable" scrollButtons="auto">
-                                    <Tab label="Default (Base)" />
+                                <Tabs
+                                    value={tabIndex}
+                                    onChange={handleTabChange}
+                                    variant="scrollable"
+                                    scrollButtons="auto"
+                                    sx={{
+                                        minHeight: { xs: 36, sm: 48 },
+                                        '& .MuiTab-root': {
+                                            minHeight: { xs: 36, sm: 48 },
+                                            fontSize: { xs: '0.7rem', sm: '0.875rem' },
+                                            px: { xs: 1, sm: 2 }
+                                        }
+                                    }}
+                                >
+                                    <Tab label="Default" />
                                     {Array.from({ length: maxPyramids }, (_, i) => i + 1).map((idx) => (
                                         <Tab
                                             key={idx}
                                             label={
                                                 <Box display="flex" alignItems="center">
-                                                    {`Pyramid ${idx}`}
+                                                    {`P${idx}`}
                                                     {pyramidSpecifics && pyramidSpecifics[idx.toString()] && (
-                                                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main', ml: 1 }} />
+                                                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'primary.main', ml: 0.5 }} />
                                                     )}
                                                 </Box>
                                             }
@@ -320,26 +340,31 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                 </Tabs>
                             </Box>
 
-                            <Box sx={{ p: 2, minHeight: 300 }}>
+                            <Box sx={{ p: { xs: 1, sm: 2 }, minHeight: { xs: 200, sm: 300 } }}>
                                 {tabIndex === 0 ? (
                                     <Box>
-                                        <Alert severity="info" sx={{ mb: 2 }}>These levels apply to the INITIAL position and any subsequent pyramids that do not have specific overrides.</Alert>
+                                        <Alert severity="info" sx={{ mb: 2, py: 0.5, '& .MuiAlert-message': { fontSize: { xs: '0.7rem', sm: '0.875rem' } } }}>
+                                            Default levels for initial position and pyramids without overrides.
+                                        </Alert>
                                         {errors.dca_levels && (
-                                            <Alert severity="error" sx={{ mb: 2 }}>{(errors.dca_levels as any).root?.message || "Invalid levels configuration"}</Alert>
+                                            <Alert severity="error" sx={{ mb: 2, py: 0.5 }}>{(errors.dca_levels as any).root?.message || "Invalid levels"}</Alert>
                                         )}
                                         <DCALevelsEditor control={control} name="dca_levels" tpMode={tpMode} watch={watch} />
                                     </Box>
                                 ) : (
                                     <Box>
-                                        <Alert severity="info" sx={{ mb: 2 }}>Configuration for Pyramid {tabIndex}. Only used if enabled.</Alert>
+                                        <Alert severity="info" sx={{ mb: 2, py: 0.5, '& .MuiAlert-message': { fontSize: { xs: '0.7rem', sm: '0.875rem' } } }}>
+                                            Pyramid {tabIndex} config (only if enabled).
+                                        </Alert>
                                         <FormControlLabel
                                             control={
                                                 <Checkbox
                                                     checked={!!(pyramidSpecifics && pyramidSpecifics[tabIndex.toString()])}
                                                     onChange={(e) => handleTogglePyramidOverride(tabIndex.toString(), e.target.checked)}
+                                                    size="small"
                                                 />
                                             }
-                                            label={`Enable Specific Settings for Pyramid ${tabIndex}`}
+                                            label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Enable P{tabIndex} settings</Box>}
                                         />
 
                                         {pyramidSpecifics && pyramidSpecifics[tabIndex.toString()] && (
@@ -354,9 +379,9 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
 
                     </Grid>
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={onClose}>Cancel</Button>
-                    <Button type="submit" variant="contained" disabled={isSubmitting}>Save Configuration</Button>
+                <DialogActions sx={{ p: { xs: 1.5, sm: 2 } }}>
+                    <Button onClick={onClose} size="small">Cancel</Button>
+                    <Button type="submit" variant="contained" disabled={isSubmitting} size="small">Save</Button>
                 </DialogActions>
             </form>
         </Dialog>

@@ -17,6 +17,7 @@ import {
     closestCenter,
     KeyboardSensor,
     PointerSensor,
+    TouchSensor,
     useSensor,
     useSensors,
     DragEndEvent,
@@ -96,7 +97,7 @@ function SortableItem({ id, index, ruleName, isEnabled, onToggle, enabledCount }
                 }
             }}
         >
-            <div {...attributes} {...listeners} style={{ marginRight: 8, cursor: 'grab', flexShrink: 0 }}>
+            <div {...attributes} {...listeners} style={{ marginRight: 8, cursor: 'grab', flexShrink: 0, touchAction: 'none' }}>
                 <DragIndicatorIcon color="action" />
             </div>
 
@@ -159,7 +160,17 @@ const QueuePrioritySettings: React.FC<QueuePrioritySettingsProps> = ({ control, 
         : 0;
 
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8, // 8px movement required before drag starts
+            },
+        }),
+        useSensor(TouchSensor, {
+            activationConstraint: {
+                delay: 150, // 150ms hold before drag starts
+                tolerance: 5, // 5px movement tolerance during delay
+            },
+        }),
         useSensor(KeyboardSensor, {
             coordinateGetter: sortableKeyboardCoordinates,
         })
