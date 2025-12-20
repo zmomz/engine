@@ -2,13 +2,13 @@ import React from 'react';
 import { Box, Card, CardContent, Grid, Skeleton, Divider } from '@mui/material';
 
 export const RiskPageSkeleton: React.FC = () => (
-  <Box sx={{ flexGrow: 1, p: 3 }}>
+  <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 } }}>
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
       <Skeleton variant="text" width={220} height={48} />
       <Skeleton variant="rounded" width={180} height={40} />
     </Box>
 
-    <Grid container spacing={3}>
+    <Grid container spacing={{ xs: 2, sm: 3 }}>
       {/* Statistics Dashboard */}
       <Grid size={{ xs: 12 }}>
         <Card>
@@ -87,7 +87,7 @@ export const RiskPageSkeleton: React.FC = () => (
             <Skeleton variant="text" width={180} height={32} sx={{ mb: 2 }} />
             <Box>
               {/* Table header */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 2, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.4)' }}>
+              <Box sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 }, mb: 2, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.4)' }}>
                 <Skeleton variant="text" width={120} height={24} />
                 <Skeleton variant="text" width={80} height={24} />
                 <Skeleton variant="text" width={80} height={24} />
@@ -96,7 +96,7 @@ export const RiskPageSkeleton: React.FC = () => (
               </Box>
               {/* Table rows */}
               {[1, 2, 3].map((i) => (
-                <Box key={i} sx={{ display: 'flex', gap: 2, mb: 1, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.1)' }}>
+                <Box key={i} sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 }, mb: 1, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.1)' }}>
                   <Skeleton variant="text" width={120} height={20} />
                   <Skeleton variant="text" width={80} height={20} />
                   <Skeleton variant="text" width={80} height={20} />
@@ -116,7 +116,7 @@ export const RiskPageSkeleton: React.FC = () => (
             <Skeleton variant="text" width={160} height={32} sx={{ mb: 2 }} />
             <Box>
               {/* Table header */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 2, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.4)' }}>
+              <Box sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 }, mb: 2, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.4)' }}>
                 <Skeleton variant="text" width={150} height={24} />
                 <Skeleton variant="text" width={100} height={24} />
                 <Skeleton variant="text" width={80} height={24} />
@@ -125,7 +125,7 @@ export const RiskPageSkeleton: React.FC = () => (
               </Box>
               {/* Table rows */}
               {[1, 2].map((i) => (
-                <Box key={i} sx={{ display: 'flex', gap: 2, mb: 1, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.1)' }}>
+                <Box key={i} sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 }, mb: 1, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.1)' }}>
                   <Skeleton variant="text" width={150} height={20} />
                   <Skeleton variant="text" width={100} height={20} />
                   <Skeleton variant="text" width={80} height={20} />
