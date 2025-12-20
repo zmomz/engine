@@ -18,7 +18,10 @@
       "Bash(npx tsc:*)",
       "Bash(python -m pytest:*)",
       "Bash(.venvScriptspython.exe -m pytest --tb=short -v)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(rm:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)"
     ]
   }
 }

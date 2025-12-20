@@ -88,10 +88,12 @@ const DCAConfigList: React.FC = () => {
 
     return (
         <Box>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h6">Specific DCA Configurations</Typography>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.1rem' } }}>
+                    Specific DCA Configurations
+                </Typography>
                 <Button variant="contained" startIcon={<AddIcon />} onClick={handleCreate} size="small">
-                    Add New Config
+                    Add
                 </Button>
             </Box>
 
@@ -100,41 +102,41 @@ const DCAConfigList: React.FC = () => {
             {loading ? (
                 <CircularProgress />
             ) : (
-                <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
+                <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+                    <Table size="small" sx={{ minWidth: { xs: 320, sm: 500 } }}>
                         <TableHead>
                             <TableRow>
-                                <TableCell>Pair</TableCell>
-                                <TableCell>Timeframe</TableCell>
-                                <TableCell>Exchange</TableCell>
-                                <TableCell>Entry</TableCell>
-                                <TableCell>TP Mode</TableCell>
-                                <TableCell>Pyramids</TableCell>
-                                <TableCell align="right">Actions</TableCell>
+                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 1, sm: 2 } }}>Pair</TableCell>
+                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>TF</TableCell>
+                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>Exchange</TableCell>
+                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>Entry</TableCell>
+                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>TP</TableCell>
+                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>Pyr</TableCell>
+                                <TableCell align="right" sx={{ px: { xs: 0.5, sm: 2 } }}>Actions</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {configs.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center">No specific configurations found.</TableCell>
+                                    <TableCell colSpan={7} align="center" sx={{ fontSize: '0.8rem' }}>No configs found</TableCell>
                                 </TableRow>
                             ) : (
                                 configs.map((config) => (
                                     <TableRow key={config.id}>
-                                        <TableCell>{config.pair}</TableCell>
-                                        <TableCell>{config.timeframe}</TableCell>
-                                        <TableCell>{config.exchange}</TableCell>
-                                        <TableCell>
-                                            <Chip label={config.entry_order_type} size="small" color={config.entry_order_type === 'market' ? 'warning' : 'default'} />
+                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 1, sm: 2 } }}>{config.pair}</TableCell>
+                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>{config.timeframe}</TableCell>
+                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>{config.exchange}</TableCell>
+                                        <TableCell sx={{ px: { xs: 0.5, sm: 2 } }}>
+                                            <Chip label={config.entry_order_type === 'market' ? 'M' : 'L'} size="small" color={config.entry_order_type === 'market' ? 'warning' : 'default'} sx={{ height: 20, fontSize: '0.65rem' }} />
                                         </TableCell>
-                                        <TableCell>{config.tp_mode}</TableCell>
-                                        <TableCell>{config.max_pyramids}</TableCell>
-                                        <TableCell align="right">
-                                            <IconButton size="small" onClick={() => handleEdit(config)}>
-                                                <EditIcon fontSize="small" />
+                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>{config.tp_mode}</TableCell>
+                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>{config.max_pyramids}</TableCell>
+                                        <TableCell align="right" sx={{ px: { xs: 0.5, sm: 2 }, whiteSpace: 'nowrap' }}>
+                                            <IconButton size="small" onClick={() => handleEdit(config)} sx={{ p: { xs: 0.25, sm: 0.5 } }}>
+                                                <EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />
                                             </IconButton>
-                                            <IconButton size="small" color="error" onClick={() => handleDelete(config.id)}>
-                                                <DeleteIcon fontSize="small" />
+                                            <IconButton size="small" color="error" onClick={() => handleDelete(config.id)} sx={{ p: { xs: 0.25, sm: 0.5 } }}>
+                                                <DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />
                                             </IconButton>
                                         </TableCell>
                                     </TableRow>

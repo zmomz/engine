@@ -1,9 +1,10 @@
 import React from 'react';
 import { Drawer, Toolbar, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Box, useTheme, useMediaQuery } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import AnalyticsIcon from '@mui/icons-material/Analytics';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import QueueIcon from '@mui/icons-material/Queue';
 import SecurityIcon from '@mui/icons-material/Security';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { Link, useLocation } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
@@ -27,9 +28,10 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onClose }) => {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Positions', icon: <AnalyticsIcon />, path: '/positions' },
+    { text: 'Positions', icon: <AccountBalanceWalletIcon />, path: '/positions' },
     { text: 'Queue', icon: <QueueIcon />, path: '/queue' },
     { text: 'Risk', icon: <SecurityIcon />, path: '/risk' },
+    { text: 'Analytics', icon: <BarChartIcon />, path: '/analytics' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
 

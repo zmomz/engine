@@ -1,11 +1,56 @@
 import { create } from 'zustand';
 import api from '../services/api';
 
+// User interface matching the backend UserSettings schema
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  exchange: string;
+  webhook_secret: string;
+  configured_exchanges: string[];
+  risk_config: {
+    max_open_positions_global: number;
+    max_open_positions_per_symbol: number;
+    max_total_exposure_usd: number;
+    max_realized_loss_usd: number;
+    loss_threshold_percent: number;
+    required_pyramids_for_timer: number;
+    post_pyramids_wait_minutes: number;
+    max_winners_to_combine: number;
+    priority_rules?: {
+      priority_rules_enabled: {
+        same_pair_timeframe: boolean;
+        deepest_loss_percent: boolean;
+        highest_replacement: boolean;
+        fifo_fallback: boolean;
+      };
+      priority_order: string[];
+    };
+  };
+  telegram_config?: {
+    enabled: boolean;
+    bot_token?: string;
+    channel_id?: string;
+    channel_name: string;
+    engine_signature: string;
+    send_entry_signals: boolean;
+    send_exit_signals: boolean;
+    update_on_pyramid: boolean;
+    test_mode: boolean;
+  };
+  configured_exchange_details?: Record<string, {
+    testnet?: boolean;
+    account_type?: string;
+    encrypted_data?: string;
+  }>;
+}
+
 export interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
-  user: any | null; // You might want to define a more specific user type
-  login: (token: string, user: any) => void;
+  user: User | null;
+  login: (token: string, user: User) => void;
   logout: () => void;
   initializeAuth: () => void;
   register: (username: string, email: string, password: string) => Promise<void>;

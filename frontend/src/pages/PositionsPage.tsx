@@ -1,13 +1,47 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Typography, Button, Collapse, IconButton, Paper, Tabs, Tab, Chip } from '@mui/material';
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+  Box,
+  Typography,
+  Button,
+  Collapse,
+  IconButton,
+  Paper,
+  Tabs,
+  Tab,
+  Chip,
+  Grid,
+  Card,
+  CardContent,
+  Divider,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+  useTheme,
+  useMediaQuery,
+  Tooltip
+} from '@mui/material';
 import { DataGrid, GridColDef, GridRenderCellParams, GridToolbar } from '@mui/x-data-grid';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
+import PercentIcon from '@mui/icons-material/Percent';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import PendingIcon from '@mui/icons-material/Pending';
 import useConfirmStore from '../store/confirmStore';
 import usePositionsStore, { PositionGroup } from '../store/positionsStore';
 import { format } from 'date-fns';
 import { PositionsPageSkeleton } from '../components/PositionsSkeleton';
+import { MetricCard } from '../components/MetricCard';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
+import PositionCard from '../components/PositionCard';
+import HistoryPositionCard from '../components/HistoryPositionCard';
+import { safeToFixed, safeNumber } from '../utils/formatters';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -35,6 +69,8 @@ function CustomTabPanel(props: TabPanelProps) {
 }
 
 const PositionsPage: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const {
     positions,
     positionHistory,
@@ -46,6 +82,14 @@ const PositionsPage: React.FC = () => {
   } = usePositionsStore();
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [tabValue, setTabValue] = useState(0);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onRefresh: () => {
+      fetchPositions();
+      fetchPositionHistory();
+    },
+  });
 
   useEffect(() => {
     fetchPositions();
@@ -75,7 +119,6 @@ const PositionsPage: React.FC = () => {
 
     if (confirmed) {
       await closePosition(groupId);
-      // Refresh history after close
       fetchPositionHistory();
     }
   };
@@ -96,9 +139,8 @@ const PositionsPage: React.FC = () => {
 
   const formatPercentage = (value: number | string | null | undefined) => {
     if (value === null || value === undefined) return '-';
-    const numValue = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(numValue)) return '-';
-    return `${numValue >= 0 ? '+' : ''}${numValue.toFixed(2)}%`;
+    const numValue = safeNumber(value);
+    return `${numValue >= 0 ? '+' : ''}${safeToFixed(numValue)}%`;
   };
 
   const getPnlColor = (value: number | string | null | undefined) => {
@@ -127,11 +169,75 @@ const PositionsPage: React.FC = () => {
     }
   };
 
+  const formatAge = (createdAt: string | null) => {
+    if (!createdAt) return '-';
+    try {
+      const start = new Date(createdAt);
+      const now = new Date();
+      const durationMs = now.getTime() - start.getTime();
+      const hours = Math.floor(durationMs / (1000 * 60 * 60));
+      const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        return `${days}d ${hours % 24}h`;
+      }
+      return `${hours}h ${minutes}m`;
+    } catch {
+      return '-';
+    }
+  };
+
   // Helper to format UUID - show first 8 chars
   const formatGroupId = (id: string) => {
     if (!id) return '-';
     return id.substring(0, 8);
   };
+
+  // Calculate summary metrics for active positions
+  const activeMetrics = useMemo(() => {
+    const totalInvested = positions.reduce((sum, pos) => sum + (pos.total_invested_usd || 0), 0);
+    const totalUnrealizedPnl = positions.reduce((sum, pos) => sum + (pos.unrealized_pnl_usd || 0), 0);
+    const profitablePositions = positions.filter(p => (p.unrealized_pnl_usd || 0) > 0).length;
+
+    // Calculate average age
+    let avgAgeHours = 0;
+    if (positions.length > 0) {
+      const now = new Date();
+      const totalAgeMs = positions.reduce((sum, pos) => {
+        if (!pos.created_at) return sum;
+        return sum + (now.getTime() - new Date(pos.created_at).getTime());
+      }, 0);
+      avgAgeHours = totalAgeMs / positions.length / (1000 * 60 * 60);
+    }
+
+    return {
+      totalInvested,
+      totalUnrealizedPnl,
+      profitableCount: profitablePositions,
+      totalCount: positions.length,
+      avgAgeHours
+    };
+  }, [positions]);
+
+  // Calculate summary metrics for history
+  const historyMetrics = useMemo(() => {
+    const totalRealizedPnl = positionHistory.reduce((sum, pos) => sum + (pos.realized_pnl_usd || 0), 0);
+    const wins = positionHistory.filter(p => (p.realized_pnl_usd || 0) > 0).length;
+    const losses = positionHistory.filter(p => (p.realized_pnl_usd || 0) < 0).length;
+    const totalTrades = positionHistory.length;
+    const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+    const avgTrade = totalTrades > 0 ? totalRealizedPnl / totalTrades : 0;
+
+    return {
+      totalRealizedPnl,
+      wins,
+      losses,
+      totalTrades,
+      winRate,
+      avgTrade
+    };
+  }, [positionHistory]);
 
   const activeColumns: GridColDef[] = [
     {
@@ -152,16 +258,27 @@ const PositionsPage: React.FC = () => {
     },
     {
       field: 'id',
-      headerName: 'Group ID',
-      width: 100,
+      headerName: 'ID',
+      width: 90,
       renderCell: (params) => (
-        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-          {formatGroupId(params.value)}
-        </Typography>
+        <Tooltip title={params.value}>
+          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+            {formatGroupId(params.value)}
+          </Typography>
+        </Tooltip>
       ),
     },
-    { field: 'exchange', headerName: 'Exchange', width: 100 },
-    { field: 'symbol', headerName: 'Symbol', width: 120 },
+    {
+      field: 'symbol',
+      headerName: 'Symbol',
+      width: 130,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Box>
+          <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
+          <Typography variant="caption" color="text.secondary">{params.row.exchange}</Typography>
+        </Box>
+      )
+    },
     {
       field: 'side',
       headerName: 'Side',
@@ -175,66 +292,184 @@ const PositionsPage: React.FC = () => {
         />
       )
     },
-    { field: 'status', headerName: 'Status', width: 120 },
     {
       field: 'weighted_avg_entry',
       headerName: 'Avg Entry',
-      width: 120,
-      renderCell: (params: GridRenderCellParams<PositionGroup>) => formatCurrency(params.value),
-    },
-    {
-      field: 'pyramid_count',
-      headerName: 'Pyramids',
-      width: 100,
-      valueGetter: (value: any, row: PositionGroup) => `${row.pyramid_count || 0} / ${row.max_pyramids || 5}`,
-    },
-    {
-      field: 'filled_dca_legs',
-      headerName: 'DCA Progress',
-      width: 120,
-      valueGetter: (value: any, row: PositionGroup) => `${row.filled_dca_legs || 0} / ${row.total_dca_legs || 0}`,
-    },
-    {
-      field: 'risk_timer_expires',
-      headerName: 'Risk Timer',
-      width: 180,
-      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        if (!params.value) return 'Inactive';
-        const expires = new Date(params.value);
-        const now = new Date();
-        const expired = now > expires;
-        return (
-          <Typography color={expired ? 'error' : 'warning.main'} variant="body2">
-            {expired ? 'Active (Expired)' : `Activates: ${expires.toLocaleTimeString()}`}
-          </Typography>
-        );
-      },
-    },
-    {
-      field: 'unrealized_pnl_usd',
-      headerName: 'PnL ($)',
-      width: 120,
+      width: 110,
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography color={getPnlColor(params.value)}>
+        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
           {formatCurrency(params.value)}
         </Typography>
       ),
     },
     {
+      field: 'total_invested_usd',
+      headerName: 'Invested',
+      width: 100,
+      renderCell: (params) => formatCurrency(params.value),
+    },
+    {
+      field: 'pyramid_count',
+      headerName: 'Pyramids',
+      width: 90,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography variant="body2">
+          {params.row.pyramid_count || 0}/{params.row.max_pyramids || 5}
+        </Typography>
+      ),
+    },
+    {
+      field: 'filled_dca_legs',
+      headerName: 'DCA',
+      width: 80,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography variant="body2">
+          {params.row.filled_dca_legs || 0}/{params.row.total_dca_legs || 0}
+        </Typography>
+      ),
+    },
+    {
+      field: 'created_at',
+      headerName: 'Age',
+      width: 90,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography variant="body2">
+          {formatAge(params.value)}
+        </Typography>
+      ),
+    },
+    {
+      field: 'unrealized_pnl_usd',
+      headerName: 'PnL',
+      width: 130,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Box>
+          <Typography color={getPnlColor(params.value)} fontWeight={600}>
+            {formatCurrency(params.value)}
+          </Typography>
+          <Typography variant="caption" color={getPnlColor(params.row.unrealized_pnl_percent)}>
+            {formatPercentage(params.row.unrealized_pnl_percent)}
+          </Typography>
+        </Box>
+      ),
+    },
+    {
       field: 'actions',
-      headerName: 'Actions',
-      width: 150,
+      headerName: '',
+      width: 120,
+      sortable: false,
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
         <Button
           variant="contained"
-          color="warning"
+          color="error"
           size="small"
           onClick={() => handleForceClose(params.row.id)}
           disabled={params.row.status === 'CLOSING' || params.row.status === 'CLOSED'}
+          sx={{ fontSize: '0.75rem' }}
         >
-          Force Close
+          Close
         </Button>
       ),
+    },
+  ];
+
+  const historyColumns: GridColDef[] = [
+    {
+      field: 'id',
+      headerName: 'ID',
+      width: 90,
+      renderCell: (params) => (
+        <Tooltip title={params.value}>
+          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+            {formatGroupId(params.value)}
+          </Typography>
+        </Tooltip>
+      ),
+    },
+    {
+      field: 'symbol',
+      headerName: 'Symbol',
+      width: 130,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Box>
+          <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
+          <Typography variant="caption" color="text.secondary">{params.row.timeframe}m</Typography>
+        </Box>
+      )
+    },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 80,
+      renderCell: (params) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
+        />
+      )
+    },
+    {
+      field: 'weighted_avg_entry',
+      headerName: 'Entry',
+      width: 110,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+          {formatCurrency(params.value)}
+        </Typography>
+      ),
+    },
+    {
+      field: 'total_invested_usd',
+      headerName: 'Invested',
+      width: 100,
+      renderCell: (params) => formatCurrency(params.value),
+    },
+    {
+      field: 'pyramid_count',
+      headerName: 'Pyramids',
+      width: 80,
+      valueGetter: (value: any, row: PositionGroup) => row.pyramid_count || 0,
+    },
+    {
+      field: 'realized_pnl_usd',
+      headerName: 'PnL',
+      width: 130,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
+        const pnl = safeNumber(params.value);
+        const invested = safeNumber(params.row.total_invested_usd);
+        const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
+        return (
+          <Box>
+            <Typography color={getPnlColor(params.value)} fontWeight={600}>
+              {formatCurrency(params.value)}
+            </Typography>
+            <Typography variant="caption" color={getPnlColor(pnlPercent)}>
+              {formatPercentage(pnlPercent)}
+            </Typography>
+          </Box>
+        );
+      },
+    },
+    {
+      field: 'duration',
+      headerName: 'Duration',
+      width: 90,
+      valueGetter: (value: any, row: PositionGroup) => formatDuration(row.created_at, row.closed_at),
+    },
+    {
+      field: 'closed_at',
+      headerName: 'Closed',
+      width: 150,
+      renderCell: (params) => {
+        if (!params.value) return '-';
+        try {
+          return format(new Date(params.value), 'MMM d, HH:mm');
+        } catch {
+          return params.value;
+        }
+      }
     },
   ];
 
@@ -243,97 +478,9 @@ const PositionsPage: React.FC = () => {
     return <PositionsPageSkeleton />;
   }
 
-  const historyColumns: GridColDef[] = [
-    {
-      field: 'id',
-      headerName: 'Group ID',
-      width: 100,
-      renderCell: (params) => (
-        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-          {formatGroupId(params.value)}
-        </Typography>
-      ),
-    },
-    { field: 'exchange', headerName: 'Exchange', width: 100 },
-    { field: 'symbol', headerName: 'Symbol', width: 120 },
-    {
-      field: 'side',
-      headerName: 'Side',
-      width: 80,
-      renderCell: (params) => (
-        <Chip
-          label={params.value?.toUpperCase()}
-          color={params.value === 'long' ? 'success' : 'error'}
-          size="small"
-          variant="outlined"
-        />
-      )
-    },
-    { field: 'timeframe', headerName: 'TF', width: 70 },
-    {
-      field: 'weighted_avg_entry',
-      headerName: 'Entry Price',
-      width: 130,
-      renderCell: (params) => formatCurrency(params.value),
-    },
-    {
-      field: 'pyramid_count',
-      headerName: 'Pyramids',
-      width: 90,
-      valueGetter: (value: any, row: PositionGroup) => row.pyramid_count || 0,
-    },
-    {
-      field: 'total_invested_usd',
-      headerName: 'Invested',
-      width: 110,
-      renderCell: (params) => formatCurrency(params.value),
-    },
-    {
-      field: 'realized_pnl_usd',
-      headerName: 'PnL ($)',
-      width: 120,
-      renderCell: (params) => (
-        <Typography
-          color={getPnlColor(params.value)}
-          fontWeight="bold"
-        >
-          {formatCurrency(params.value)}
-        </Typography>
-      ),
-    },
-    {
-      field: 'unrealized_pnl_percent',
-      headerName: 'PnL (%)',
-      width: 100,
-      renderCell: (params) => (
-        <Typography color={getPnlColor(params.value)}>
-          {formatPercentage(params.value)}
-        </Typography>
-      ),
-    },
-    {
-      field: 'duration',
-      headerName: 'Duration',
-      width: 100,
-      valueGetter: (value: any, row: PositionGroup) => formatDuration(row.created_at, row.closed_at),
-    },
-    {
-      field: 'closed_at',
-      headerName: 'Closed At',
-      width: 180,
-      renderCell: (params) => {
-        if (!params.value) return '-';
-        try {
-          return format(new Date(params.value), 'yyyy-MM-dd HH:mm:ss');
-        } catch {
-          return params.value;
-        }
-      }
-    },
-  ];
-
   return (
     <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
       <Box sx={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -345,18 +492,108 @@ const PositionsPage: React.FC = () => {
         <Typography variant="h4" sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
           Positions
         </Typography>
-        <Box>
-          <IconButton
-            onClick={() => { fetchPositions(); fetchPositionHistory(); }}
-            color="primary"
-            size="medium"
-          >
-            <RefreshIcon />
-          </IconButton>
-        </Box>
+        <IconButton
+          onClick={() => { fetchPositions(); fetchPositionHistory(); }}
+          color="primary"
+          size="medium"
+        >
+          <RefreshIcon />
+        </IconButton>
       </Box>
 
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
+
+      {/* Summary Cards - Different for each tab */}
+      <Grid container spacing={{ xs: 2, sm: 3 }} sx={{ mb: 3 }}>
+        {tabValue === 0 ? (
+          // Active Positions Summary
+          <>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Total Invested"
+                value={formatCurrency(activeMetrics.totalInvested)}
+                subtitle={`${activeMetrics.totalCount} position${activeMetrics.totalCount !== 1 ? 's' : ''}`}
+                icon={<AccountBalanceWalletIcon />}
+                colorScheme="neutral"
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Unrealized PnL"
+                value={formatCurrency(activeMetrics.totalUnrealizedPnl)}
+                trend={activeMetrics.totalUnrealizedPnl >= 0 ? 'up' : 'down'}
+                icon={<TrendingUpIcon />}
+                colorScheme={activeMetrics.totalUnrealizedPnl >= 0 ? 'bullish' : 'bearish'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Profitable"
+                value={`${activeMetrics.profitableCount}/${activeMetrics.totalCount}`}
+                subtitle={activeMetrics.totalCount > 0 ? `${safeToFixed((activeMetrics.profitableCount / activeMetrics.totalCount) * 100, 0)}% in profit` : 'No positions'}
+                icon={<PercentIcon />}
+                colorScheme="neutral"
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Avg Age"
+                value={activeMetrics.avgAgeHours > 24 ? `${safeToFixed(activeMetrics.avgAgeHours / 24, 1)}d` : `${safeToFixed(activeMetrics.avgAgeHours, 1)}h`}
+                icon={<AccessTimeIcon />}
+                colorScheme="neutral"
+                variant="small"
+              />
+            </Grid>
+          </>
+        ) : (
+          // History Summary
+          <>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Total Trades"
+                value={historyMetrics.totalTrades.toString()}
+                subtitle={`${historyMetrics.wins}W / ${historyMetrics.losses}L`}
+                icon={<ShowChartIcon />}
+                colorScheme="neutral"
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Realized PnL"
+                value={formatCurrency(historyMetrics.totalRealizedPnl)}
+                trend={historyMetrics.totalRealizedPnl >= 0 ? 'up' : 'down'}
+                icon={<TrendingUpIcon />}
+                colorScheme={historyMetrics.totalRealizedPnl >= 0 ? 'bullish' : 'bearish'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Win Rate"
+                value={`${safeToFixed(historyMetrics.winRate, 1)}%`}
+                subtitle={`${historyMetrics.wins} wins`}
+                icon={<PercentIcon />}
+                colorScheme={historyMetrics.winRate >= 50 ? 'bullish' : 'bearish'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Avg Trade"
+                value={formatCurrency(historyMetrics.avgTrade)}
+                trend={historyMetrics.avgTrade >= 0 ? 'up' : 'down'}
+                icon={<TrendingUpIcon />}
+                colorScheme={historyMetrics.avgTrade >= 0 ? 'bullish' : 'bearish'}
+                variant="small"
+              />
+            </Grid>
+          </>
+        )}
+      </Grid>
 
       <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -379,60 +616,101 @@ const PositionsPage: React.FC = () => {
           </Tabs>
         </Box>
 
-        <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+        <Box sx={{ flexGrow: 1, overflow: isMobile ? 'auto' : 'hidden' }}>
           <CustomTabPanel value={tabValue} index={0}>
-            <DataGrid
-              rows={positions}
-              columns={activeColumns}
-              getRowId={(row) => row.id}
-              loading={loading}
-              disableRowSelectionOnClick
-              slots={{ toolbar: GridToolbar }}
-              initialState={{
-                pagination: { paginationModel: { pageSize: 10 } },
-              }}
-              pageSizeOptions={[5, 10, 20]}
-              sx={{
-                '& .MuiDataGrid-root': {
-                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                },
-                '& .MuiDataGrid-columnHeaders': {
-                  minHeight: { xs: '40px !important', sm: '56px !important' },
-                },
-                '& .MuiDataGrid-cell': {
-                  padding: { xs: '4px', sm: '8px 16px' },
-                },
-              }}
-            />
+            {isMobile ? (
+              <Box sx={{ p: 2, pt: 1 }}>
+                {positions.length > 0 ? (
+                  positions.map((position) => (
+                    <PositionCard
+                      key={position.id}
+                      position={position}
+                      onForceClose={handleForceClose}
+                    />
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No active positions
+                  </Typography>
+                )}
+              </Box>
+            ) : (
+              <ResponsiveTableWrapper>
+                <DataGrid
+                  rows={positions}
+                  columns={activeColumns}
+                  getRowId={(row) => row.id}
+                  loading={loading}
+                  disableRowSelectionOnClick
+                  slots={{ toolbar: GridToolbar }}
+                  initialState={{
+                    pagination: { paginationModel: { pageSize: 10 } },
+                  }}
+                  pageSizeOptions={[5, 10, 20]}
+                  sx={{
+                    '& .MuiDataGrid-root': {
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    },
+                    '& .MuiDataGrid-columnHeaders': {
+                      minHeight: { xs: '40px !important', sm: '56px !important' },
+                    },
+                    '& .MuiDataGrid-cell': {
+                      padding: { xs: '4px', sm: '8px 16px' },
+                    },
+                  }}
+                />
+              </ResponsiveTableWrapper>
+            )}
           </CustomTabPanel>
 
           <CustomTabPanel value={tabValue} index={1}>
-            <DataGrid
-              rows={positionHistory}
-              columns={historyColumns}
-              getRowId={(row) => row.id}
-              loading={loading}
-              disableRowSelectionOnClick
-              slots={{ toolbar: GridToolbar }}
-              initialState={{
-                sorting: {
-                  sortModel: [{ field: 'closed_at', sort: 'desc' }],
-                },
-                pagination: { paginationModel: { pageSize: 10 } },
-              }}
-              pageSizeOptions={[5, 10, 20, 50]}
-              sx={{
-                '& .MuiDataGrid-root': {
-                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                },
-                '& .MuiDataGrid-columnHeaders': {
-                  minHeight: { xs: '40px !important', sm: '56px !important' },
-                },
-                '& .MuiDataGrid-cell': {
-                  padding: { xs: '4px', sm: '8px 16px' },
-                },
-              }}
-            />
+            {isMobile ? (
+              <Box sx={{ p: 2, pt: 1 }}>
+                {positionHistory.length > 0 ? (
+                  [...positionHistory]
+                    .sort((a, b) => new Date(b.closed_at || 0).getTime() - new Date(a.closed_at || 0).getTime())
+                    .map((position) => (
+                      <HistoryPositionCard
+                        key={position.id}
+                        position={position}
+                      />
+                    ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No position history
+                  </Typography>
+                )}
+              </Box>
+            ) : (
+              <ResponsiveTableWrapper>
+                <DataGrid
+                  rows={positionHistory}
+                  columns={historyColumns}
+                  getRowId={(row) => row.id}
+                  loading={loading}
+                  disableRowSelectionOnClick
+                  slots={{ toolbar: GridToolbar }}
+                  initialState={{
+                    sorting: {
+                      sortModel: [{ field: 'closed_at', sort: 'desc' }],
+                    },
+                    pagination: { paginationModel: { pageSize: 10 } },
+                  }}
+                  pageSizeOptions={[5, 10, 20, 50]}
+                  sx={{
+                    '& .MuiDataGrid-root': {
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    },
+                    '& .MuiDataGrid-columnHeaders': {
+                      minHeight: { xs: '40px !important', sm: '56px !important' },
+                    },
+                    '& .MuiDataGrid-cell': {
+                      padding: { xs: '4px', sm: '8px 16px' },
+                    },
+                  }}
+                />
+              </ResponsiveTableWrapper>
+            )}
           </CustomTabPanel>
         </Box>
       </Paper>
@@ -440,30 +718,166 @@ const PositionsPage: React.FC = () => {
       {/* Expanded pyramid details for active positions */}
       {tabValue === 0 && positions.map((position) => (
         <Collapse in={expandedRows[position.id]} key={position.id} timeout="auto" unmountOnExit>
-          <Box sx={{ margin: 1, ml: 5 }}>
-            <Typography variant="h6" gutterBottom component="div">
-              Pyramids for {position.symbol} ({position.side})
-            </Typography>
-            {position.pyramids && position.pyramids.length > 0 ? (
-              position.pyramids.map((pyramid) => (
-                <Box key={pyramid.id} sx={{ ml: 3, mb: 2, borderLeft: '2px solid grey', pl: 2 }}>
-                  <Typography variant="subtitle1">Pyramid Entry: ${pyramid.entry_price.toLocaleString()}</Typography>
-                  <Typography variant="body2">Status: {pyramid.status}</Typography>
-                  <Typography variant="subtitle2" sx={{ mt: 1 }}>DCA Orders:</Typography>
-                  {pyramid.dca_orders && pyramid.dca_orders.length > 0 ? (
-                    pyramid.dca_orders.map((dca) => (
-                      <Typography key={dca.id} variant="body2" sx={{ ml: 2 }}>
-                        - {dca.order_type} @ ${dca.price.toLocaleString()} Qty: {dca.quantity} ({dca.status})
-                      </Typography>
-                    ))
-                  ) : (
-                    <Typography variant="body2" sx={{ ml: 2 }}>No DCA orders.</Typography>
-                  )}
+          <Box sx={{ m: 2, ml: { xs: 2, sm: 4 } }}>
+            <Card variant="outlined" sx={{ bgcolor: 'background.default' }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
+                    {position.symbol} - {position.side.toUpperCase()} Details
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    color="error"
+                    onClick={() => handleForceClose(position.id)}
+                    disabled={position.status === 'CLOSING' || position.status === 'CLOSED'}
+                    sx={{ fontSize: '0.75rem' }}
+                  >
+                    Force Close
+                  </Button>
                 </Box>
-              ))
-            ) : (
-              <Typography variant="body2">No pyramids found for this position group.</Typography>
-            )}
+
+                <Divider sx={{ mb: 2 }} />
+
+                {/* Position Summary */}
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Base Entry</Typography>
+                    <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+                      {formatCurrency(position.base_entry_price)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Avg Entry</Typography>
+                    <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+                      {formatCurrency(position.weighted_avg_entry)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Total Quantity</Typography>
+                    <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
+                      {safeToFixed(position.total_filled_quantity, 4)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">TP Mode</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {position.tp_mode.replace('_', ' ').toUpperCase()}
+                    </Typography>
+                  </Grid>
+                </Grid>
+
+                {/* Pyramids Section */}
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  Pyramids ({position.pyramid_count}/{position.max_pyramids})
+                </Typography>
+
+                {position.pyramids && position.pyramids.length > 0 ? (
+                  <Grid container spacing={2}>
+                    {position.pyramids.map((pyramid, idx) => (
+                      <Grid size={{ xs: 12, md: 6 }} key={pyramid.id}>
+                        <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                          <CardContent sx={{ p: 2 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                              <Typography variant="body2" fontWeight={600}>
+                                Pyramid #{idx + 1}
+                              </Typography>
+                              <Chip
+                                label={pyramid.status}
+                                size="small"
+                                color={pyramid.status === 'FILLED' ? 'success' : 'warning'}
+                                icon={pyramid.status === 'FILLED' ? <CheckCircleIcon /> : <PendingIcon />}
+                              />
+                            </Box>
+
+                            <Typography variant="caption" color="text.secondary">Entry Price</Typography>
+                            <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace' }}>
+                              {formatCurrency(pyramid.entry_price)}
+                            </Typography>
+
+                            {/* DCA Orders */}
+                            {pyramid.dca_orders && pyramid.dca_orders.length > 0 && (
+                              <>
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                  DCA Orders ({pyramid.dca_orders.length})
+                                </Typography>
+                                <Table size="small" sx={{ mt: 0.5 }}>
+                                  <TableBody>
+                                    {pyramid.dca_orders.map((dca) => (
+                                      <TableRow key={dca.id}>
+                                        <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', borderBottom: 'none' }}>
+                                          {dca.order_type}
+                                        </TableCell>
+                                        <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
+                                          {formatCurrency(dca.price)}
+                                        </TableCell>
+                                        <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
+                                          Qty: {safeToFixed(dca.quantity, 4)}
+                                        </TableCell>
+                                        <TableCell sx={{ py: 0.5, px: 1, borderBottom: 'none' }}>
+                                          <Chip
+                                            label={dca.status}
+                                            size="small"
+                                            color={dca.status === 'FILLED' ? 'success' : dca.status === 'OPEN' ? 'info' : 'default'}
+                                            sx={{ height: 16, fontSize: '0.65rem' }}
+                                          />
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    No pyramids found for this position group.
+                  </Typography>
+                )}
+
+                {/* Risk Information */}
+                <Divider sx={{ my: 2 }} />
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Status</Typography>
+                    <Typography variant="body2">
+                      <Chip label={position.status} size="small" variant="outlined" />
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Risk Eligible</Typography>
+                    <Typography variant="body2" color={position.risk_eligible ? 'success.main' : 'text.secondary'}>
+                      {position.risk_eligible ? 'Yes' : 'No'}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Risk Blocked</Typography>
+                    <Typography variant="body2" color={position.risk_blocked ? 'error.main' : 'success.main'}>
+                      {position.risk_blocked ? 'Yes' : 'No'}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="caption" color="text.secondary">Created</Typography>
+                    <Typography variant="body2" sx={{ fontSize: '0.75rem' }}>
+                      {position.created_at ? format(new Date(position.created_at), 'MMM d, h:mm a') : '-'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+
+                {/* Risk Timer */}
+                {position.risk_timer_expires && (
+                  <Box sx={{ mt: 2, p: 1.5, bgcolor: 'warning.dark', borderRadius: 1 }}>
+                    <Typography variant="body2" color="warning.contrastText">
+                      ⏱️ Risk Timer: {new Date(position.risk_timer_expires).toLocaleString()}
+                    </Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
           </Box>
         </Collapse>
       ))}

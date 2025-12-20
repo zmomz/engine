@@ -3,13 +3,11 @@ import { Controller } from 'react-hook-form';
 import {
     Box,
     Typography,
-    FormControlLabel,
     Switch,
     Paper,
     List,
     ListItem,
     ListItemText,
-    ListItemSecondaryAction,
     Chip,
     Alert
 } from '@mui/material';
@@ -90,12 +88,15 @@ function SortableItem({ id, index, ruleName, isEnabled, onToggle, enabledCount }
                 borderColor: 'divider',
                 borderRadius: 1,
                 cursor: 'grab',
+                flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                gap: { xs: 1, sm: 0 },
+                pr: { xs: 1, sm: 2 },
                 '&:hover': {
                     bgcolor: 'action.hover'
                 }
             }}
         >
-            <div {...attributes} {...listeners} style={{ marginRight: 8, cursor: 'grab' }}>
+            <div {...attributes} {...listeners} style={{ marginRight: 8, cursor: 'grab', flexShrink: 0 }}>
                 <DragIndicatorIcon color="action" />
             </div>
 
@@ -103,26 +104,37 @@ function SortableItem({ id, index, ruleName, isEnabled, onToggle, enabledCount }
                 label={index + 1}
                 size="small"
                 color="primary"
-                sx={{ mr: 2 }}
+                sx={{ mr: { xs: 1, sm: 2 }, flexShrink: 0 }}
             />
 
             <ListItemText
                 primary={ruleInfo.label}
                 secondary={ruleInfo.description}
+                sx={{
+                    minWidth: 0,
+                    flexBasis: { xs: '100%', sm: 'auto' },
+                    order: { xs: 2, sm: 0 },
+                    ml: { xs: 4, sm: 0 }
+                }}
+                primaryTypographyProps={{
+                    sx: { fontSize: { xs: '0.875rem', sm: '1rem' } }
+                }}
+                secondaryTypographyProps={{
+                    sx: {
+                        fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                        display: { xs: 'none', sm: 'block' }
+                    }
+                }}
             />
 
-            <ListItemSecondaryAction>
-                <FormControlLabel
-                    control={
-                        <Switch
-                            checked={isEnabled}
-                            onChange={(e) => onToggle(e.target.checked)}
-                            disabled={isEnabled && enabledCount === 1}
-                        />
-                    }
-                    label={isEnabled ? 'Enabled' : 'Disabled'}
+            <Box sx={{ ml: 'auto', flexShrink: 0 }}>
+                <Switch
+                    checked={isEnabled}
+                    onChange={(e) => onToggle(e.target.checked)}
+                    disabled={isEnabled && enabledCount === 1}
+                    size="small"
                 />
-            </ListItemSecondaryAction>
+            </Box>
         </ListItem>
     );
 }
@@ -166,12 +178,12 @@ const QueuePrioritySettings: React.FC<QueuePrioritySettingsProps> = ({ control, 
     };
 
     return (
-        <Box sx={{ mt: 3 }}>
-            <Typography variant="h6" gutterBottom>
+        <Box sx={{ mt: { xs: 1, sm: 3 } }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.1rem' }, mb: 0.5 }}>
                 Queue Priority Configuration
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Configure which priority rules are active and their execution order. Drag to reorder rules.
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                Configure priority rules and drag to reorder.
             </Typography>
 
             {enabledCount === 0 && (
@@ -180,7 +192,7 @@ const QueuePrioritySettings: React.FC<QueuePrioritySettingsProps> = ({ control, 
                 </Alert>
             )}
 
-            <Paper variant="outlined" sx={{ p: 2 }}>
+            <Paper variant="outlined" sx={{ p: { xs: 1, sm: 2 } }}>
                 <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
@@ -212,10 +224,10 @@ const QueuePrioritySettings: React.FC<QueuePrioritySettingsProps> = ({ control, 
                     </SortableContext>
                 </DndContext>
 
-                <Box sx={{ mt: 2, p: 1, bgcolor: 'info.50', borderRadius: 1 }}>
+                <Box sx={{ mt: 2, p: 1, bgcolor: 'info.50', borderRadius: 1, display: { xs: 'none', sm: 'block' } }}>
                     <Typography variant="caption" color="text.secondary">
                         <strong>ℹ How it works:</strong> Signals are evaluated against rules in order from top to bottom.
-                        The first matching enabled rule determines the signal's priority. Disabled rules are skipped.
+                        The first matching enabled rule determines the signal's priority.
                     </Typography>
                 </Box>
             </Paper>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Typography, keyframes } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import { safeToFixed } from '../utils/formatters';
 
 const flashGreen = keyframes`
   0%, 100% {
@@ -32,7 +33,7 @@ interface AnimatedValueProps {
 
 export const AnimatedValue: React.FC<AnimatedValueProps> = ({
   value,
-  format = (v) => v.toFixed(2),
+  format = (v) => safeToFixed(v),
   variant = 'h4',
   showTrend = false,
   colorize = true,
@@ -179,7 +180,7 @@ export const AnimatedPercentage: React.FC<AnimatedPercentageProps> = ({
   showTrend = false,
   colorize = true,
 }) => {
-  const formatPercentage = (val: number) => `${val.toFixed(2)}%`;
+  const formatPercentage = (val: number) => `${safeToFixed(val)}%`;
 
   return (
     <AnimatedValue

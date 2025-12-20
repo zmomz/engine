@@ -1,11 +1,6 @@
 import React from 'react';
-import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-  },
-});
+import { Box, CssBaseline, ThemeProvider } from '@mui/material';
+import { darkTheme } from '../theme/theme';
 
 interface LayoutProps {
   children: React.ReactNode;

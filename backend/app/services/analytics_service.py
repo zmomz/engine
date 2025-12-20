@@ -49,6 +49,7 @@ class AnalyticsService:
         # Calculate all metrics
         live_dashboard = self._calculate_live_dashboard(
             active_positions,
+            closed_positions,
             queued_signals_count,
             last_webhook_time,
             exchange_data
@@ -162,6 +163,7 @@ class AnalyticsService:
     def _calculate_live_dashboard(
         self,
         active_positions: List[PositionGroup],
+        closed_positions: List[PositionGroup],
         queued_signals_count: int,
         last_webhook_time: Optional[datetime],
         exchange_data: Dict
@@ -171,10 +173,7 @@ class AnalyticsService:
         # Count active position groups (not pyramids/legs)
         total_active_groups = len(active_positions)
 
-        # Calculate pool usage (assuming max is in settings)
-        # For now, we'll return the count - frontend can compare to settings
-
-        # Calculate PnL
+        # Calculate unrealized PnL from active positions
         total_unrealized_pnl = 0.0
         for group in active_positions:
             ex = group.exchange or self.user.exchange or "binance"
@@ -195,6 +194,30 @@ class AnalyticsService:
                             total_unrealized_pnl += pnl
                 except Exception as e:
                     logger.error(f"Error calculating PnL for {group.symbol}: {e}")
+
+        # Calculate realized PnL from closed positions
+        total_realized_pnl = 0.0
+        now = datetime.utcnow()
+        pnl_today = 0.0
+        total_trades = len(closed_positions)
+        wins = 0
+        losses = 0
+
+        for group in closed_positions:
+            pnl = float(group.realized_pnl_usd) if group.realized_pnl_usd else 0.0
+            total_realized_pnl += pnl
+
+            # Win/Loss tracking
+            if pnl > 0:
+                wins += 1
+            elif pnl < 0:
+                losses += 1
+
+            # Today's PnL
+            if group.closed_at and group.closed_at >= now - timedelta(days=1):
+                pnl_today += pnl
+
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
         # Calculate TVL and free USDT
         total_tvl = 0.0
@@ -229,7 +252,14 @@ class AnalyticsService:
         return {
             "total_active_position_groups": total_active_groups,
             "queued_signals_count": queued_signals_count,
-            "total_pnl_usd": total_unrealized_pnl,
+            "total_pnl_usd": total_realized_pnl + total_unrealized_pnl,
+            "realized_pnl_usd": total_realized_pnl,
+            "unrealized_pnl_usd": total_unrealized_pnl,
+            "pnl_today": pnl_today,
+            "total_trades": total_trades,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": win_rate,
             "tvl": total_tvl,
             "free_usdt": total_free_usdt,
             "last_webhook_timestamp": last_webhook_time.isoformat() if last_webhook_time else None,

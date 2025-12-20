@@ -8,7 +8,6 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Paper,
   FormControlLabel,
   Switch,
   Grid,
@@ -76,16 +75,7 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ control, watch, get
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>
-        Telegram Signal Broadcasting
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Configure automatic signal broadcasting to your Telegram channel
-      </Typography>
-
-      {/* REMOVE the <form> tag - we're inside parent's form */}
-      <Paper sx={{ p: 3 }}>
-        <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 1.5, sm: 2 }}>
           {/* Enable/Disable */}
           <Grid size={{ xs: 12 }}>
             <Controller
@@ -175,49 +165,55 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ control, watch, get
 
           {/* Signal Options */}
           <Grid size={{ xs: 12 }}>
-            <Typography variant="subtitle2" gutterBottom>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
               Signal Options
             </Typography>
-            <Controller
-              name="telegramSettings.send_entry_signals" // Update name
-              control={control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch {...field} checked={field.value} disabled={!enabled} />}
-                  label="Send Entry Signals"
-                />
-              )}
-            />
-            <Controller
-              name="telegramSettings.send_exit_signals" // Update name
-              control={control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch {...field} checked={field.value} disabled={!enabled} />}
-                  label="Send Exit Signals"
-                />
-              )}
-            />
-            <Controller
-              name="telegramSettings.update_on_pyramid" // Update name
-              control={control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch {...field} checked={field.value} disabled={!enabled} />}
-                  label="Update Message on New Pyramid"
-                />
-              )}
-            />
-            <Controller
-              name="telegramSettings.test_mode" // Update name
-              control={control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch {...field} checked={field.value} disabled={!enabled} />}
-                  label="Test Mode (Log Only, Don't Send)"
-                />
-              )}
-            />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              <Controller
+                name="telegramSettings.send_entry_signals"
+                control={control}
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch {...field} checked={field.value} disabled={!enabled} size="small" />}
+                    label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Send Entry Signals</Box>}
+                    sx={{ ml: 0 }}
+                  />
+                )}
+              />
+              <Controller
+                name="telegramSettings.send_exit_signals"
+                control={control}
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch {...field} checked={field.value} disabled={!enabled} size="small" />}
+                    label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Send Exit Signals</Box>}
+                    sx={{ ml: 0 }}
+                  />
+                )}
+              />
+              <Controller
+                name="telegramSettings.update_on_pyramid"
+                control={control}
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch {...field} checked={field.value} disabled={!enabled} size="small" />}
+                    label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Update on Pyramid</Box>}
+                    sx={{ ml: 0 }}
+                  />
+                )}
+              />
+              <Controller
+                name="telegramSettings.test_mode"
+                control={control}
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch {...field} checked={field.value} disabled={!enabled} size="small" />}
+                    label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Test Mode (Log Only)</Box>}
+                    sx={{ ml: 0 }}
+                  />
+                )}
+              />
+            </Box>
           </Grid>
 
           {/* Connection Status */}
@@ -231,11 +227,9 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ control, watch, get
             </Grid>
           )}
 
-          {/* Action Buttons - REMOVE Save button, keep test buttons */}
+          {/* Action Buttons */}
           <Grid size={{ xs: 12 }}>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              {/* REMOVED SAVE BUTTON */}
-
               <Button
                 type="button"
                 variant="outlined"
@@ -257,28 +251,24 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ control, watch, get
               </Button>
             </Box>
           </Grid>
-        </Grid>
-      </Paper>
 
-      {/* Keep help section as is */}
-      <Paper sx={{ p: 3, mt: 3, bgcolor: 'background.default' }}>
-        <Typography variant="h6" gutterBottom>
-          Setup Instructions
-        </Typography>
-        <Typography variant="body2" component="div">
-          <ol>
-            <li>Create a Telegram bot by messaging @BotFather</li>
-            <li>Use the command /newbot and follow the instructions</li>
-            <li>Copy the bot token provided by BotFather</li>
-            <li>Create a public channel and make your bot an administrator</li>
-            <li>Get your channel ID (username like @channelname or numeric ID)</li>
-            <li>Paste the bot token and channel ID above</li>
-            <li>Click "Test Connection" to verify</li>
-            <li>Click "Send Test Message" to test broadcasting</li>
-            <li>Enable broadcasting and save using main "Save Settings" button</li>
-          </ol>
-        </Typography>
-      </Paper>
+          {/* Setup Instructions - hidden on mobile */}
+          <Grid size={{ xs: 12 }} sx={{ display: { xs: 'none', sm: 'block' } }}>
+            <Box sx={{ p: 1.5, bgcolor: 'background.default', borderRadius: 1 }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.8rem' }}>
+                Setup Instructions
+              </Typography>
+              <Typography variant="body2" color="text.secondary" component="div" sx={{ fontSize: '0.75rem' }}>
+                <ol style={{ margin: 0, paddingLeft: 16 }}>
+                  <li>Create a bot via @BotFather</li>
+                  <li>Copy the bot token</li>
+                  <li>Add bot as admin to your channel</li>
+                  <li>Enter token & channel ID, then test</li>
+                </ol>
+              </Typography>
+            </Box>
+          </Grid>
+        </Grid>
     </Box>
   );
 };
