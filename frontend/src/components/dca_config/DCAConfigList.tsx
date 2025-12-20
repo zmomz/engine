@@ -14,15 +14,21 @@ import {
     Typography,
     Chip,
     CircularProgress,
-    Alert
+    Alert,
+    useTheme,
+    useMediaQuery
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { dcaConfigApi, DCAConfiguration } from '../../api/dcaConfig'; // Ensure this matches filename
+import { dcaConfigApi, DCAConfiguration } from '../../api/dcaConfig';
 import DCAConfigForm from './DCAConfigForm';
+import DCAConfigCard from './DCAConfigCard';
 
 const DCAConfigList: React.FC = () => {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
     const [configs, setConfigs] = useState<DCAConfiguration[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -101,42 +107,66 @@ const DCAConfigList: React.FC = () => {
 
             {loading ? (
                 <CircularProgress />
+            ) : isMobile ? (
+                // Mobile: Card Layout
+                <Box>
+                    {configs.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                            No configurations found
+                        </Typography>
+                    ) : (
+                        configs.map((config) => (
+                            <DCAConfigCard
+                                key={config.id}
+                                config={config}
+                                onEdit={handleEdit}
+                                onDelete={handleDelete}
+                            />
+                        ))
+                    )}
+                </Box>
             ) : (
+                // Desktop: Table Layout
                 <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-                    <Table size="small" sx={{ minWidth: { xs: 320, sm: 500 } }}>
+                    <Table size="small">
                         <TableHead>
                             <TableRow>
-                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 1, sm: 2 } }}>Pair</TableCell>
-                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>TF</TableCell>
-                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>Exchange</TableCell>
-                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>Entry</TableCell>
-                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>TP</TableCell>
-                                <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>Pyr</TableCell>
-                                <TableCell align="right" sx={{ px: { xs: 0.5, sm: 2 } }}>Actions</TableCell>
+                                <TableCell>Pair</TableCell>
+                                <TableCell>TF</TableCell>
+                                <TableCell>Exchange</TableCell>
+                                <TableCell>Entry</TableCell>
+                                <TableCell>TP Mode</TableCell>
+                                <TableCell>Pyramids</TableCell>
+                                <TableCell align="right">Actions</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {configs.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center" sx={{ fontSize: '0.8rem' }}>No configs found</TableCell>
+                                    <TableCell colSpan={7} align="center">No configs found</TableCell>
                                 </TableRow>
                             ) : (
                                 configs.map((config) => (
                                     <TableRow key={config.id}>
-                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 1, sm: 2 } }}>{config.pair}</TableCell>
-                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>{config.timeframe}</TableCell>
-                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 }, display: { xs: 'none', sm: 'table-cell' } }}>{config.exchange}</TableCell>
-                                        <TableCell sx={{ px: { xs: 0.5, sm: 2 } }}>
-                                            <Chip label={config.entry_order_type === 'market' ? 'M' : 'L'} size="small" color={config.entry_order_type === 'market' ? 'warning' : 'default'} sx={{ height: 20, fontSize: '0.65rem' }} />
+                                        <TableCell>{config.pair}</TableCell>
+                                        <TableCell>{config.timeframe}</TableCell>
+                                        <TableCell>{config.exchange}</TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                label={config.entry_order_type === 'market' ? 'Market' : 'Limit'}
+                                                size="small"
+                                                color={config.entry_order_type === 'market' ? 'warning' : 'default'}
+                                                sx={{ height: 22 }}
+                                            />
                                         </TableCell>
-                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>{config.tp_mode}</TableCell>
-                                        <TableCell sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' }, px: { xs: 0.5, sm: 2 } }}>{config.max_pyramids}</TableCell>
-                                        <TableCell align="right" sx={{ px: { xs: 0.5, sm: 2 }, whiteSpace: 'nowrap' }}>
-                                            <IconButton size="small" onClick={() => handleEdit(config)} sx={{ p: { xs: 0.25, sm: 0.5 } }}>
-                                                <EditIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />
+                                        <TableCell>{config.tp_mode}</TableCell>
+                                        <TableCell>{config.max_pyramids}</TableCell>
+                                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                                            <IconButton size="small" onClick={() => handleEdit(config)}>
+                                                <EditIcon fontSize="small" />
                                             </IconButton>
-                                            <IconButton size="small" color="error" onClick={() => handleDelete(config.id)} sx={{ p: { xs: 0.25, sm: 0.5 } }}>
-                                                <DeleteIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />
+                                            <IconButton size="small" color="error" onClick={() => handleDelete(config.id)}>
+                                                <DeleteIcon fontSize="small" />
                                             </IconButton>
                                         </TableCell>
                                     </TableRow>
