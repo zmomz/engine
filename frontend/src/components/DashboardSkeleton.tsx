@@ -3,7 +3,7 @@ import { Box, Card, CardContent, Grid, Skeleton } from '@mui/material';
 
 export const MetricCardSkeleton: React.FC = () => (
   <Card>
-    <CardContent>
+    <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
       <Skeleton variant="text" width="60%" height={20} sx={{ mb: 1 }} />
       <Skeleton variant="text" width="80%" height={40} sx={{ mb: 1 }} />
       <Skeleton variant="circular" width={24} height={24} />
@@ -13,7 +13,7 @@ export const MetricCardSkeleton: React.FC = () => (
 
 export const ChartCardSkeleton: React.FC<{ height?: number }> = ({ height = 300 }) => (
   <Card>
-    <CardContent>
+    <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
       <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
       <Skeleton variant="rectangular" width="100%" height={height} sx={{ borderRadius: 1 }} />
     </CardContent>
@@ -22,7 +22,7 @@ export const ChartCardSkeleton: React.FC<{ height?: number }> = ({ height = 300 
 
 export const StatusBannerSkeleton: React.FC = () => (
   <Card>
-    <CardContent>
+    <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
       <Box sx={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -51,7 +51,7 @@ export const StatusBannerSkeleton: React.FC = () => (
 );
 
 export const LiveDashboardSkeleton: React.FC = () => (
-  <Grid container spacing={3}>
+  <Grid container spacing={{ xs: 2, sm: 3 }}>
     {/* Engine Controls Banner Skeleton */}
     <Grid size={{ xs: 12 }}>
       <StatusBannerSkeleton />
@@ -64,7 +64,7 @@ export const LiveDashboardSkeleton: React.FC = () => (
 
     {/* Key Metrics Skeleton */}
     {[1, 2, 3, 4].map((i) => (
-      <Grid size={{ xs: 12, sm: 6, md: 3 }} key={i}>
+      <Grid size={{ xs: 6, sm: 6, md: 3 }} key={i}>
         <MetricCardSkeleton />
       </Grid>
     ))}
@@ -72,7 +72,7 @@ export const LiveDashboardSkeleton: React.FC = () => (
     {/* Capital Allocation Skeleton */}
     <Grid size={{ xs: 12, md: 6 }}>
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
           <Skeleton variant="text" width="60%" height={28} sx={{ mb: 3 }} />
           <Box sx={{
             display: 'flex',
@@ -96,7 +96,7 @@ export const LiveDashboardSkeleton: React.FC = () => (
     {/* Queue Status Skeleton */}
     <Grid size={{ xs: 12, md: 6 }}>
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
           <Skeleton variant="text" width="60%" height={28} sx={{ mb: 3 }} />
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
@@ -115,10 +115,10 @@ export const LiveDashboardSkeleton: React.FC = () => (
 );
 
 export const PerformanceDashboardSkeleton: React.FC = () => (
-  <Grid container spacing={3}>
+  <Grid container spacing={{ xs: 2, sm: 3 }}>
     {/* PnL Summary Cards Skeleton */}
     {[1, 2, 3, 4].map((i) => (
-      <Grid size={{ xs: 12, sm: 6, md: 3 }} key={i}>
+      <Grid size={{ xs: 6, sm: 6, md: 3 }} key={i}>
         <MetricCardSkeleton />
       </Grid>
     ))}
@@ -131,7 +131,7 @@ export const PerformanceDashboardSkeleton: React.FC = () => (
     {/* Win/Loss Stats Skeleton */}
     <Grid size={{ xs: 12, md: 6 }}>
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
           <Skeleton variant="text" width="50%" height={28} sx={{ mb: 2 }} />
           <Box sx={{ mt: 2 }}>
             {[1, 2, 3, 4, 5, 6, 7].map((i) => (
@@ -148,7 +148,7 @@ export const PerformanceDashboardSkeleton: React.FC = () => (
     {/* Risk Metrics Skeleton */}
     <Grid size={{ xs: 12, md: 6 }}>
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
           <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
           <Box sx={{ mt: 2 }}>
             {[1, 2, 3, 4, 5].map((i) => (
@@ -173,7 +173,7 @@ export const PerformanceDashboardSkeleton: React.FC = () => (
     {/* Best/Worst Trades Skeleton */}
     <Grid size={{ xs: 12, md: 6 }}>
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
           <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
           {[1, 2, 3, 4, 5].map((i) => (
             <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, pt: 1 }}>
@@ -186,7 +186,7 @@ export const PerformanceDashboardSkeleton: React.FC = () => (
     </Grid>
     <Grid size={{ xs: 12, md: 6 }}>
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: { xs: 1.5, sm: 2 } } }}>
           <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
           {[1, 2, 3, 4, 5].map((i) => (
             <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, pt: 1 }}>

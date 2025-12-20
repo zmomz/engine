@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Paper, Skeleton, Tabs, Tab } from '@mui/material';
 
 export const PositionsTableSkeleton: React.FC = () => (
-  <Box sx={{ height: '100%', p: 2 }}>
+  <Box sx={{ height: '100%', p: { xs: 1.5, sm: 2 } }}>
     {/* Toolbar */}
     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
       <Skeleton variant="rectangular" width={200} height={40} sx={{ borderRadius: 1 }} />
@@ -10,7 +10,7 @@ export const PositionsTableSkeleton: React.FC = () => (
     </Box>
 
     {/* Table Header */}
-    <Box sx={{ display: 'flex', gap: 2, mb: 2, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.4)' }}>
+    <Box sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 }, mb: 2, pb: 1, borderBottom: '1px solid rgba(224, 224, 224, 0.4)' }}>
       <Skeleton variant="text" width={50} height={30} />
       <Skeleton variant="text" width={100} height={30} />
       <Skeleton variant="text" width={100} height={30} />
@@ -24,7 +24,7 @@ export const PositionsTableSkeleton: React.FC = () => (
 
     {/* Table Rows */}
     {[1, 2, 3, 4, 5].map((i) => (
-      <Box key={i} sx={{ display: 'flex', gap: 2, mb: 2, pb: 2, borderBottom: '1px solid rgba(224, 224, 224, 0.1)' }}>
+      <Box key={i} sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 }, mb: 2, pb: 2, borderBottom: '1px solid rgba(224, 224, 224, 0.1)' }}>
         <Skeleton variant="circular" width={24} height={24} />
         <Skeleton variant="text" width={100} height={24} />
         <Skeleton variant="text" width={100} height={24} />
@@ -52,7 +52,7 @@ export const PositionsTableSkeleton: React.FC = () => (
 );
 
 export const PositionsPageSkeleton: React.FC = () => (
-  <Box sx={{ flexGrow: 1, p: 3, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+  <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, height: '85vh', display: 'flex', flexDirection: 'column' }}>
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
       <Skeleton variant="text" width={150} height={48} />
       <Skeleton variant="circular" width={40} height={40} />

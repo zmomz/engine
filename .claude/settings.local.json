@@ -21,7 +21,9 @@
       "Bash(npm run build:*)",
       "Bash(rm:*)",
       "Bash(ls:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(node -e:*)"
     ]
   }
 }
