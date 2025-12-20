@@ -1,12 +1,36 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Typography, Button, Paper, Tabs, Tab, Chip, Tooltip, IconButton, Stack } from '@mui/material';
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+  Box,
+  Typography,
+  Button,
+  Paper,
+  Tabs,
+  Tab,
+  Chip,
+  Tooltip,
+  Grid,
+  useTheme,
+  useMediaQuery,
+  IconButton
+} from '@mui/material';
 import { DataGrid, GridColDef, GridRenderCellParams, GridToolbar } from '@mui/x-data-grid';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import WarningIcon from '@mui/icons-material/Warning';
 import useQueueStore from '../store/queueStore';
-import useConfigStore from '../store/configStore';
 import useConfirmStore from '../store/confirmStore';
 import { format } from 'date-fns';
 import { QueuePageSkeleton } from '../components/QueueSkeleton';
+import { MetricCard } from '../components/MetricCard';
+import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
+import { PriorityScoreBreakdown } from '../components/PriorityScoreBreakdown';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import QueueSignalCard from '../components/QueueSignalCard';
+import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
+import { safeToFixed, safeNumber } from '../utils/formatters';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -34,6 +58,8 @@ function CustomTabPanel(props: TabPanelProps) {
 }
 
 const QueuePage: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const {
     queuedSignals,
     queueHistory,
@@ -45,22 +71,38 @@ const QueuePage: React.FC = () => {
     removeSignal
   } = useQueueStore();
 
-  const { settings, fetchSettings } = useConfigStore();
   const [tabValue, setTabValue] = useState(0);
+  const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onRefresh: () => {
+      fetchQueuedSignals();
+      fetchQueueHistory();
+      setLastUpdated(new Date());
+    },
+  });
 
   useEffect(() => {
-    fetchQueuedSignals();
-    fetchQueueHistory();
-    if (!settings) {
-      fetchSettings();
-    }
+    const fetchData = async () => {
+      await Promise.all([
+        fetchQueuedSignals(),
+        fetchQueueHistory()
+      ]);
+      setLastUpdated(new Date());
+    };
+    fetchData();
+
     // Set up polling for active queue
     const interval = setInterval(() => {
-      if (tabValue === 0) fetchQueuedSignals(true);
+      if (tabValue === 0) {
+        fetchQueuedSignals(true);
+        setLastUpdated(new Date());
+      }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchQueuedSignals, fetchQueueHistory, fetchSettings, tabValue, settings]); // Added dependencies
+  }, [fetchQueuedSignals, fetchQueueHistory, tabValue]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -93,10 +135,8 @@ const QueuePage: React.FC = () => {
 
   const formatPercentage = (value: number | string | null) => {
     if (value === null || value === undefined) return '-';
-    // Handle potential string numbers from Decimal serialization
-    const numValue = typeof value === 'string' ? parseFloat(value) : value;
-    if (isNaN(numValue)) return '-';
-    return `${numValue.toFixed(2)}%`;
+    const numValue = safeNumber(value);
+    return `${safeToFixed(numValue)}%`;
   };
 
   const getPnlColor = (value: number | null) => {
@@ -104,91 +144,207 @@ const QueuePage: React.FC = () => {
     return value < 0 ? 'error.main' : 'success.main';
   };
 
-  const commonColumns: GridColDef[] = [
-    { field: 'symbol', headerName: 'Symbol', width: 120, flex: 0.5 },
+  const formatWaitTime = (queuedAt: string | null) => {
+    if (!queuedAt) return '-';
+    try {
+      const queueTime = new Date(queuedAt);
+      const now = new Date();
+      const diffMs = now.getTime() - queueTime.getTime();
+      const minutes = Math.floor(diffMs / (1000 * 60));
+      const hours = Math.floor(minutes / 60);
+      if (hours > 0) return `${hours}h ${minutes % 60}m`;
+      return `${minutes}m`;
+    } catch {
+      return '-';
+    }
+  };
+
+  const getPriorityColor = (score: number) => {
+    if (score >= 80) return '#ef4444'; // Red - Very High
+    if (score >= 60) return '#f59e0b'; // Amber - High
+    if (score >= 40) return '#3b82f6'; // Blue - Medium
+    return '#6b7280'; // Gray - Low
+  };
+
+  // Calculate metrics for Active tab
+  const activeMetrics = useMemo(() => {
+    const count = queuedSignals.length;
+    const highPriorityCount = queuedSignals.filter(s => s.priority_score >= 60).length;
+    const avgScore = count > 0
+      ? queuedSignals.reduce((sum, s) => sum + (s.priority_score || 0), 0) / count
+      : 0;
+
+    // Calculate average wait time
+    let avgWaitMinutes = 0;
+    if (count > 0) {
+      const now = new Date();
+      const totalMinutes = queuedSignals.reduce((sum, s) => {
+        try {
+          const queueTime = new Date(s.queued_at);
+          return sum + (now.getTime() - queueTime.getTime()) / (1000 * 60);
+        } catch {
+          return sum;
+        }
+      }, 0);
+      avgWaitMinutes = totalMinutes / count;
+    }
+
+    return {
+      count,
+      highPriorityCount,
+      avgScore,
+      avgWaitMinutes
+    };
+  }, [queuedSignals]);
+
+  // Calculate metrics for History tab
+  const historyMetrics = useMemo(() => {
+    const total = queueHistory.length;
+    const promoted = queueHistory.filter(s => s.status === 'promoted').length;
+    const expired = total - promoted;
+    const promotionRate = total > 0 ? (promoted / total) * 100 : 0;
+
+    return {
+      total,
+      promoted,
+      expired,
+      promotionRate
+    };
+  }, [queueHistory]);
+
+  // Queue health status
+  const getQueueHealth = () => {
+    if (activeMetrics.count === 0) {
+      return { label: 'Empty', color: 'success' as const, icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> };
+    }
+    if (activeMetrics.count <= 3) {
+      return { label: 'Healthy', color: 'success' as const, icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> };
+    }
+    if (activeMetrics.count <= 5) {
+      return { label: 'Busy', color: 'warning' as const, icon: <WarningIcon sx={{ fontSize: 16 }} /> };
+    }
+    return { label: 'Backlog', color: 'error' as const, icon: <CancelIcon sx={{ fontSize: 16 }} /> };
+  };
+
+  const queueHealth = getQueueHealth();
+
+  const activeColumns: GridColDef[] = [
     {
-      field: 'side', headerName: 'Side', width: 80,
+      field: 'priority_indicator',
+      headerName: '',
+      width: 40,
+      sortable: false,
+      filterable: false,
+      renderCell: (params: GridRenderCellParams) => {
+        const score = Number(params.row.priority_score);
+        const color = getPriorityColor(score);
+        return (
+          <Box
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              bgcolor: color,
+              boxShadow: `0 0 8px ${color}60`,
+              animation: score >= 80 ? 'pulse 2s ease-in-out infinite' : 'none',
+              '@keyframes pulse': {
+                '0%, 100%': { opacity: 1, transform: 'scale(1)' },
+                '50%': { opacity: 0.7, transform: 'scale(1.2)' },
+              },
+            }}
+          />
+        );
+      }
+    },
+    {
+      field: 'symbol',
+      headerName: 'Symbol',
+      width: 140,
+      renderCell: (params: GridRenderCellParams) => (
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
+            <Chip
+              label={params.row.side?.toUpperCase()}
+              color={params.row.side === 'long' ? 'success' : 'error'}
+              size="small"
+              sx={{ height: 18, fontSize: '0.6rem' }}
+            />
+          </Box>
+          <Typography variant="caption" color="text.secondary">{params.row.timeframe}m</Typography>
+        </Box>
+      )
+    },
+    {
+      field: 'exchange',
+      headerName: 'Exchange',
+      width: 100,
       renderCell: (params) => (
-        <Chip
-          label={params.value.toUpperCase()}
-          color={params.value === 'long' ? 'success' : 'error'}
-          size="small"
-          variant="outlined"
+        <Typography variant="body2">{params.value}</Typography>
+      )
+    },
+    {
+      field: 'priority_score',
+      headerName: 'Priority',
+      width: 160,
+      type: 'number',
+      renderCell: (params: GridRenderCellParams) => (
+        <PriorityScoreBreakdown
+          score={Number(params.value)}
+          explanation={params.row.priority_explanation}
+          currentLoss={params.row.current_loss_percent}
+          replacementCount={params.row.replacement_count}
+          queuedAt={params.row.queued_at}
         />
       )
     },
-    { field: 'timeframe', headerName: 'TF', width: 70 },
-    { field: 'exchange', headerName: 'Exchange', width: 100 },
-  ];
-
-  const activeColumns: GridColDef[] = [
-    ...commonColumns,
     {
-      field: 'priority_score',
-      headerName: 'Score',
-      width: 130,
-      type: 'number',
-      renderCell: (params) => (
-        <Typography variant="body2" fontWeight="bold">
-          {Number(params.value).toFixed(0)}
+      field: 'queued_at',
+      headerName: 'Wait',
+      width: 80,
+      renderCell: (params: GridRenderCellParams) => (
+        <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+          {formatWaitTime(params.value)}
         </Typography>
-      )
-    },
-    {
-      field: 'priority_explanation',
-      headerName: 'Priority Reason',
-      flex: 1.5,
-      minWidth: 250,
-      renderCell: (params) => (
-        <Tooltip title={params.value || ''} arrow placement="top">
-          <Typography variant="body2" sx={{
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            cursor: 'help'
-          }}>
-            {params.value}
-          </Typography>
-        </Tooltip>
       )
     },
     {
       field: 'current_loss_percent',
-      headerName: 'Current Loss',
-      width: 120,
+      headerName: 'Loss',
+      width: 90,
       renderCell: (params) => (
-        <Typography color={getPnlColor(params.value)} fontWeight={params.value && params.value < 0 ? 'bold' : 'normal'}>
+        <Typography
+          color={getPnlColor(params.value)}
+          fontWeight={params.value && params.value < 0 ? 'bold' : 'normal'}
+          variant="body2"
+        >
           {formatPercentage(params.value)}
         </Typography>
       )
     },
-    { field: 'replacement_count', headerName: 'Replacements', width: 110, type: 'number' },
     {
-      field: 'queued_at',
-      headerName: 'Time in Queue',
-      width: 150,
-      valueFormatter: (params) => {
-        if (!params) return '';
-        try {
-          return format(new Date(params as string), 'HH:mm:ss');
-        } catch (e) {
-          return params;
-        }
-      }
+      field: 'replacement_count',
+      headerName: 'Repl',
+      width: 60,
+      type: 'number',
+      renderCell: (params) => (
+        <Typography variant="body2">{params.value || 0}</Typography>
+      )
     },
     {
       field: 'actions',
-      headerName: 'Actions',
-      width: 180,
+      headerName: '',
+      width: 150,
       sortable: false,
       renderCell: (params: GridRenderCellParams) => (
-        <Box>
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
           <Button
             variant="contained"
             color="primary"
             size="small"
             onClick={() => handlePromote(params.row.id)}
-            sx={{ mr: 1, fontSize: '0.7rem' }}
+            sx={{ fontSize: '0.7rem', minWidth: 60 }}
           >
             Promote
           </Button>
@@ -197,7 +353,7 @@ const QueuePage: React.FC = () => {
             color="error"
             size="small"
             onClick={() => handleRemove(params.row.id)}
-            sx={{ fontSize: '0.7rem' }}
+            sx={{ fontSize: '0.7rem', minWidth: 50 }}
           >
             Remove
           </Button>
@@ -207,42 +363,91 @@ const QueuePage: React.FC = () => {
   ];
 
   const historyColumns: GridColDef[] = [
-    ...commonColumns,
     {
-      field: 'status',
-      headerName: 'Status',
-      width: 120,
-      renderCell: (params) => {
-        const color = params.value === 'promoted' ? 'success' : 'error';
-        return <Chip label={params.value.toUpperCase()} color={color} size="small" />;
-      }
+      field: 'symbol',
+      headerName: 'Symbol',
+      width: 140,
+      renderCell: (params: GridRenderCellParams) => (
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
+            <Chip
+              label={params.row.side?.toUpperCase()}
+              color={params.row.side === 'long' ? 'success' : 'error'}
+              size="small"
+              sx={{ height: 18, fontSize: '0.6rem' }}
+            />
+          </Box>
+          <Typography variant="caption" color="text.secondary">{params.row.timeframe}m</Typography>
+        </Box>
+      )
     },
     {
-      field: 'promoted_at',
-      headerName: 'Processed At',
-      width: 200,
-      valueFormatter: (params) => {
-        if (!params) return '-';
-        try {
-          return format(new Date(params as string), 'yyyy-MM-dd HH:mm:ss');
-        } catch (e) {
-          return params;
-        }
-      }
+      field: 'exchange',
+      headerName: 'Exchange',
+      width: 100,
+      renderCell: (params) => (
+        <Typography variant="body2">{params.value}</Typography>
+      )
+    },
+    {
+      field: 'status',
+      headerName: 'Result',
+      width: 110,
+      renderCell: (params) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'promoted' ? 'success' : 'error'}
+          size="small"
+          icon={params.value === 'promoted' ? <CheckCircleIcon /> : <CancelIcon />}
+        />
+      )
+    },
+    {
+      field: 'priority_score',
+      headerName: 'Score',
+      width: 80,
+      renderCell: (params) => (
+        <Typography
+          variant="body2"
+          sx={{ color: getPriorityColor(Number(params.value)), fontWeight: 600 }}
+        >
+          {safeToFixed(params.value, 0)}
+        </Typography>
+      )
     },
     {
       field: 'priority_explanation',
       headerName: 'Reason',
       flex: 1,
-      align: 'center',
-      headerAlign: 'center',
+      minWidth: 200,
       renderCell: (params) => (
         <Tooltip title={params.value || ''} arrow>
-          <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {params.value}
+          <Typography
+            variant="body2"
+            sx={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {params.value || '-'}
           </Typography>
         </Tooltip>
       )
+    },
+    {
+      field: 'promoted_at',
+      headerName: 'Processed',
+      width: 140,
+      renderCell: (params) => {
+        if (!params.value) return '-';
+        try {
+          return format(new Date(params.value), 'MMM d, HH:mm');
+        } catch {
+          return params.value;
+        }
+      }
     },
   ];
 
@@ -251,59 +456,137 @@ const QueuePage: React.FC = () => {
     return <QueuePageSkeleton />;
   }
 
-  // Helper to show active rules
-  const activeRules = settings?.risk_config?.priority_rules?.priority_order?.filter(
-    (rule: string) => (settings?.risk_config?.priority_rules?.priority_rules_enabled as any)?.[rule]
-  ) || [];
-
   return (
-    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* Header */}
       <Box sx={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         mb: 2,
-        flexWrap: 'wrap',
-        gap: 1
       }}>
-        <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-          Queue Management
-        </Typography>
-        <Box>
-          <IconButton onClick={() => { fetchQueuedSignals(); fetchQueueHistory(); }} color="primary" size="medium">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+            Queue
+          </Typography>
+          <Chip
+            icon={queueHealth.icon}
+            label={queueHealth.label}
+            color={queueHealth.color}
+            size="small"
+            variant="outlined"
+          />
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DataFreshnessIndicator lastUpdated={lastUpdated} />
+          <IconButton
+            onClick={() => { fetchQueuedSignals(); fetchQueueHistory(); setLastUpdated(new Date()); }}
+            color="primary"
+            size="small"
+          >
             <RefreshIcon />
           </IconButton>
         </Box>
       </Box>
 
-      {/* Active Rules Summary */}
-      <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, mb: 2, bgcolor: 'background.default' }}>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
-        >
-          <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-            Active Priority Logic:
-          </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {activeRules.length > 0 ? activeRules.map((rule: string, index: number) => (
-              <Chip
-                key={rule}
-                label={`${index + 1}. ${rule.replace(/_/g, ' ')}`}
-                size="small"
-                variant="outlined"
-                color="primary"
-                sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}
-              />
-            )) : <Chip label="No rules enabled (FIFO Fallback)" size="small" color="warning" />}
-          </Box>
-        </Stack>
-      </Paper>
-
       {error && <Typography color="error" sx={{ mb: 2 }}>{error}</Typography>}
 
-      <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Summary Metrics - Tab specific */}
+      <Grid container spacing={{ xs: 2, sm: 3 }} sx={{ mb: 3 }}>
+        {tabValue === 0 ? (
+          // Active Queue Metrics
+          <>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="In Queue"
+                value={activeMetrics.count.toString()}
+                subtitle={activeMetrics.count > 0 ? `Avg Score: ${safeToFixed(activeMetrics.avgScore, 0)}` : 'Queue empty'}
+                icon={<AccessTimeIcon />}
+                colorScheme={activeMetrics.count > 5 ? 'bearish' : 'neutral'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="High Priority"
+                value={activeMetrics.highPriorityCount.toString()}
+                subtitle="Score ≥ 60"
+                icon={<WarningIcon />}
+                colorScheme={activeMetrics.highPriorityCount > 0 ? 'bearish' : 'neutral'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Avg Wait"
+                value={activeMetrics.avgWaitMinutes > 60
+                  ? `${safeToFixed(activeMetrics.avgWaitMinutes / 60, 1)}h`
+                  : `${safeToFixed(activeMetrics.avgWaitMinutes, 0)}m`}
+                subtitle="Time in queue"
+                icon={<AccessTimeIcon />}
+                colorScheme={activeMetrics.avgWaitMinutes > 30 ? 'bearish' : 'neutral'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Promotion Rate"
+                value={`${safeToFixed(historyMetrics.promotionRate, 0)}%`}
+                subtitle={`${historyMetrics.promoted} promoted`}
+                icon={<TrendingUpIcon />}
+                colorScheme={historyMetrics.promotionRate >= 70 ? 'bullish' : 'neutral'}
+                variant="small"
+              />
+            </Grid>
+          </>
+        ) : (
+          // History Metrics
+          <>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Total Processed"
+                value={historyMetrics.total.toString()}
+                subtitle="All time"
+                icon={<AccessTimeIcon />}
+                colorScheme="neutral"
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Promoted"
+                value={historyMetrics.promoted.toString()}
+                subtitle={`${safeToFixed(historyMetrics.promotionRate, 1)}% rate`}
+                icon={<CheckCircleIcon />}
+                colorScheme="bullish"
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Expired/Removed"
+                value={historyMetrics.expired.toString()}
+                subtitle={historyMetrics.total > 0 ? `${safeToFixed((historyMetrics.expired / historyMetrics.total) * 100, 1)}% rate` : 'None'}
+                icon={<CancelIcon />}
+                colorScheme={historyMetrics.expired > 0 ? 'bearish' : 'neutral'}
+                variant="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+              <MetricCard
+                label="Success Rate"
+                value={`${safeToFixed(historyMetrics.promotionRate, 0)}%`}
+                subtitle="Signals promoted"
+                icon={<TrendingUpIcon />}
+                colorScheme={historyMetrics.promotionRate >= 70 ? 'bullish' : historyMetrics.promotionRate >= 50 ? 'neutral' : 'bearish'}
+                variant="small"
+              />
+            </Grid>
+          </>
+        )}
+      </Grid>
+
+      <Paper sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 400 }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs
             value={tabValue}
@@ -318,48 +601,167 @@ const QueuePage: React.FC = () => {
               sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
             />
             <Tab
-              label="History"
+              label={`History (${queueHistory.length})`}
               sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
             />
           </Tabs>
         </Box>
 
-        <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+        <Box sx={{ flexGrow: 1, overflow: isMobile ? 'auto' : 'hidden' }}>
           <CustomTabPanel value={tabValue} index={0}>
-            <DataGrid
-              rows={queuedSignals}
-              columns={activeColumns}
-              getRowId={(row) => row.id}
-              loading={loading}
-              disableRowSelectionOnClick
-              slots={{ toolbar: GridToolbar }}
-              initialState={{
-                sorting: {
-                  sortModel: [{ field: 'priority_score', sort: 'desc' }],
-                },
-                pagination: { paginationModel: { pageSize: 10 } },
-              }}
-            />
+            {isMobile ? (
+              <Box sx={{ p: 2, pt: 1 }}>
+                {queuedSignals.length > 0 ? (
+                  [...queuedSignals]
+                    .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0))
+                    .map((signal) => (
+                      <QueueSignalCard
+                        key={signal.id}
+                        signal={signal}
+                        onPromote={handlePromote}
+                        onRemove={handleRemove}
+                      />
+                    ))
+                ) : (
+                  <Box sx={{ textAlign: 'center', py: 6 }}>
+                    <CheckCircleIcon sx={{ fontSize: 48, color: 'success.main', mb: 1 }} />
+                    <Typography variant="body1" color="text.secondary">
+                      Queue is empty
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Signals will appear here when received
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            ) : (
+              <ResponsiveTableWrapper>
+                <DataGrid
+                  rows={queuedSignals}
+                  columns={activeColumns}
+                  getRowId={(row) => row.id}
+                  loading={loading}
+                  disableRowSelectionOnClick
+                  slots={{ toolbar: GridToolbar }}
+                  initialState={{
+                    sorting: {
+                      sortModel: [{ field: 'priority_score', sort: 'desc' }],
+                    },
+                    pagination: { paginationModel: { pageSize: 10 } },
+                  }}
+                  pageSizeOptions={[10, 25, 50]}
+                  sx={{
+                    '& .MuiDataGrid-root': {
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    },
+                    '& .MuiDataGrid-columnHeaders': {
+                      minHeight: { xs: '40px !important', sm: '56px !important' },
+                    },
+                    '& .MuiDataGrid-cell': {
+                      padding: { xs: '4px', sm: '8px 16px' },
+                    },
+                  }}
+                />
+              </ResponsiveTableWrapper>
+            )}
           </CustomTabPanel>
 
           <CustomTabPanel value={tabValue} index={1}>
-            <DataGrid
-              rows={queueHistory}
-              columns={historyColumns}
-              getRowId={(row) => row.id}
-              loading={loading}
-              disableRowSelectionOnClick
-              slots={{ toolbar: GridToolbar }}
-              initialState={{
-                sorting: {
-                  sortModel: [{ field: 'promoted_at', sort: 'desc' }],
-                },
-              }}
-            />
+            {isMobile ? (
+              <Box sx={{ p: 2, pt: 1 }}>
+                {queueHistory.length > 0 ? (
+                  [...queueHistory]
+                    .sort((a, b) => new Date(b.promoted_at || 0).getTime() - new Date(a.promoted_at || 0).getTime())
+                    .slice(0, 30)
+                    .map((signal) => (
+                      <Box
+                        key={signal.id}
+                        sx={{
+                          p: 1.5,
+                          mb: 1.5,
+                          bgcolor: 'background.paper',
+                          borderRadius: 1,
+                          borderLeft: 4,
+                          borderColor: signal.status === 'promoted' ? 'success.main' : 'error.main',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Box>
+                            <Typography variant="body2" fontWeight={600}>{signal.symbol}</Typography>
+                            <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+                              <Chip
+                                label={signal.side.toUpperCase()}
+                                size="small"
+                                color={signal.side === 'long' ? 'success' : 'error'}
+                                sx={{ height: 18, fontSize: '0.6rem' }}
+                              />
+                              <Chip
+                                label={signal.timeframe}
+                                size="small"
+                                variant="outlined"
+                                sx={{ height: 18, fontSize: '0.6rem' }}
+                              />
+                            </Box>
+                          </Box>
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Chip
+                              label={signal.status?.toUpperCase()}
+                              size="small"
+                              color={signal.status === 'promoted' ? 'success' : 'error'}
+                              sx={{ height: 20, fontSize: '0.65rem' }}
+                            />
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                              {signal.promoted_at ? format(new Date(signal.promoted_at), 'MMM d, HH:mm') : '-'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        {signal.priority_explanation && (
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                            {signal.priority_explanation}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No queue history
+                  </Typography>
+                )}
+              </Box>
+            ) : (
+              <ResponsiveTableWrapper>
+                <DataGrid
+                  rows={queueHistory}
+                  columns={historyColumns}
+                  getRowId={(row) => row.id}
+                  loading={loading}
+                  disableRowSelectionOnClick
+                  slots={{ toolbar: GridToolbar }}
+                  initialState={{
+                    sorting: {
+                      sortModel: [{ field: 'promoted_at', sort: 'desc' }],
+                    },
+                    pagination: { paginationModel: { pageSize: 10 } },
+                  }}
+                  pageSizeOptions={[10, 25, 50]}
+                  sx={{
+                    '& .MuiDataGrid-root': {
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    },
+                    '& .MuiDataGrid-columnHeaders': {
+                      minHeight: { xs: '40px !important', sm: '56px !important' },
+                    },
+                    '& .MuiDataGrid-cell': {
+                      padding: { xs: '4px', sm: '8px 16px' },
+                    },
+                  }}
+                />
+              </ResponsiveTableWrapper>
+            )}
           </CustomTabPanel>
         </Box>
       </Paper>
-    </Box >
+    </Box>
   );
 };
 

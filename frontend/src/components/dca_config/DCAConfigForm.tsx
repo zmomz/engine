@@ -24,6 +24,7 @@ import { useForm, useFieldArray, Controller, Control, UseFormWatch } from 'react
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { DCAConfiguration } from '../../api/dcaConfig';
+import { safeToFixed } from '../../utils/formatters';
 
 // Schemas
 const dcaLevelSchema = z.object({
@@ -42,7 +43,7 @@ const formSchema = z.object({
         if (Math.abs(totalWeight - 100) > 0.01) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: `Total weight must be 100% (Current: ${totalWeight.toFixed(2)}%)`,
+                message: `Total weight must be 100% (Current: ${safeToFixed(totalWeight)}%)`,
                 path: []
             });
         }

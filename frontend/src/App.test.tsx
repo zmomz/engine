@@ -109,7 +109,7 @@ describe('App Routing', () => {
     expect(screen.getByRole('heading', { name: /queued signals/i })).toBeInTheDocument();
   });
 
-  test('renders RiskEnginePage for /risk route when authenticated', () => {
+  test('renders RiskPage for /risk route when authenticated', () => {
     setupMock(true);
     render(
       <MemoryRouter initialEntries={['/risk']}>

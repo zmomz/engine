@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card, CardContent, Typography, Grid } from '@mui/material';
+import { safeToFixed } from '../utils/formatters';
 
 interface WinLossWidgetProps {
   totalTrades: number | null;
@@ -22,7 +23,7 @@ const WinLossWidget: React.FC<WinLossWidgetProps> = ({ totalTrades, wins, losses
             </Grid>
             <Grid size={{ xs: 6 }}>
                 <Typography variant="body2" color="text.secondary">Win Rate</Typography>
-                <Typography variant="h6" color="primary.main">{winRate !== null ? `${winRate.toFixed(1)}%` : '-'}</Typography>
+                <Typography variant="h6" color="primary.main">{winRate !== null ? `${safeToFixed(winRate, 1)}%` : '-'}</Typography>
             </Grid>
             <Grid size={{ xs: 6 }}>
                 <Typography variant="body2" color="text.secondary">Wins</Typography>

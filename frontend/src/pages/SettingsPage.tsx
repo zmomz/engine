@@ -1,18 +1,43 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Button, TextField, Typography, CircularProgress, Alert, FormControlLabel, IconButton, Divider, Paper, Tabs, Tab, List, ListItem, ListItemText, ListItemSecondaryAction, Grid, Checkbox } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import { useForm, Controller, Resolver, FieldError, FieldErrors } from 'react-hook-form';
+import {
+  Box,
+  Button,
+  Typography,
+  Alert,
+  Tabs,
+  Tab,
+  Grid,
+  Card,
+  CardContent,
+} from '@mui/material';
+import { useForm, Resolver, FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import SaveIcon from '@mui/icons-material/Save';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import SecurityIcon from '@mui/icons-material/Security';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import SettingsIcon from '@mui/icons-material/Settings';
 import useConfigStore from '../store/configStore';
 import useConfirmStore from '../store/confirmStore';
 import useNotificationStore from '../store/notificationStore';
 import QueuePrioritySettings from '../components/QueuePrioritySettings';
-import DCAConfigList from '../components/dca_config/DCAConfigList'; // Import the new component
+import DCAConfigList from '../components/dca_config/DCAConfigList';
 import TelegramSettings from '../components/TelegramSettings';
+import { MetricCard } from '../components/MetricCard';
+import {
+  SettingsPageSkeleton,
+  ExchangeConnectionCard,
+  ApiKeysListCard,
+  ApiKeysFormCard,
+  RiskLimitsSection,
+  TimerConfigSection,
+  AccountSettingsCard,
+  BackupRestoreCard,
+  SettingsSectionCard,
+} from '../components/settings';
 
-
+// Zod Schemas
 const telegramConfigSchema = z.object({
   enabled: z.boolean(),
   bot_token: z.string().optional(),
@@ -25,28 +50,35 @@ const telegramConfigSchema = z.object({
   test_mode: z.boolean(),
 });
 
-// Define Zod schemas for validation
 const exchangeSettingsSchema = z.object({
   exchange: z.string().min(1, 'Exchange is required'),
   key_target_exchange: z.string().min(1, 'Target exchange is required'),
   api_key: z.string().optional(),
   secret_key: z.string().optional(),
-  testnet: z.boolean().optional(), // Added testnet
-  account_type: z.string().optional(), // Added account_type
+  testnet: z.boolean().optional(),
+  account_type: z.string().optional(),
 });
 
+const priorityRulesSchema = z.object({
+  priority_rules_enabled: z.object({
+    same_pair_timeframe: z.boolean(),
+    deepest_loss_percent: z.boolean(),
+    highest_replacement: z.boolean(),
+    fifo_fallback: z.boolean(),
+  }),
+  priority_order: z.array(z.string()),
+});
 
 const riskEngineConfigSchema = z.object({
-  // Pre-trade Risk Checks
   max_open_positions_global: z.coerce.number().min(0),
   max_open_positions_per_symbol: z.coerce.number().min(0),
   max_total_exposure_usd: z.coerce.number().min(0),
   max_realized_loss_usd: z.coerce.number().min(0),
-  // Post-trade Risk Management - Timer Conditions
   loss_threshold_percent: z.coerce.number().max(0),
   required_pyramids_for_timer: z.coerce.number().min(1).max(10),
   post_pyramids_wait_minutes: z.coerce.number().min(0),
   max_winners_to_combine: z.coerce.number().min(0),
+  priority_rules: priorityRulesSchema.optional(),
 });
 
 const appSettingsSchema = z.object({
@@ -59,7 +91,7 @@ const formSchema = z.object({
   exchangeSettings: exchangeSettingsSchema,
   riskEngineConfig: riskEngineConfigSchema,
   appSettings: appSettingsSchema,
-  telegramSettings: telegramConfigSchema, // ADD THIS LINE
+  telegramSettings: telegramConfigSchema,
 });
 
 type FormValues = {
@@ -75,35 +107,34 @@ interface TabPanelProps {
   value: number;
 }
 
-function CustomTabPanel(props: TabPanelProps) {
+function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
 
   return (
     <div
       role="tabpanel"
       hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
+      id={`settings-tabpanel-${index}`}
+      aria-labelledby={`settings-tab-${index}`}
+      style={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}
       {...other}
     >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
+      {value === index && children}
     </div>
   );
 }
 
-function a11yProps(index: number) {
-  return {
-    id: `simple-tab-${index}`,
-    'aria-controls': `simple-tabpanel-${index}`,
-  };
-}
-
 const SettingsPage: React.FC = () => {
-  const { settings, supportedExchanges, loading, error, fetchSettings, updateSettings, deleteKey, fetchSupportedExchanges } = useConfigStore();
+  const {
+    settings,
+    supportedExchanges,
+    loading,
+    error,
+    fetchSettings,
+    updateSettings,
+    deleteKey,
+    fetchSupportedExchanges,
+  } = useConfigStore();
   const [currentTab, setCurrentTab] = useState(0);
 
   useEffect(() => {
@@ -111,7 +142,15 @@ const SettingsPage: React.FC = () => {
     fetchSupportedExchanges();
   }, [fetchSettings, fetchSupportedExchanges]);
 
-  const { handleSubmit, control, reset, setValue, watch, getValues, formState: { errors } } = useForm<FormValues>({
+  const {
+    handleSubmit,
+    control,
+    reset,
+    setValue,
+    watch,
+    getValues,
+    formState: { errors },
+  } = useForm<FormValues>({
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       exchangeSettings: {
@@ -119,6 +158,8 @@ const SettingsPage: React.FC = () => {
         key_target_exchange: settings?.exchange || '',
         api_key: '',
         secret_key: '',
+        testnet: false,
+        account_type: '',
       },
       riskEngineConfig: settings?.risk_config || {
         max_open_positions_global: 10,
@@ -129,6 +170,15 @@ const SettingsPage: React.FC = () => {
         required_pyramids_for_timer: 3,
         post_pyramids_wait_minutes: 15,
         max_winners_to_combine: 3,
+        priority_rules: {
+          priority_rules_enabled: {
+            same_pair_timeframe: true,
+            deepest_loss_percent: true,
+            highest_replacement: true,
+            fifo_fallback: true,
+          },
+          priority_order: ['same_pair_timeframe', 'deepest_loss_percent', 'highest_replacement', 'fifo_fallback'],
+        },
       },
       appSettings: {
         username: settings?.username || '',
@@ -136,21 +186,18 @@ const SettingsPage: React.FC = () => {
         webhook_secret: settings?.webhook_secret || '',
       },
       telegramSettings: {
-            enabled: false,
-            bot_token: '',
-            channel_id: '',
-            channel_name: 'AlgoMakers.Ai Signals',
-            engine_signature: '⚙️ AlgoMakers Engine\nLong only. Up to five pyramids. One full exit.\nNo fixed targets. Market driven logic.',
-            send_entry_signals: true,
-            send_exit_signals: true,
-            update_on_pyramid: true,
-            test_mode: false,
-      }
+        enabled: false,
+        bot_token: '',
+        channel_id: '',
+        channel_name: 'AlgoMakers.Ai Signals',
+        engine_signature: '',
+        send_entry_signals: true,
+        send_exit_signals: true,
+        update_on_pyramid: true,
+        test_mode: false,
+      },
     },
   });
-
-  // Watch the selected target exchange to show status
-  const selectedTargetExchange = watch("exchangeSettings.key_target_exchange");
 
   useEffect(() => {
     if (settings) {
@@ -158,13 +205,24 @@ const SettingsPage: React.FC = () => {
       reset({
         exchangeSettings: {
           exchange: settings.exchange,
-          key_target_exchange: settings.exchange, // Default to active exchange
+          key_target_exchange: settings.exchange,
           api_key: '',
           secret_key: '',
-          testnet: currentExchangeDetails.testnet || false, // Initialize testnet
-          account_type: currentExchangeDetails.account_type || '', // Initialize account_type
+          testnet: currentExchangeDetails.testnet || false,
+          account_type: currentExchangeDetails.account_type || '',
         },
-        riskEngineConfig: settings.risk_config,
+        riskEngineConfig: {
+          ...settings.risk_config,
+          priority_rules: settings.risk_config.priority_rules || {
+            priority_rules_enabled: {
+              same_pair_timeframe: true,
+              deepest_loss_percent: true,
+              highest_replacement: true,
+              fifo_fallback: true,
+            },
+            priority_order: ['same_pair_timeframe', 'deepest_loss_percent', 'highest_replacement', 'fifo_fallback'],
+          },
+        },
         appSettings: {
           username: settings.username,
           email: settings.email,
@@ -175,7 +233,7 @@ const SettingsPage: React.FC = () => {
           bot_token: '',
           channel_id: '',
           channel_name: 'AlgoMakers.Ai Signals',
-          engine_signature: '⚙️ AlgoMakers Engine\nLong only. Up to five pyramids. One full exit.\nNo fixed targets. Market driven logic.',
+          engine_signature: '',
           send_entry_signals: true,
           send_exit_signals: true,
           update_on_pyramid: true,
@@ -185,15 +243,13 @@ const SettingsPage: React.FC = () => {
     }
   }, [settings, reset]);
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setCurrentTab(newValue);
   };
 
-
   const onSubmit = async (data: FormValues) => {
-    // Transform data to match backend UserUpdate schema
     const payload: any = {
-      exchange: data.exchangeSettings.exchange, // This sets the ACTIVE exchange
+      exchange: data.exchangeSettings.exchange,
       risk_config: data.riskEngineConfig,
       username: data.appSettings.username,
       email: data.appSettings.email,
@@ -201,28 +257,25 @@ const SettingsPage: React.FC = () => {
       telegram_config: data.telegramSettings,
     };
 
-    // Only send keys if they are provided
     if (data.exchangeSettings.api_key && data.exchangeSettings.secret_key) {
       payload.api_key = data.exchangeSettings.api_key;
       payload.secret_key = data.exchangeSettings.secret_key;
-      // Explicitly set the target exchange for these keys
       payload.key_target_exchange = data.exchangeSettings.key_target_exchange;
     }
 
     await updateSettings(payload);
-    // Note: reset logic is handled by the useEffect on settings change which fires after update
   };
 
   const onError = (errors: FieldErrors<FormValues>) => {
-    console.error("Form validation errors:", errors);
+    console.error('Form validation errors:', errors);
     if (errors.exchangeSettings) {
       setCurrentTab(0);
     } else if (errors.riskEngineConfig) {
       setCurrentTab(1);
-    } else if (errors.appSettings) {
-      setCurrentTab(4);
     } else if (errors.telegramSettings) {
-      setCurrentTab(5);
+      setCurrentTab(2);
+    } else if (errors.appSettings) {
+      setCurrentTab(3);
     }
   };
 
@@ -231,7 +284,7 @@ const SettingsPage: React.FC = () => {
       title: 'Delete API Keys',
       message: `Are you sure you want to delete API keys for ${exchange}?`,
       confirmText: 'Delete',
-      cancelText: 'Cancel'
+      cancelText: 'Cancel',
     });
     if (confirmed) {
       await deleteKey(exchange);
@@ -239,23 +292,103 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleEditKey = (exchange: string) => {
-    setValue("exchangeSettings.key_target_exchange", exchange);
+    setValue('exchangeSettings.key_target_exchange', exchange);
     const exchangeDetails = settings?.configured_exchange_details?.[exchange];
     if (exchangeDetails) {
-      setValue("exchangeSettings.testnet", exchangeDetails.testnet || false);
-      setValue("exchangeSettings.account_type", exchangeDetails.account_type || '');
+      setValue('exchangeSettings.testnet', exchangeDetails.testnet || false);
+      setValue('exchangeSettings.account_type', exchangeDetails.account_type || '');
     }
-    // Focus the api key input? (Optional)
   };
 
-  const isConfigured = (exchange: string) => settings?.configured_exchanges?.includes(exchange);
+  const handleSaveApiKeys = async () => {
+    const currentValues = watch('exchangeSettings');
+
+    if (currentValues.api_key && currentValues.secret_key) {
+      const payload: any = {
+        key_target_exchange: currentValues.key_target_exchange,
+        api_key: currentValues.api_key,
+        secret_key: currentValues.secret_key,
+      };
+      if (currentValues.testnet !== undefined) {
+        payload.testnet = currentValues.testnet;
+      }
+      if (currentValues.account_type) {
+        payload.account_type = currentValues.account_type;
+      }
+      await updateSettings(payload);
+      setValue('exchangeSettings.api_key', '');
+      setValue('exchangeSettings.secret_key', '');
+      setValue('exchangeSettings.testnet', false);
+      setValue('exchangeSettings.account_type', '');
+    } else {
+      useNotificationStore.getState().showNotification('Please enter both API Key and Secret Key.', 'warning');
+    }
+  };
+
+  const handleRestore = async (parsed: any) => {
+    const payload: any = {
+      exchange: parsed.exchange,
+      risk_config: parsed.risk_config,
+    };
+
+    await updateSettings(payload);
+
+    if (parsed.dca_configurations && Array.isArray(parsed.dca_configurations)) {
+      const { dcaConfigApi } = await import('../api/dcaConfig');
+      const existingConfigs = await dcaConfigApi.getAll();
+
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const dcaConfig of parsed.dca_configurations) {
+        const existing = existingConfigs.find(
+          (c: any) =>
+            c.pair === dcaConfig.pair &&
+            c.exchange === dcaConfig.exchange &&
+            c.timeframe === dcaConfig.timeframe
+        );
+
+        if (existing) {
+          await dcaConfigApi.update(existing.id, {
+            entry_order_type: dcaConfig.entry_order_type,
+            dca_levels: dcaConfig.dca_levels,
+            pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
+            tp_mode: dcaConfig.tp_mode,
+            tp_settings: dcaConfig.tp_settings,
+            max_pyramids: dcaConfig.max_pyramids,
+          });
+          updatedCount++;
+        } else {
+          await dcaConfigApi.create({
+            pair: dcaConfig.pair,
+            timeframe: dcaConfig.timeframe,
+            exchange: dcaConfig.exchange,
+            entry_order_type: dcaConfig.entry_order_type,
+            dca_levels: dcaConfig.dca_levels,
+            pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
+            tp_mode: dcaConfig.tp_mode,
+            tp_settings: dcaConfig.tp_settings,
+            max_pyramids: dcaConfig.max_pyramids,
+          });
+          createdCount++;
+        }
+      }
+
+      useNotificationStore
+        .getState()
+        .showNotification(
+          `Configuration restored successfully. DCA configs: ${createdCount} created, ${updatedCount} updated.`,
+          'success'
+        );
+    } else {
+      useNotificationStore
+        .getState()
+        .showNotification('Configuration restored successfully (no DCA configs found in backup).', 'success');
+    }
+  };
 
   if (loading && !settings) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <SettingsPageSkeleton />;
   }
 
   if (error) {
@@ -266,504 +399,296 @@ const SettingsPage: React.FC = () => {
     );
   }
 
+  const webhookUrl = settings?.id
+    ? `${window.location.origin}/api/v1/webhooks/${settings.id}/tradingview`
+    : 'Loading...';
+
+  const configuredExchanges = settings?.configured_exchanges || [];
+  const telegramEnabled = settings?.telegram_config?.enabled || false;
+
   return (
-    <Box sx={{ flexGrow: 1, p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Settings
-      </Typography>
-      <Paper sx={{ p: 3 }}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={currentTab} onChange={handleTabChange} aria-label="settings tabs">
-            <Tab label="Exchange" {...a11yProps(0)} />
-            <Tab label="Risk Engine" {...a11yProps(1)} />
-            <Tab label="Queue Configuration" {...a11yProps(2)} />
-            <Tab label="DCA Grid" {...a11yProps(3)} />
-            <Tab label="Account" {...a11yProps(4)} />
-            <Tab label="Telegram" {...a11yProps(5)} />
-            <Tab label="System" {...a11yProps(6)} />
+    <Box sx={{ flexGrow: 1, p: { xs: 1.5, sm: 3 }, pb: { xs: 12, sm: 3 }, maxWidth: '100%', overflowX: 'hidden' }}>
+      {/* Header */}
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: { xs: 'flex-start', sm: 'center' },
+        flexDirection: { xs: 'column', sm: 'row' },
+        gap: 1,
+        mb: 2
+      }}>
+        <Typography variant="h4" sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
+          Settings
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {settings?.exchange ? `Connected to ${settings.exchange}` : 'No exchange configured'}
+        </Typography>
+      </Box>
+
+      <form onSubmit={handleSubmit(onSubmit, onError)} style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+        {/* Tabs */}
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, mx: { xs: -1.5, sm: 0 } }}>
+          <Tabs
+            value={currentTab}
+            onChange={handleTabChange}
+            aria-label="settings tabs"
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{
+              '& .MuiTab-root': {
+                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                minWidth: { xs: 70, sm: 120 },
+                px: { xs: 1, sm: 2 },
+              }
+            }}
+          >
+            <Tab
+              icon={<TrendingUpIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />}
+              iconPosition="start"
+              label="Trading"
+              sx={{ minHeight: 48 }}
+            />
+            <Tab
+              icon={<SecurityIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />}
+              iconPosition="start"
+              label="Risk"
+              sx={{ minHeight: 48 }}
+            />
+            <Tab
+              icon={<NotificationsIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />}
+              iconPosition="start"
+              label="Alerts"
+              sx={{ minHeight: 48 }}
+            />
+            <Tab
+              icon={<SettingsIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />}
+              iconPosition="start"
+              label="Account"
+              sx={{ minHeight: 48 }}
+            />
           </Tabs>
         </Box>
-
-        <form onSubmit={handleSubmit(onSubmit, onError)}>
-          <CustomTabPanel value={currentTab} index={0}>
-            {/* Exchange Settings */}
-            <Typography variant="h6" gutterBottom>Configured API Keys</Typography>
-            <Paper variant="outlined" sx={{ mb: 3 }}>
-              <List>
-                {settings?.configured_exchanges && settings.configured_exchanges.length > 0 ? (
-                  settings.configured_exchanges.map((ex) => (
-                    <ListItem key={ex} divider>
-                      <ListItemText
-                        primary={
-                          <Box display="flex" alignItems="center" gap={1}>
-                            {ex}
-                          </Box>
-                        }
-                        secondary="API Keys Configured"
-                      />
-                      <ListItemSecondaryAction>
-                        <IconButton edge="end" aria-label="edit" onClick={() => handleEditKey(ex)} sx={{ mr: 1 }}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteKey(ex)} color="error">
-                          <DeleteIcon />
-                        </IconButton>
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  ))
-                ) : (
-                  <ListItem>
-                    <ListItemText primary="No exchanges configured." secondary="Add API keys below." />
-                  </ListItem>
-                )}
-              </List>
-            </Paper>
-
-            <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>Add / Update API Keys</Typography>
-            <Paper elevation={0} sx={{ p: 2, bgcolor: 'background.default' }}>
-              <Grid container spacing={2} alignItems="flex-start">
-                <Grid size={{ xs: 12, md: 4 }}>
-                  <Controller
-                    name="exchangeSettings.key_target_exchange"
-                    control={control}
-                    render={({ field }) => (
-                      <TextField
-                        {...field}
-                        select
-                        label="Exchange to Configure"
-                        fullWidth
-                        margin="normal"
-                        error={!!errors.exchangeSettings?.key_target_exchange}
-                        SelectProps={{ native: true }}
-                        InputLabelProps={{ shrink: true }}
-                      >
-                        {supportedExchanges.map((exchange) => (
-                          <option key={exchange} value={exchange}>
-                            {exchange}
-                          </option>
-                        ))}
-                      </TextField>
-                    )}
+            {/* Tab 1: Trading */}
+            <TabPanel value={currentTab} index={0}>
+              {/* Summary Cards */}
+              <Grid container spacing={{ xs: 1.5, sm: 3 }} sx={{ mb: 2 }}>
+                <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+                  <MetricCard
+                    label="Active Exchange"
+                    value={settings?.exchange || '-'}
+                    colorScheme={configuredExchanges.includes(settings?.exchange || '') ? 'bullish' : 'neutral'}
+                    variant="small"
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+                  <MetricCard
+                    label="Configured Exchanges"
+                    value={configuredExchanges.length}
+                    subtitle="with API keys"
+                    variant="small"
                   />
                 </Grid>
               </Grid>
 
-              <Box sx={{ mt: 1, mb: 2 }}>
-                {selectedTargetExchange && (
-                  <Alert severity={isConfigured(selectedTargetExchange) ? "info" : "warning"}>
-                    {isConfigured(selectedTargetExchange)
-                      ? `Keys are already configured for ${selectedTargetExchange}. Entering new keys will overwrite them.`
-                      : `No keys found for ${selectedTargetExchange}. Please configure them.`}
-                  </Alert>
-                )}
-              </Box>
-
-              <Controller
-                name="exchangeSettings.api_key"
-                control={control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="API Key (Public)"
-                    fullWidth
-                    margin="normal"
-                    error={!!errors.exchangeSettings?.api_key}
-                    helperText={errors.exchangeSettings?.api_key?.message}
+              {/* Exchange Connection */}
+              <Grid container spacing={{ xs: 1.5, sm: 3 }}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <ExchangeConnectionCard
+                    control={control}
+                    supportedExchanges={supportedExchanges}
+                    configuredExchanges={configuredExchanges}
+                    activeExchange={settings?.exchange || ''}
                   />
-                )}
-              />
-              <Controller
-                name="exchangeSettings.secret_key"
-                control={control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Secret Key (Private)"
-                    fullWidth
-                    margin="normal"
-                    type="password"
-                    error={!!errors.exchangeSettings?.secret_key}
-                    helperText={errors.exchangeSettings?.secret_key?.message}
+                </Grid>
+
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <ApiKeysListCard
+                    configuredExchanges={configuredExchanges}
+                    activeExchange={settings?.exchange || ''}
+                    exchangeDetails={settings?.configured_exchange_details || {}}
+                    onEdit={handleEditKey}
+                    onDelete={handleDeleteKey}
                   />
-                )}
-              />
-              <Controller
-                name="exchangeSettings.testnet"
-                control={control}
-                render={({ field }) => (
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={!!field.value}
-                        onChange={(e) => field.onChange(e.target.checked)}
-                      />
-                    }
-                    label="Use Testnet"
+                </Grid>
+
+                <Grid size={12}>
+                  <ApiKeysFormCard
+                    control={control}
+                    watch={watch}
+                    supportedExchanges={supportedExchanges}
+                    configuredExchanges={configuredExchanges}
+                    onSaveKeys={handleSaveApiKeys}
+                    errors={errors}
                   />
-                )}
-              />
-              <Controller
-                name="exchangeSettings.account_type"
-                control={control}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Account Type (e.g., UNIFIED for Bybit)"
-                    fullWidth
-                    margin="normal"
-                    error={!!errors.exchangeSettings?.account_type}
-                    helperText={errors.exchangeSettings?.account_type?.message}
+                </Grid>
+
+                <Grid size={12}>
+                  <SettingsSectionCard
+                    title="DCA Configurations"
+                    icon={<TrendingUpIcon />}
+                    description="Configure DCA levels for your trading pairs"
+                  >
+                    <DCAConfigList />
+                  </SettingsSectionCard>
+                </Grid>
+              </Grid>
+            </TabPanel>
+
+            {/* Tab 2: Risk & Queue */}
+            <TabPanel value={currentTab} index={1}>
+              {/* Summary Cards */}
+              <Grid container spacing={{ xs: 2, sm: 3 }} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <MetricCard
+                    label="Max Positions"
+                    value={settings?.risk_config?.max_open_positions_global || 0}
+                    subtitle="global limit"
+                    variant="small"
                   />
-                )}
-              />
-              <Button
-                variant="contained"
-                color="primary"
-                sx={{ mt: 2 }}
-                onClick={async (e) => {
-                  // Prevent form submission
-                  e.preventDefault();
-                  e.stopPropagation();
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <MetricCard
+                    label="Loss Limit"
+                    value={`$${settings?.risk_config?.max_realized_loss_usd || 0}`}
+                    subtitle="circuit breaker"
+                    colorScheme="bearish"
+                    variant="small"
+                  />
+                </Grid>
+              </Grid>
 
-                  const currentValues = watch("exchangeSettings");
+              <Grid container spacing={{ xs: 2, sm: 3 }}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <RiskLimitsSection control={control} errors={errors} />
+                </Grid>
 
-                  if (currentValues.api_key && currentValues.secret_key) {
-                    const payload: any = {
-                      key_target_exchange: currentValues.key_target_exchange,
-                      api_key: currentValues.api_key,
-                      secret_key: currentValues.secret_key,
-                    };
-                    // Add testnet and account_type if they have values
-                    if (currentValues.testnet !== undefined) {
-                      payload.testnet = currentValues.testnet;
-                    }
-                    if (currentValues.account_type) {
-                      payload.account_type = currentValues.account_type;
-                    }
-                    await updateSettings(payload);
-                    // Clear fields after successful update
-                    setValue("exchangeSettings.api_key", "");
-                    setValue("exchangeSettings.secret_key", "");
-                    // Optionally clear testnet and account_type or reset to defaults
-                    setValue("exchangeSettings.testnet", false);
-                    setValue("exchangeSettings.account_type", "");
-                  } else {
-                    useNotificationStore.getState().showNotification("Please enter both API Key and Secret Key.", 'warning');
-                  }
-                }}
-              >
-                Save API Keys
-              </Button>
-            </Paper>
-          </CustomTabPanel>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TimerConfigSection control={control} errors={errors} />
+                </Grid>
 
-          <CustomTabPanel value={currentTab} index={1}>
-            {/* Risk Engine Settings */}
-            <Typography variant="h6" gutterBottom>Risk Engine Configuration</Typography>
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Timer starts when <strong>BOTH</strong> conditions are met: required pyramids filled AND loss threshold exceeded.
-              Timer resets if a new pyramid is received or loss improves above threshold.
-            </Alert>
-            <Grid container spacing={2}>
-              {Object.keys(riskEngineConfigSchema.shape).map((key) => {
-                const fieldError = errors.riskEngineConfig?.[key as keyof typeof errors.riskEngineConfig] as FieldError | undefined;
-                return (
-                  <Grid size={{ xs: 12, sm: 6 }} key={key}>
-                    <Controller
-                      name={`riskEngineConfig.${key}` as keyof FormValues}
-                      control={control}
-                      render={({ field }) => {
-                        const isBoolean = typeof field.value === 'boolean';
+                <Grid size={12}>
+                  <SettingsSectionCard
+                    title="Queue Priority Rules"
+                    icon={<SecurityIcon />}
+                    description="Drag to reorder signal priority"
+                  >
+                    <QueuePrioritySettings control={control} setValue={setValue} watch={watch} />
+                  </SettingsSectionCard>
+                </Grid>
+              </Grid>
+            </TabPanel>
 
-                        // Create user-friendly labels and helper text
-                        const labelMap: Record<string, string> = {
-                          max_open_positions_global: 'Max Open Positions (Global)',
-                          max_open_positions_per_symbol: 'Max Open Positions (Per Symbol)',
-                          max_total_exposure_usd: 'Max Total Exposure (USD)',
-                          max_realized_loss_usd: 'Max Realized Loss (USD)',
-                          loss_threshold_percent: 'Loss Threshold (%)',
-                          required_pyramids_for_timer: 'Required Pyramids for Timer',
-                          post_pyramids_wait_minutes: 'Wait Time After Conditions Met (Minutes)',
-                          max_winners_to_combine: 'Max Winners to Combine',
-                        };
+            {/* Tab 3: Notifications */}
+            <TabPanel value={currentTab} index={2}>
+              {/* Summary Cards */}
+              <Grid container spacing={{ xs: 2, sm: 3 }} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <MetricCard
+                    label="Telegram"
+                    value={telegramEnabled ? 'Enabled' : 'Disabled'}
+                    colorScheme={telegramEnabled ? 'bullish' : 'neutral'}
+                    variant="small"
+                  />
+                </Grid>
+              </Grid>
 
-                        const helperTextMap: Record<string, string> = {
-                          max_realized_loss_usd: 'Queue stops releasing trades when this limit is reached',
-                          loss_threshold_percent: 'e.g., -1.5 means timer starts when loss exceeds -1.5%',
-                          required_pyramids_for_timer: 'Number of pyramids (with all DCAs filled) required before timer can start',
-                          post_pyramids_wait_minutes: 'Timer countdown duration before offset execution',
-                          max_winners_to_combine: 'Maximum winning positions to partially close for offset',
-                        };
+              <Grid container spacing={{ xs: 2, sm: 3 }}>
+                <Grid size={12}>
+                  <SettingsSectionCard
+                    title="Telegram Configuration"
+                    icon={<NotificationsIcon />}
+                    description="Configure Telegram bot notifications"
+                  >
+                    <TelegramSettings control={control} watch={watch} getValues={getValues} />
+                  </SettingsSectionCard>
+                </Grid>
 
-                        const label = labelMap[key] || key.replace(/([A-Z])/g, ' $1').replace(/_([a-z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-                        const helperText = fieldError?.message || helperTextMap[key] || '';
+                <Grid size={12}>
+                  <Card sx={{ bgcolor: 'action.disabledBackground', opacity: 0.6 }}>
+                    <CardContent>
+                      <Typography variant="h6" color="text.secondary" gutterBottom>
+                        Other Channels
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Discord, Email, and Webhook notifications coming soon...
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+            </TabPanel>
 
-                        if (isBoolean) {
-                          return (
-                            <FormControlLabel
-                              control={
-                                <Checkbox
-                                  checked={!!field.value}
-                                  onChange={(e) => field.onChange(e.target.checked)}
-                                />
-                              }
-                              label={label}
-                            />
-                          );
-                        }
+            {/* Tab 4: Account & System */}
+            <TabPanel value={currentTab} index={3}>
+              <Grid container spacing={{ xs: 2, sm: 3 }}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <AccountSettingsCard
+                    control={control}
+                    errors={errors}
+                    webhookUrl={webhookUrl}
+                  />
+                </Grid>
 
-                        return (
-                          <TextField
-                            {...field}
-                            label={label}
-                            fullWidth
-                            margin="normal"
-                            type='number'
-                            inputProps={{ step: 'any' }}
-                            onChange={(e) => field.onChange(e.target.value)}
-                            error={!!fieldError}
-                            helperText={helperText}
-                          />
-                        );
-                      }}
-                    />
-                  </Grid>
-                );
-              })}
-            </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <BackupRestoreCard settings={settings} onRestore={handleRestore} />
+                </Grid>
 
+                <Grid size={12}>
+                  <Card
+                    sx={{
+                      borderColor: 'error.main',
+                      borderWidth: 1,
+                      borderStyle: 'solid',
+                    }}
+                  >
+                    <CardContent>
+                      <Typography variant="h6" color="error" gutterBottom>
+                        Danger Zone
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Actions here can have permanent effects. Proceed with caution.
+                      </Typography>
+                      <Button variant="outlined" color="error" disabled>
+                        Reset All Settings
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+            </TabPanel>
 
-          </CustomTabPanel>
-
-          <CustomTabPanel value={currentTab} index={2}>
-            {/* Queue Priority Configuration */}
-            <QueuePrioritySettings control={control} setValue={setValue} watch={watch} />
-          </CustomTabPanel>
-
-          <CustomTabPanel value={currentTab} index={3}>
-            {/* DCA Grid Settings - Specific Configs Only */}
-            <Typography variant="h6" gutterBottom>DCA Grid Configuration</Typography>
-            <Box sx={{ mb: 2 }}>
-              <DCAConfigList />
-            </Box>
-          </CustomTabPanel>
-
-          <CustomTabPanel value={currentTab} index={4}>
-            {/* App Settings (User Account) */}
-            <Typography variant="h6" gutterBottom>Account Settings</Typography>
-            <Controller
-              name="appSettings.username"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Username"
-                  fullWidth
-                  margin="normal"
-                  error={!!errors.appSettings?.username}
-                  helperText={errors.appSettings?.username?.message}
-                />
-              )}
-            />
-            <Controller
-              name="appSettings.email"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Email"
-                  fullWidth
-                  margin="normal"
-                  type="email"
-                  error={!!errors.appSettings?.email}
-                  helperText={errors.appSettings?.email?.message}
-                />
-              )}
-            />
-            <TextField
-              label="Webhook URL"
-              fullWidth
-              margin="normal"
-              value={settings?.id ? `${window.location.origin}/api/v1/webhooks/${settings.id}/tradingview` : 'Loading...'}
-              InputProps={{
-                readOnly: true,
-              }}
-              helperText="Copy this URL to your TradingView Alert Webhook settings."
-            />
-            <Controller
-              name="appSettings.webhook_secret"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Webhook Secret"
-                  fullWidth
-                  margin="normal"
-                  error={!!errors.appSettings?.webhook_secret}
-                  helperText={errors.appSettings?.webhook_secret?.message}
-                  disabled
-                />
-              )}
-            />
-          </CustomTabPanel>
-
-          <CustomTabPanel value={currentTab} index={5}>
-            <TelegramSettings control={control} watch={watch} getValues={getValues} />
-          </CustomTabPanel>
-
-          <CustomTabPanel value={currentTab} index={6}>
-            <Typography variant="h6" gutterBottom>System Maintenance</Typography>
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1">Backup Configuration</Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Download a copy of your current configuration settings (excluding API keys).
-              </Typography>
-              <Button variant="outlined" onClick={async () => {
-                try {
-                  // Fetch DCA configurations
-                  const { dcaConfigApi } = await import('../api/dcaConfig');
-                  const dcaConfigs = await dcaConfigApi.getAll();
-
-                  // Create backup object excluding sensitive data
-                  const backupData = {
-                    exchange: settings?.exchange,
-                    risk_config: settings?.risk_config,
-                    dca_configurations: dcaConfigs.map(config => ({
-                      pair: config.pair,
-                      timeframe: config.timeframe,
-                      exchange: config.exchange,
-                      entry_order_type: config.entry_order_type,
-                      dca_levels: config.dca_levels,
-                      pyramid_specific_levels: config.pyramid_specific_levels,
-                      tp_mode: config.tp_mode,
-                      tp_settings: config.tp_settings,
-                      max_pyramids: config.max_pyramids
-                    }))
-                  };
-
-                  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
-                  const downloadAnchorNode = document.createElement('a');
-                  downloadAnchorNode.setAttribute("href", dataStr);
-                  downloadAnchorNode.setAttribute("download", "gemini_config_backup.json");
-                  document.body.appendChild(downloadAnchorNode);
-                  downloadAnchorNode.click();
-                  downloadAnchorNode.remove();
-                  useNotificationStore.getState().showNotification("Backup downloaded successfully with DCA configurations.", "success");
-                } catch (err) {
-                  console.error("Backup failed", err);
-                  useNotificationStore.getState().showNotification("Failed to create backup: " + (err as Error).message, "error");
-                }
-              }}>
-                Download Backup
-              </Button>
-            </Box>
-
-            <Divider sx={{ my: 3 }} />
-
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1">Restore Configuration</Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Restore settings from a backup file. This will overwrite current Risk and DCA configurations.
-              </Typography>
-              <Button
-                variant="contained"
-                component="label"
-              >
-                Upload Backup File
-                <input
-                  type="file"
-                  hidden
-                  accept=".json"
-                  onChange={(event) => {
-                    const fileReader = new FileReader();
-                    if (event.target.files && event.target.files.length > 0) {
-                      fileReader.readAsText(event.target.files[0], "UTF-8");
-                      fileReader.onload = async (e) => {
-                        if (e.target?.result) {
-                          try {
-                            const parsed = JSON.parse(e.target.result as string);
-
-                            // Only restore exchange and risk_config (no username, email, API keys, etc.)
-                            const payload: any = {
-                              exchange: parsed.exchange,
-                              risk_config: parsed.risk_config,
-                            };
-
-                            // Update general settings first
-                            await updateSettings(payload);
-
-                            // Restore DCA configurations if present
-                            if (parsed.dca_configurations && Array.isArray(parsed.dca_configurations)) {
-                              const { dcaConfigApi } = await import('../api/dcaConfig');
-
-                              // Get existing DCA configs to avoid duplicates
-                              const existingConfigs = await dcaConfigApi.getAll();
-
-                              let createdCount = 0;
-                              let updatedCount = 0;
-
-                              for (const dcaConfig of parsed.dca_configurations) {
-                                // Check if config already exists for this pair/exchange/timeframe
-                                const existing = existingConfigs.find(
-                                  c => c.pair === dcaConfig.pair &&
-                                       c.exchange === dcaConfig.exchange &&
-                                       c.timeframe === dcaConfig.timeframe
-                                );
-
-                                if (existing) {
-                                  // Update existing config
-                                  await dcaConfigApi.update(existing.id, {
-                                    entry_order_type: dcaConfig.entry_order_type,
-                                    dca_levels: dcaConfig.dca_levels,
-                                    pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
-                                    tp_mode: dcaConfig.tp_mode,
-                                    tp_settings: dcaConfig.tp_settings,
-                                    max_pyramids: dcaConfig.max_pyramids
-                                  });
-                                  updatedCount++;
-                                } else {
-                                  // Create new config
-                                  await dcaConfigApi.create({
-                                    pair: dcaConfig.pair,
-                                    timeframe: dcaConfig.timeframe,
-                                    exchange: dcaConfig.exchange,
-                                    entry_order_type: dcaConfig.entry_order_type,
-                                    dca_levels: dcaConfig.dca_levels,
-                                    pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
-                                    tp_mode: dcaConfig.tp_mode,
-                                    tp_settings: dcaConfig.tp_settings,
-                                    max_pyramids: dcaConfig.max_pyramids
-                                  });
-                                  createdCount++;
-                                }
-                              }
-
-                              useNotificationStore.getState().showNotification(
-                                `Configuration restored successfully. DCA configs: ${createdCount} created, ${updatedCount} updated.`,
-                                "success"
-                              );
-                            } else {
-                              useNotificationStore.getState().showNotification("Configuration restored successfully (no DCA configs found in backup).", "success");
-                            }
-                          } catch (err) {
-                            console.error("Restore failed", err);
-                            useNotificationStore.getState().showNotification("Failed to parse configuration file.", "error");
-                          }
-                        }
-                      };
-                    }
-                  }}
-                />
-              </Button>
-            </Box>
-          </CustomTabPanel>
-
-          <Button type="submit" variant="contained" color="success" sx={{ mt: 3 }} size="large">
+        {/* Save Button */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: { xs: 'stretch', sm: 'flex-end' },
+            position: { xs: 'fixed', sm: 'static' },
+            bottom: { xs: 72, sm: 'auto' },
+            left: { xs: 0, sm: 'auto' },
+            right: { xs: 0, sm: 'auto' },
+            bgcolor: 'background.paper',
+            p: { xs: 1.5, sm: 0 },
+            borderTop: { xs: 1, sm: 0 },
+            borderColor: 'divider',
+            zIndex: { xs: 1000, sm: 'auto' },
+            boxShadow: { xs: '0 -2px 10px rgba(0,0,0,0.2)', sm: 'none' },
+          }}
+        >
+          <Button
+            type="submit"
+            variant="contained"
+            color="success"
+            size="large"
+            startIcon={<SaveIcon />}
+            fullWidth
+            sx={{ maxWidth: { sm: 200 } }}
+          >
             Save Settings
           </Button>
-        </form>
-      </Paper>
-    </Box >
+        </Box>
+      </form>
+    </Box>
   );
 };
 

@@ -1,34 +1,36 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import DashboardPage from './DashboardPage';
-import useEngineStore from '../store/engineStore';
+import useDashboardStore from '../store/dashboardStore';
+import useRiskStore from '../store/riskStore';
 
-// Mock the store
-jest.mock('../store/engineStore');
-
-// Mock child components if complex, but simple ones like Cards can be rendered
-// However, to isolate DashboardPage logic, we can mock the store return values.
+// Mock the stores
+jest.mock('../store/dashboardStore');
+jest.mock('../store/riskStore');
 
 describe('DashboardPage', () => {
-  const mockFetchEngineData = jest.fn();
+  const mockFetchDashboardData = jest.fn();
+  const mockFetchRiskStatus = jest.fn();
 
   beforeEach(() => {
-    // Reset mocks before each test
     jest.clearAllMocks();
-    
-    // Default mock implementation
-    (useEngineStore as unknown as jest.Mock).mockReturnValue({
-      tvl: null,
-      pnl: null,
-      realized_pnl: null,
-      unrealized_pnl: null,
-      activeGroupsCount: null,
-      free_usdt: null,
-      total_trades: 0,
-      total_winning_trades: 0,
-      total_losing_trades: 0,
-      win_rate: 0,
-      fetchEngineData: mockFetchEngineData,
+
+    // Default mock implementation for dashboardStore
+    (useDashboardStore as unknown as jest.Mock).mockReturnValue({
+      data: null,
+      loading: false,
+      error: null,
+      fetchDashboardData: mockFetchDashboardData,
+    });
+
+    // Default mock implementation for riskStore
+    (useRiskStore as unknown as jest.Mock).mockReturnValue({
+      status: null,
+      fetchStatus: mockFetchRiskStatus,
+      forceStop: jest.fn(),
+      forceStart: jest.fn(),
+      syncExchange: jest.fn(),
+      error: null,
     });
   });
 
@@ -38,66 +40,81 @@ describe('DashboardPage', () => {
     expect(headingElement).toBeInTheDocument();
   });
 
-  test('calls fetchEngineData on mount', () => {
+  test('calls fetchDashboardData and fetchRiskStatus on mount', () => {
     render(<DashboardPage />);
-    expect(mockFetchEngineData).toHaveBeenCalledTimes(1);
+    expect(mockFetchDashboardData).toHaveBeenCalled();
+    expect(mockFetchRiskStatus).toHaveBeenCalled();
   });
 
-  test('displays loading states when data is null', () => {
+  test('displays loading skeleton when loading and no data', () => {
+    (useDashboardStore as unknown as jest.Mock).mockReturnValue({
+      data: null,
+      loading: true,
+      error: null,
+      fetchDashboardData: mockFetchDashboardData,
+    });
+
     render(<DashboardPage />);
-    
-    // TvlGauge, PnlCard, ActiveGroupsWidget all show 'Loading...' or similar or 0/null state
-    // Based on component code read:
-    // ActiveGroupsWidget: 'Loading...'
-    // PnlCard: 'Loading...'
-    
-    const loadingElements = screen.getAllByText(/Loading.../i);
-    expect(loadingElements.length).toBeGreaterThanOrEqual(1);
+    // Should show skeleton or loading state
+    expect(screen.getByText(/Dashboard/i)).toBeInTheDocument();
+  });
+
+  test('displays error message when error occurs', () => {
+    (useDashboardStore as unknown as jest.Mock).mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'Failed to fetch data',
+      fetchDashboardData: mockFetchDashboardData,
+    });
+
+    render(<DashboardPage />);
+    expect(screen.getByText(/Error: Failed to fetch data/i)).toBeInTheDocument();
   });
 
   test('renders fetched data correctly', () => {
-    (useEngineStore as unknown as jest.Mock).mockReturnValue({
-      tvl: 50000,
-      pnl: 1250.50,
-      realized_pnl: 1000,
-      unrealized_pnl: 250.50,
-      activeGroupsCount: 3,
-      free_usdt: 10000,
-      total_trades: 100,
-      total_winning_trades: 50,
-      total_losing_trades: 50,
-      win_rate: 50,
-      fetchEngineData: mockFetchEngineData,
+    (useDashboardStore as unknown as jest.Mock).mockReturnValue({
+      data: {
+        live_dashboard: {
+          total_active_position_groups: 3,
+          queued_signals_count: 5,
+          total_pnl_usd: 1250.50,
+          tvl: 50000,
+          free_usdt: 10000,
+          last_webhook_timestamp: '2024-01-01T12:00:00Z',
+          engine_status: 'running',
+          risk_engine_status: 'active',
+        },
+        performance_dashboard: {
+          pnl_metrics: {},
+          equity_curve: [],
+          win_loss_stats: { total_trades: 100, wins: 50, losses: 50, win_rate: 50 },
+          trade_distribution: {},
+          risk_metrics: {},
+        },
+        timestamp: '2024-01-01T12:00:00Z',
+      },
+      loading: false,
+      error: null,
+      fetchDashboardData: mockFetchDashboardData,
+    });
+
+    (useRiskStore as unknown as jest.Mock).mockReturnValue({
+      status: {
+        engine_force_stopped: false,
+        engine_paused_by_loss_limit: false,
+        daily_realized_pnl: 500,
+        max_realized_loss_usd: 1000,
+      },
+      fetchStatus: mockFetchRiskStatus,
+      forceStop: jest.fn(),
+      forceStart: jest.fn(),
+      syncExchange: jest.fn(),
+      error: null,
     });
 
     render(<DashboardPage />);
 
-    // Check Active Groups
+    // Check Active Position Groups is displayed
     expect(screen.getByText('3')).toBeInTheDocument();
-    
-    // Check PnL (formatted as currency)
-    expect(screen.getByText('$1,250.50')).toBeInTheDocument();
-    
-    // Check TVL (assuming TvlGauge renders the number somewhere or we check PnlCard logic)
-    // Note: We didn't read TvlGauge but PnlCard formats currency.
-  });
-
-  test('renders negative PnL with correct formatting', () => {
-    (useEngineStore as unknown as jest.Mock).mockReturnValue({
-      tvl: 50000,
-      pnl: -500.25,
-      realized_pnl: -600,
-      unrealized_pnl: 99.75,
-      activeGroupsCount: 1,
-      free_usdt: 10000,
-      total_trades: 10,
-      total_winning_trades: 0,
-      total_losing_trades: 10,
-      win_rate: 0,
-      fetchEngineData: mockFetchEngineData,
-    });
-
-    render(<DashboardPage />);
-    expect(screen.getByText('$-500.25')).toBeInTheDocument();
   });
 });

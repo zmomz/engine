@@ -1,6 +1,27 @@
 import { act } from 'react';
 import { create } from 'zustand';
-import useAuthStore, { AuthState } from './authStore';
+import useAuthStore, { AuthState, User } from './authStore';
+
+// Helper to create a mock user for testing
+const createMockUser = (overrides: Partial<User> = {}): User => ({
+  id: '123',
+  username: 'testuser',
+  email: 'test@example.com',
+  exchange: 'binance',
+  webhook_secret: 'secret123',
+  configured_exchanges: ['binance'],
+  risk_config: {
+    max_open_positions_global: 5,
+    max_open_positions_per_symbol: 2,
+    max_total_exposure_usd: 10000,
+    max_realized_loss_usd: 500,
+    loss_threshold_percent: 5,
+    required_pyramids_for_timer: 2,
+    post_pyramids_wait_minutes: 30,
+    max_winners_to_combine: 3,
+  },
+  ...overrides,
+});
 
 describe('useAuthStore', () => {
   const originalLocalStorage = window.localStorage;
@@ -32,7 +53,7 @@ describe('useAuthStore', () => {
 
   it('should log in a user and store token and user in localStorage', () => {
     const testToken = 'test-token';
-    const testUser = { id: '123', username: 'testuser' };
+    const testUser = createMockUser();
 
     act(() => {
       useAuthStore.getState().login(testToken, testUser);
@@ -49,7 +70,7 @@ describe('useAuthStore', () => {
   it('should log out a user and remove token and user from localStorage', () => {
     // First, log in a user
     const testToken = 'test-token';
-    const testUser = { id: '123', username: 'testuser' };
+    const testUser = createMockUser();
     act(() => {
       useAuthStore.getState().login(testToken, testUser);
     });
@@ -69,7 +90,7 @@ describe('useAuthStore', () => {
 
   it('should initialize with token and user from localStorage if present', () => {
     const storedToken = 'stored-token';
-    const storedUser = { id: '456', username: 'storeduser' };
+    const storedUser = createMockUser({ id: '456', username: 'storeduser' });
     localStorage.setItem('token', storedToken);
     localStorage.setItem('user', JSON.stringify(storedUser));
 

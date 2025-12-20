@@ -5,6 +5,13 @@ interface LiveDashboard {
   total_active_position_groups: number;
   queued_signals_count: number;
   total_pnl_usd: number;
+  realized_pnl_usd: number;
+  unrealized_pnl_usd: number;
+  pnl_today: number;
+  total_trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
   tvl: number;
   free_usdt: number;
   last_webhook_timestamp: string | null;

@@ -1,54 +1,15 @@
 import { create } from 'zustand';
 import api from '../services/api';
-import useAuthStore from './authStore';
+import useAuthStore, { User } from './authStore';
 import useNotificationStore from './notificationStore';
 
-export interface PriorityRulesConfig {
-  priority_rules_enabled: {
-    same_pair_timeframe: boolean;
-    deepest_loss_percent: boolean;
-    highest_replacement: boolean;
-    fifo_fallback: boolean;
-  };
-  priority_order: string[];
-}
+// Re-export User as UserSettings for backward compatibility
+export type UserSettings = User;
 
-export interface RiskEngineConfig {
-  max_open_positions_global: number;
-  max_open_positions_per_symbol: number;
-  max_total_exposure_usd: number;
-  max_realized_loss_usd: number;
-  loss_threshold_percent: number;
-  required_pyramids_for_timer: number;
-  post_pyramids_wait_minutes: number;
-  max_winners_to_combine: number;
-  // Priority rules are internal but exposed for QueuePage display
-  priority_rules?: PriorityRulesConfig;
-}
-
-export interface TelegramConfig {
-  enabled: boolean;
-  bot_token?: string;
-  channel_id?: string;
-  channel_name: string;
-  engine_signature: string;
-  send_entry_signals: boolean;
-  send_exit_signals: boolean;
-  update_on_pyramid: boolean;
-  test_mode: boolean;
-}
-
-export interface UserSettings {
-  id: string;
-  username: string;
-  email: string;
-  exchange: string;
-  webhook_secret: string;
-  configured_exchanges: string[];
-  risk_config: RiskEngineConfig;
-  telegram_config?: TelegramConfig;
-  configured_exchange_details?: Record<string, { testnet?: boolean; account_type?: string; encrypted_data?: string; }>;
-}
+// Additional type exports for components that need specific config types
+export type RiskEngineConfig = User['risk_config'];
+export type TelegramConfig = NonNullable<User['telegram_config']>;
+export type PriorityRulesConfig = NonNullable<RiskEngineConfig['priority_rules']>;
 
 interface ConfigState {
   settings: UserSettings | null;
@@ -70,12 +31,12 @@ const useConfigStore = create<ConfigState>((set) => ({
   fetchSettings: async () => {
     set({ loading: true, error: null });
     try {
-      // The user object from useAuthStore already contains the current settings
-      const currentUser = useAuthStore.getState().user;
-      if (currentUser) {
-        set({ settings: currentUser, loading: false });
-      } else {
-        set({ error: 'User not authenticated', loading: false });
+      const response = await api.get<UserSettings>('/settings');
+      set({ settings: response.data, loading: false });
+      // Also update the user in the auth store to keep them in sync
+      const token = useAuthStore.getState().token;
+      if (token) {
+        useAuthStore.getState().login(token, response.data);
       }
     } catch (err: any) {
       console.error("Failed to fetch settings", err);
