@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install dependencies (--legacy-peer-deps needed for TypeScript 5.x with react-scripts 5.0.1)
-RUN npm install --legacy-peer-deps
+# Install dependencies
+RUN npm install
 
 # Set CI environment variable to true to treat warnings as non-fatal
 ENV CI=true
