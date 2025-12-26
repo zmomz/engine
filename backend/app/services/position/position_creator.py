@@ -2,6 +2,7 @@
 Position and pyramid creation logic.
 Handles creating new positions from signals and adding pyramids.
 """
+import asyncio
 import json
 import logging
 import uuid
@@ -243,11 +244,18 @@ async def create_position_group_from_signal(
 
     logger.debug(f"About to submit {len(orders_to_submit)} orders")
 
-    # 8. Asynchronously submit orders
+    # 8. Submit orders sequentially to avoid SQLAlchemy session conflicts
+    # Note: Parallel submission causes "Session is already flushing" errors
+    # because multiple coroutines try to update the shared session concurrently
     try:
-        for order in orders_to_submit:
-            logger.debug(f"Submitting order {order.leg_index}")
-            await order_service.submit_order(order)
+        if orders_to_submit:
+            logger.debug(f"Submitting {len(orders_to_submit)} orders sequentially")
+            for order in orders_to_submit:
+                try:
+                    await order_service.submit_order(order)
+                except Exception as e:
+                    logger.error(f"Order {order.leg_index} failed: {e}")
+                    raise e
     except Exception as e:
         logger.error(f"Failed to submit orders for PositionGroup {new_position_group.id}: {e}")
         new_position_group.status = PositionGroupStatus.FAILED
@@ -270,8 +278,8 @@ async def create_position_group_from_signal(
     await update_risk_timer_func(new_position_group.id, risk_config, session=session)
     await update_position_stats_func(new_position_group.id, session=session)
 
-    # Broadcast initial entry signal to Telegram
-    await broadcast_entry_signal(new_position_group, new_pyramid, session)
+    # Broadcast initial entry signal to Telegram (fire-and-forget for performance)
+    asyncio.create_task(broadcast_entry_signal(new_position_group, new_pyramid, session))
 
     return new_position_group
 
@@ -392,18 +400,23 @@ async def handle_pyramid_continuation(
         session.add(dca_order)
         orders_to_submit.append(dca_order)
 
-    for order in orders_to_submit:
-        await order_service.submit_order(order)
+    # Submit orders sequentially to avoid SQLAlchemy session conflicts
+    if orders_to_submit:
+        logger.debug(f"Submitting {len(orders_to_submit)} pyramid orders sequentially")
+        for order in orders_to_submit:
+            try:
+                await order_service.submit_order(order)
+            except Exception as e:
+                logger.error(f"Pyramid order {order.leg_index} failed: {e}")
+                raise e
 
     logger.info(f"Handled pyramid continuation for PositionGroup {existing_position_group.id} from signal {signal.id}. Created {len(orders_to_submit)} new orders.")
 
     await update_risk_timer_func(existing_position_group.id, risk_config, session=session)
     await update_position_stats_func(existing_position_group.id, session=session)
 
-    # Broadcast pyramid added notification
-    await broadcast_pyramid_added(existing_position_group, new_pyramid, session)
-
-    # Broadcast entry signal to Telegram for the new pyramid
-    await broadcast_entry_signal(existing_position_group, new_pyramid, session)
+    # Broadcast notifications to Telegram (fire-and-forget for performance)
+    asyncio.create_task(broadcast_pyramid_added(existing_position_group, new_pyramid, session))
+    asyncio.create_task(broadcast_entry_signal(existing_position_group, new_pyramid, session))
 
     return existing_position_group

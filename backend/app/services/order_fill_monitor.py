@@ -38,7 +38,7 @@ class OrderFillMonitorService:
         order_service_class: type[OrderService],
         position_manager_service_class: type[PositionManagerService],
         risk_engine_config: RiskEngineConfig = None,
-        polling_interval_seconds: int = 5
+        polling_interval_seconds: int = 2
     ):
         self.session_factory = session_factory
         self.dca_order_repository_class = dca_order_repository_class

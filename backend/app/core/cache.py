@@ -44,10 +44,12 @@ class CacheService:
     """
 
     # TTL constants in seconds
-    TTL_PRECISION_RULES = 86400  # 24 hours
+    TTL_PRECISION_RULES = 172800  # 2 days (48 hours)
     TTL_BALANCE = 300  # 5 minutes
     TTL_TICKERS = 60  # 1 minute
     TTL_DASHBOARD = 60  # 1 minute
+    TTL_DCA_CONFIG = 300  # 5 minutes
+    TTL_USER = 300  # 5 minutes
 
     # Key prefixes
     PREFIX_PRECISION = "precision"
@@ -57,6 +59,8 @@ class CacheService:
     PREFIX_TOKEN_BLACKLIST = "token_blacklist"
     PREFIX_DISTRIBUTED_LOCK = "lock"
     PREFIX_SERVICE_HEALTH = "service_health"
+    PREFIX_DCA_CONFIG = "dca_config"
+    PREFIX_USER = "user"
 
     def __init__(self):
         self._redis: Optional[redis.Redis] = None
@@ -166,14 +170,27 @@ class CacheService:
         return await self.get(key)
 
     async def set_precision_rules(self, exchange: str, rules: dict) -> bool:
-        """Cache precision rules for an exchange (24h TTL)."""
+        """Cache precision rules for an exchange (2 days TTL)."""
         key = self._make_key(self.PREFIX_PRECISION, exchange.lower())
         return await self.set(key, rules, self.TTL_PRECISION_RULES)
 
     async def invalidate_precision_rules(self, exchange: str) -> bool:
-        """Invalidate cached precision rules for an exchange."""
+        """
+        Invalidate cached precision rules for an exchange.
+        Call this when a precision-related order error occurs.
+        """
         key = self._make_key(self.PREFIX_PRECISION, exchange.lower())
         return await self.delete(key)
+
+    async def get_symbol_precision(self, exchange: str, symbol: str) -> Optional[dict]:
+        """
+        Get precision rules for a specific symbol.
+        Returns None if symbol not found in cache.
+        """
+        rules = await self.get_precision_rules(exchange)
+        if rules:
+            return rules.get(symbol)
+        return None
 
     # ==================== Balance ====================
 
@@ -219,6 +236,36 @@ class CacheService:
     async def invalidate_user_dashboard(self, user_id: str) -> int:
         """Invalidate all cached dashboard data for a user."""
         pattern = self._make_key(self.PREFIX_DASHBOARD, user_id, "*")
+        return await self.delete_pattern(pattern)
+
+    # ==================== DCA Config ====================
+
+    async def get_dca_config(
+        self,
+        user_id: str,
+        pair: str,
+        timeframe: str,
+        exchange: str
+    ) -> Optional[dict]:
+        """Get cached DCA configuration."""
+        key = self._make_key(self.PREFIX_DCA_CONFIG, user_id, exchange, pair, timeframe)
+        return await self.get(key)
+
+    async def set_dca_config(
+        self,
+        user_id: str,
+        pair: str,
+        timeframe: str,
+        exchange: str,
+        config: dict
+    ) -> bool:
+        """Cache DCA configuration (5min TTL)."""
+        key = self._make_key(self.PREFIX_DCA_CONFIG, user_id, exchange, pair, timeframe)
+        return await self.set(key, config, self.TTL_DCA_CONFIG)
+
+    async def invalidate_user_dca_configs(self, user_id: str) -> int:
+        """Invalidate all cached DCA configs for a user."""
+        pattern = self._make_key(self.PREFIX_DCA_CONFIG, user_id, "*")
         return await self.delete_pattern(pattern)
 
     # ==================== Token Blacklist ====================

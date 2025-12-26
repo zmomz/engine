@@ -76,10 +76,27 @@ class OrderService:
                     await self.dca_order_repository.update(dca_order)
                     raise APIError(f"Failed to submit order after {max_retries} attempts: {e}") from e
             except APIError as e:
+                # Check for precision-related errors and invalidate cache
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['precision', 'lot size', 'step size', 'tick size', 'quantity', 'notional', 'min_qty']):
+                    logger.warning(f"Precision-related error detected, invalidating precision cache")
+                    from app.core.cache import get_cache
+                    cache = await get_cache()
+                    # Extract exchange name from connector class name
+                    exchange_name = self.exchange_connector.__class__.__name__.replace('Connector', '').lower()
+                    await cache.invalidate_precision_rules(exchange_name)
                 dca_order.status = OrderStatus.FAILED.value
                 await self.dca_order_repository.update(dca_order)
                 raise e
             except Exception as e:
+                # Check for precision-related errors and invalidate cache
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['precision', 'lot size', 'step size', 'tick size', 'quantity', 'notional', 'min_qty']):
+                    logger.warning(f"Precision-related error detected, invalidating precision cache")
+                    from app.core.cache import get_cache
+                    cache = await get_cache()
+                    exchange_name = self.exchange_connector.__class__.__name__.replace('Connector', '').lower()
+                    await cache.invalidate_precision_rules(exchange_name)
                 dca_order.status = OrderStatus.FAILED.value
                 await self.dca_order_repository.update(dca_order)
                 raise APIError(f"Failed to submit order: {e}") from e

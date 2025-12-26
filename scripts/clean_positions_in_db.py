@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.dca_order import DCAOrder
 from app.models.pyramid import Pyramid
 from app.models.dca_configuration import DCAConfiguration
+from app.models.risk_action import RiskAction
 
 async def clean_positions_for_user(username: str, confirm: bool):
     if not confirm:
@@ -43,6 +44,10 @@ async def clean_positions_for_user(username: str, confirm: bool):
             # Delete Pyramid entries associated with the user's position groups
             print(f"Deleting Pyramid entries associated with user's position groups...")
             await session.execute(delete(Pyramid).where(Pyramid.group_id.in_(group_ids)))
+
+            # Delete Risk actions associated with the user's position groups
+            print(f"Deleting Risk actions associated with user's position groups...")
+            await session.execute(delete(RiskAction).where(RiskAction.group_id.in_(group_ids)))
 
             # Delete position groups for the user
             print(f"Deleting position groups for user '{username}'...")

@@ -517,62 +517,31 @@ class QueueManagerService:
                         order_service_class=OrderService
                     )
                     
-                    # Fetch capital using correct connector
-                    total_capital = Decimal("1000") # Default fallback
-                    try:
-                        # Re-init connector for best_signal.exchange to get balance
-                        exchange = None
-                        if self.exchange_connector:
-                            exchange = self.exchange_connector
-                        else:
-                                encrypted_data = user.encrypted_api_keys
-                                target_data = None
-                                if isinstance(encrypted_data, dict) and best_signal.exchange.lower() in encrypted_data:
-                                    target_data = encrypted_data[best_signal.exchange.lower()]
-                                
-                                if target_data:
-                                    # Extract settings from stored config
-                                    testnet = target_data.get("testnet", False) if isinstance(target_data, dict) else False
-                                    account_type = target_data.get("account_type", "UNIFIED") if isinstance(target_data, dict) else "UNIFIED"
-                                    default_type = target_data.get("default_type", "spot") if isinstance(target_data, dict) else "spot"
-                                    
-                                    exchange_config = {
-                                        "encrypted_data": target_data if not isinstance(target_data, dict) else target_data.get("encrypted_data", target_data),
-                                        "testnet": testnet,
-                                        "account_type": account_type,
-                                        "default_type": default_type
-                                    }
-                                    exchange = get_exchange_connector(best_signal.exchange.lower(), exchange_config)
-
-                        if exchange:
-                            balance = await exchange.fetch_balance()
-                            # Standardized flat structure (e.g., {'USDT': 1000.0})
-                            if "total" in balance and isinstance(balance["total"], dict):
-                                balance = balance["total"]
-                            
-                            if isinstance(balance, dict):
-                                total_capital = Decimal(str(balance.get('USDT', 1000)))
-                            await exchange.close()
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch balance for user {user.id}: {e}")
-                        pass
-
                     # --- POSITION SIZING LOGIC ---
-                    # 1. Calculate based on percentage
-                    alloc_percent = risk_config.risk_per_position_percent if risk_config.risk_per_position_percent else Decimal("10.0")
-                    allocated_capital = total_capital * (alloc_percent / Decimal("100"))
-                    
-                    # 2. Cap by absolute amount if configured
-                    if risk_config.risk_per_position_cap_usd and risk_config.risk_per_position_cap_usd > 0:
-                        if allocated_capital > risk_config.risk_per_position_cap_usd:
-                            allocated_capital = risk_config.risk_per_position_cap_usd
+                    # Use order_size from the stored signal payload
+                    signal_payload = best_signal.signal_payload
+                    tv_data = signal_payload.get("tv", {})
+                    execution_intent = signal_payload.get("execution_intent", {})
 
-                    # 3. Cap total exposure (Global Safety)
+                    order_size = Decimal(str(tv_data.get("order_size", 0)))
+                    entry_price = best_signal.entry_price
+                    position_size_type = execution_intent.get("position_size_type", "contracts")
+
+                    # Convert order_size to USD value for capital allocation
+                    if position_size_type == "quote":
+                        # Already in quote currency (e.g., USDT)
+                        allocated_capital = order_size
+                    else:
+                        # contracts or base: multiply by entry price to get USD value
+                        allocated_capital = order_size * entry_price
+
+                    # Apply max_total_exposure_usd as safety cap
                     if risk_config.max_total_exposure_usd and risk_config.max_total_exposure_usd > 0:
                         if allocated_capital > risk_config.max_total_exposure_usd:
-                            allocated_capital = risk_config.max_total_exposure_usd
+                            logger.warning(f"Order size {allocated_capital} USD exceeds max exposure {risk_config.max_total_exposure_usd} USD. Capping.")
+                            allocated_capital = Decimal(str(risk_config.max_total_exposure_usd))
 
-                    logger.info(f"Capital Allocation: Total {total_capital} USD, Allocating {allocated_capital} USD ({alloc_percent}%)")
+                    logger.info(f"Capital Allocation from signal: order_size={order_size} ({position_size_type}), Entry={entry_price}, Allocated={allocated_capital} USD")
 
                     # RE-EVALUATE PYRAMID STATUS ON EXECUTION
                     # Even if is_pyramid was False (due to disabled rule), we check again here
