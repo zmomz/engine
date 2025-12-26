@@ -635,9 +635,9 @@ const AnalyticsPage: React.FC = () => {
                       borderRadius: 8,
                     }}
                     labelFormatter={(label) => `Trade #${label}`}
-                    formatter={(value: number | string, name: string) => [
+                    formatter={(value) => [
                       `$${(typeof value === 'number' ? value : 0).toFixed(2)}`,
-                      name === 'cumulative' ? 'Cumulative PnL' : 'Trade PnL'
+                      'PnL'
                     ]}
                   />
                   <Area
@@ -845,7 +845,7 @@ const AnalyticsPage: React.FC = () => {
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: 8,
                     }}
-                    formatter={(value: number | string) => [`$${(typeof value === 'number' ? value : 0).toFixed(2)}`, 'PnL']}
+                    formatter={(value) => [`$${(typeof value === 'number' ? value : 0).toFixed(2)}`, 'PnL']}
                   />
                   <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                     {dayOfWeekData.map((entry, index) => (
