@@ -38,6 +38,7 @@ import { format } from 'date-fns';
 import { PositionsPageSkeleton } from '../components/PositionsSkeleton';
 import { MetricCard } from '../components/MetricCard';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
 import PositionCard from '../components/PositionCard';
 import HistoryPositionCard from '../components/HistoryPositionCard';
@@ -91,14 +92,20 @@ const PositionsPage: React.FC = () => {
     },
   });
 
+  // Refresh data when tab becomes visible again
+  useVisibilityRefresh(() => {
+    fetchPositions();
+    if (tabValue === 1) fetchPositionHistory();
+  });
+
   useEffect(() => {
     fetchPositions();
     fetchPositionHistory();
 
-    // Set up polling for active positions
+    // Set up polling for active positions (1 second for real-time feel)
     const interval = setInterval(() => {
       if (tabValue === 0) fetchPositions(true);
-    }, 5000);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [fetchPositions, fetchPositionHistory, tabValue]);

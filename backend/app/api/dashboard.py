@@ -21,7 +21,7 @@ MIN_BALANCE_THRESHOLD = 0.10  # $0.10 USD
 router = APIRouter()
 
 @router.get("/account-summary", response_model=DashboardOutput)
-@limiter.limit("20/minute")
+@limiter.limit("120/minute")
 async def get_account_summary(
     request: Request,
     current_user: User = Depends(get_current_active_user)
@@ -108,8 +108,9 @@ async def get_account_summary(
                 if symbol.replace('/', '') in all_tickers:
                         return float(all_tickers[symbol.replace('/', '')]['last'])
 
-                # Fallback to individual fetch
-                return await connector.get_current_price(symbol)
+                # Fallback to individual fetch - ensure float return
+                price = await connector.get_current_price(symbol)
+                return float(price) if price is not None else 0.0
 
             for asset, amount_decimal in total_balances.items():
                 amount = float(amount_decimal) if isinstance(amount_decimal, Decimal) else float(amount_decimal)
@@ -140,9 +141,7 @@ async def get_account_summary(
         except Exception as e:
             logger.error(f"Error processing account summary for {exchange_name}: {e}")
             continue
-        finally:
-            if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
-                    await connector.exchange.close()
+        # Note: Don't close connector - it's cached for reuse by the factory
 
     result = {"tvl": float(total_tvl), "free_usdt": float(total_free_usdt)}
 
@@ -152,7 +151,7 @@ async def get_account_summary(
     return result
 
 @router.get("/pnl")
-@limiter.limit("20/minute")
+@limiter.limit("120/minute")
 async def get_pnl(
     request: Request,
     current_user: User = Depends(get_current_active_user),
@@ -220,7 +219,8 @@ async def get_pnl(
                     if symbol.replace('/', '') in all_tickers:
                          return float(all_tickers[symbol.replace('/', '')]['last'])
 
-                    return await connector.get_current_price(symbol)
+                    price = await connector.get_current_price(symbol)
+                    return float(price) if price is not None else None
 
                 for group in groups:
                     logger.debug(f"get_pnl: Processing active group {group.id} (Symbol: {group.symbol}) on {exchange_name}")
@@ -240,9 +240,7 @@ async def get_pnl(
 
             except Exception as e:
                  logger.error(f"Error calculating PnL for exchange {exchange_name}: {e}")
-            finally:
-                if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
-                        await connector.exchange.close()
+            # Note: Don't close connector - it's cached for reuse by the factory
 
     total_pnl = float(realized_pnl) + unrealized_pnl
     logger.debug(f"Total Realized PnL: {realized_pnl}, Total Unrealized PnL: {unrealized_pnl}, Total PnL: {total_pnl}")
@@ -259,7 +257,7 @@ async def get_pnl(
     return result
 
 @router.get("/stats")
-@limiter.limit("20/minute")
+@limiter.limit("120/minute")
 async def get_stats(
     request: Request,
     current_user: User = Depends(get_current_active_user),
@@ -289,7 +287,7 @@ async def get_stats(
     }
 
 @router.get("/active-groups-count")
-@limiter.limit("30/minute")
+@limiter.limit("120/minute")
 async def get_active_groups_count(
     request: Request,
     current_user: User = Depends(get_current_active_user),
@@ -300,7 +298,7 @@ async def get_active_groups_count(
     return {"count": len(groups)}
 
 @router.get("/analytics")
-@limiter.limit("20/minute")
+@limiter.limit("120/minute")
 async def get_comprehensive_analytics(
     request: Request,
     current_user: User = Depends(get_current_active_user),

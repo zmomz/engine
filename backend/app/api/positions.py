@@ -1,9 +1,10 @@
+import asyncio
 import logging
 import traceback
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import uuid
 
 from app.db.database import get_db_session, AsyncSessionLocal
@@ -80,8 +81,53 @@ async def get_position_history(
         "offset": offset
     }
 
+async def _calculate_position_pnl(
+    pos,
+    all_tickers: Dict[str, Any],
+    connector
+) -> None:
+    """
+    Calculate unrealized PnL for a single position.
+    Designed to be called in parallel with asyncio.gather.
+    """
+    try:
+        symbol = pos.symbol
+        current_price = None
+
+        # Try to get price from cached tickers first
+        if symbol in all_tickers:
+            current_price = float(all_tickers[symbol]['last'])
+        elif symbol.replace('/', '') in all_tickers:
+            current_price = float(all_tickers[symbol.replace('/', '')]['last'])
+        else:
+            # Fallback to individual price fetch - ensure float return
+            price = await connector.get_current_price(symbol)
+            current_price = float(price) if price is not None else None
+
+        if current_price is None:
+            return
+
+        qty = float(pos.total_filled_quantity)
+        avg_entry = float(pos.weighted_avg_entry)
+        total_invested = float(pos.total_invested_usd)
+
+        if qty > 0 and avg_entry > 0:
+            if pos.side.lower() == "long":
+                pnl = (current_price - avg_entry) * qty
+            else:
+                pnl = (avg_entry - current_price) * qty
+
+            pos.unrealized_pnl_usd = Decimal(str(pnl))
+            if total_invested > 0:
+                pos.unrealized_pnl_percent = Decimal(str((pnl / total_invested) * 100))
+            else:
+                pos.unrealized_pnl_percent = Decimal("0")
+    except Exception as e:
+        logger.error(f"Error calculating PnL for position {pos.id} ({pos.symbol}): {e}")
+
+
 @router.get("/active", response_model=List[PositionGroupSchema])
-@limiter.limit("60/minute")
+@limiter.limit("120/minute")
 async def get_current_user_active_positions(
     request: Request,
     current_user: User = Depends(get_current_active_user),
@@ -90,16 +136,19 @@ async def get_current_user_active_positions(
     """
     Retrieves all active position groups for the current authenticated user.
     Calculates unrealized PnL with current market prices.
+
+    Performance optimizations:
+    - Batch fetches all tickers once per exchange
+    - Calculates PnL for all positions in parallel using asyncio.gather
     """
     repo = PositionGroupRepository(db)
-    # Use the more inclusive getter that matches dashboard logic (includes live, partially_filled, closing)
     positions = await repo.get_active_position_groups_for_user(current_user.id)
 
     if not positions or not current_user.encrypted_api_keys:
         return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
     # Group positions by exchange for efficient price fetching
-    groups_by_exchange = {}
+    groups_by_exchange: Dict[str, List] = {}
     for pos in positions:
         ex = pos.exchange or current_user.exchange or "binance"
         if ex not in groups_by_exchange:
@@ -108,11 +157,11 @@ async def get_current_user_active_positions(
 
     cache = await get_cache()
 
-    # Calculate unrealized PnL with current prices for each exchange
-    for exchange_name, exchange_positions in groups_by_exchange.items():
+    # Process all exchanges in parallel
+    async def process_exchange(exchange_name: str, exchange_positions: List):
         if not ExchangeConfigService.has_valid_config(current_user, exchange_name):
             logger.warning(f"No valid API keys for exchange '{exchange_name}' to update PnL for {len(exchange_positions)} positions.")
-            continue
+            return
 
         connector = None
         try:
@@ -129,46 +178,27 @@ async def get_current_user_active_positions(
                     logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
                     all_tickers = {}
 
-            async def get_price(symbol):
-                if symbol in all_tickers:
-                    return float(all_tickers[symbol]['last'])
-                if symbol.replace('/', '') in all_tickers:
-                    return float(all_tickers[symbol.replace('/', '')]['last'])
-                return await connector.get_current_price(symbol)
-
-            # Update unrealized PnL for each position
-            for pos in exchange_positions:
-                try:
-                    current_price = await get_price(pos.symbol)
-                    qty = float(pos.total_filled_quantity)
-                    avg_entry = float(pos.weighted_avg_entry)
-                    total_invested = float(pos.total_invested_usd)
-
-                    if qty > 0 and avg_entry > 0:
-                        if pos.side.lower() == "long":
-                            pnl = (current_price - avg_entry) * qty
-                        else:
-                            pnl = (avg_entry - current_price) * qty
-
-                        pos.unrealized_pnl_usd = Decimal(str(pnl))
-                        if total_invested > 0:
-                            pos.unrealized_pnl_percent = Decimal(str((pnl / total_invested) * 100))
-                        else:
-                            pos.unrealized_pnl_percent = Decimal("0")
-                except Exception as e:
-                    logger.error(f"Error calculating PnL for position {pos.id} ({pos.symbol}): {e}")
+            # Calculate PnL for all positions in parallel
+            await asyncio.gather(*[
+                _calculate_position_pnl(pos, all_tickers, connector)
+                for pos in exchange_positions
+            ], return_exceptions=True)
 
         except Exception as e:
             logger.error(f"Error fetching prices from {exchange_name}: {e}")
-        finally:
-            if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
-                await connector.exchange.close()
+        # Note: Don't close connector - it's cached for reuse by the factory
+
+    # Process all exchanges in parallel
+    await asyncio.gather(*[
+        process_exchange(exchange_name, exchange_positions)
+        for exchange_name, exchange_positions in groups_by_exchange.items()
+    ], return_exceptions=True)
 
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 
 @router.get("/history")
-@limiter.limit("30/minute")
+@limiter.limit("120/minute")
 async def get_current_user_position_history(
     request: Request,
     limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
@@ -205,19 +235,22 @@ async def get_all_positions(
     """
     Retrieves all active position groups for a given user.
     Calculates unrealized PnL with current market prices.
+
+    Performance optimizations:
+    - Batch fetches all tickers once per exchange
+    - Calculates PnL for all positions in parallel using asyncio.gather
     """
     if current_user.id != user_id and not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this user's positions.")
 
     repo = PositionGroupRepository(db)
-    # Use the more inclusive getter that matches dashboard logic
     positions = await repo.get_active_position_groups_for_user(user_id)
 
     if not positions or not current_user.encrypted_api_keys:
         return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
     # Group positions by exchange for efficient price fetching
-    groups_by_exchange = {}
+    groups_by_exchange: Dict[str, List] = {}
     for pos in positions:
         ex = pos.exchange or current_user.exchange or "binance"
         if ex not in groups_by_exchange:
@@ -226,10 +259,10 @@ async def get_all_positions(
 
     cache = await get_cache()
 
-    # Calculate unrealized PnL with current prices for each exchange
-    for exchange_name, exchange_positions in groups_by_exchange.items():
+    # Process all exchanges in parallel
+    async def process_exchange(exchange_name: str, exchange_positions: List):
         if not ExchangeConfigService.has_valid_config(current_user, exchange_name):
-            continue
+            return
 
         connector = None
         try:
@@ -245,40 +278,21 @@ async def get_all_positions(
                     logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
                     all_tickers = {}
 
-            async def get_price(symbol):
-                if symbol in all_tickers:
-                    return float(all_tickers[symbol]['last'])
-                if symbol.replace('/', '') in all_tickers:
-                    return float(all_tickers[symbol.replace('/', '')]['last'])
-                return await connector.get_current_price(symbol)
-
-            # Update unrealized PnL for each position
-            for pos in exchange_positions:
-                try:
-                    current_price = await get_price(pos.symbol)
-                    qty = float(pos.total_filled_quantity)
-                    avg_entry = float(pos.weighted_avg_entry)
-                    total_invested = float(pos.total_invested_usd)
-
-                    if qty > 0 and avg_entry > 0:
-                        if pos.side.lower() == "long":
-                            pnl = (current_price - avg_entry) * qty
-                        else:
-                            pnl = (avg_entry - current_price) * qty
-
-                        pos.unrealized_pnl_usd = Decimal(str(pnl))
-                        if total_invested > 0:
-                            pos.unrealized_pnl_percent = Decimal(str((pnl / total_invested) * 100))
-                        else:
-                            pos.unrealized_pnl_percent = Decimal("0")
-                except Exception as e:
-                    logger.error(f"Error calculating PnL for position {pos.id}: {e}")
+            # Calculate PnL for all positions in parallel
+            await asyncio.gather(*[
+                _calculate_position_pnl(pos, all_tickers, connector)
+                for pos in exchange_positions
+            ], return_exceptions=True)
 
         except Exception as e:
             logger.error(f"Error fetching prices from {exchange_name}: {e}")
-        finally:
-            if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
-                await connector.exchange.close()
+        # Note: Don't close connector - it's cached for reuse by the factory
+
+    # Process all exchanges in parallel
+    await asyncio.gather(*[
+        process_exchange(exchange_name, exchange_positions)
+        for exchange_name, exchange_positions in groups_by_exchange.items()
+    ], return_exceptions=True)
 
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 

@@ -28,6 +28,7 @@ import { MetricCard } from '../components/MetricCard';
 import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
 import { PriorityScoreBreakdown } from '../components/PriorityScoreBreakdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import QueueSignalCard from '../components/QueueSignalCard';
 import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
 import { safeToFixed, formatCompactPercent } from '../utils/formatters';
@@ -83,6 +84,13 @@ const QueuePage: React.FC = () => {
     },
   });
 
+  // Refresh data when tab becomes visible again
+  useVisibilityRefresh(() => {
+    fetchQueuedSignals();
+    if (tabValue === 1) fetchQueueHistory();
+    setLastUpdated(new Date());
+  });
+
   useEffect(() => {
     const fetchData = async () => {
       await Promise.all([
@@ -93,13 +101,13 @@ const QueuePage: React.FC = () => {
     };
     fetchData();
 
-    // Set up polling for active queue
+    // Set up polling for active queue (1 second for real-time feel)
     const interval = setInterval(() => {
       if (tabValue === 0) {
         fetchQueuedSignals(true);
         setLastUpdated(new Date());
       }
-    }, 5000);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [fetchQueuedSignals, fetchQueueHistory, tabValue]);

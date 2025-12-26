@@ -103,8 +103,8 @@ const useDashboardStore = create<DashboardStore>((set) => ({
   },
 }));
 
-// Polling logic (every 5 seconds)
-const pollingInterval = 5000;
+// Polling logic (every 1 second for real-time feel)
+const pollingInterval = 1000;
 let intervalId: NodeJS.Timeout | null = null;
 
 export const startDashboardPolling = () => {

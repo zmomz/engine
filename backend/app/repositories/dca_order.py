@@ -5,6 +5,7 @@ from typing import List
 
 from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.position_group import PositionGroup
+from app.models.pyramid import Pyramid
 from app.repositories.base import BaseRepository
 
 
@@ -78,7 +79,10 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
 
         result = await self.session.execute(
             select(self.model)
-            .options(joinedload(self.model.group))
+            .options(
+                joinedload(self.model.group),
+                joinedload(self.model.pyramid)  # Eager load pyramid to avoid N+1 queries
+            )
             .join(PositionGroup, self.model.group_id == PositionGroup.id)
             .where(
                 or_(
