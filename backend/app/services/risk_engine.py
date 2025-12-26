@@ -27,6 +27,7 @@ from app.services.order_management import OrderService
 from app.schemas.grid_config import RiskEngineConfig # Assuming this schema exists
 from app.core.security import EncryptionService # Added import
 from fastapi import HTTPException, status # Added imports
+from app.services.telegram_signal_helper import broadcast_risk_event
 
 logger = logging.getLogger(__name__)
 
@@ -166,10 +167,29 @@ async def update_risk_timers(
                     f"Loss: {pg.unrealized_pnl_percent}% <= {config.loss_threshold_percent}%. "
                     f"Expires: {pg.risk_timer_expires}"
                 )
+                # Broadcast timer started event
+                await broadcast_risk_event(
+                    position_group=pg,
+                    event_type="timer_started",
+                    session=session,
+                    loss_percent=pg.unrealized_pnl_percent,
+                    loss_usd=pg.unrealized_pnl_usd,
+                    timer_minutes=config.post_pyramids_wait_minutes
+                )
             # Check if timer expired
             elif pg.risk_timer_expires and now >= pg.risk_timer_expires:
-                pg.risk_eligible = True
-                logger.info(f"Risk timer EXPIRED for {pg.symbol} (ID: {pg.id}). Now eligible for offset.")
+                if not pg.risk_eligible:  # Only broadcast once when first becoming eligible
+                    pg.risk_eligible = True
+                    logger.info(f"Risk timer EXPIRED for {pg.symbol} (ID: {pg.id}). Now eligible for offset.")
+                    # Broadcast timer expired event
+                    await broadcast_risk_event(
+                        position_group=pg,
+                        event_type="timer_expired",
+                        session=session,
+                        loss_percent=pg.unrealized_pnl_percent,
+                        loss_usd=pg.unrealized_pnl_usd,
+                        timer_minutes=config.post_pyramids_wait_minutes
+                    )
         else:
             # Conditions not met - reset timer if it was running
             if pg.risk_timer_start is not None:
@@ -182,6 +202,15 @@ async def update_risk_timers(
                 logger.info(
                     f"Risk timer RESET for {pg.symbol} (ID: {pg.id}). "
                     f"Reason: {', '.join(reason)}"
+                )
+
+                # Broadcast timer reset event
+                await broadcast_risk_event(
+                    position_group=pg,
+                    event_type="timer_reset",
+                    session=session,
+                    loss_percent=pg.unrealized_pnl_percent,
+                    loss_usd=pg.unrealized_pnl_usd
                 )
 
             pg.risk_timer_start = None
@@ -632,6 +661,30 @@ class RiskEngineService:
                     notes=f"Simultaneous execution: {success_count} success, {error_count} errors"
                 )
                 await risk_action_repo.create(risk_action)
+
+                # Calculate total offset profit from winners
+                total_offset_profit = sum(
+                    Decimal(str(w.get('pnl_usd', 0)))
+                    for w in winner_details if w.get('pnl_usd')
+                ) if winner_details else Decimal("0")
+
+                # Calculate net result
+                net_result = total_offset_profit - abs(loser.unrealized_pnl_usd)
+
+                # Get winner symbols for notification
+                offset_positions = ", ".join([w.get('symbol', 'Unknown') for w in winner_details]) if winner_details else "None"
+
+                # Broadcast offset executed event
+                await broadcast_risk_event(
+                    position_group=loser,
+                    event_type="offset_executed",
+                    session=session,
+                    loss_percent=loser.unrealized_pnl_percent,
+                    loss_usd=loser.unrealized_pnl_usd,
+                    offset_position=offset_positions,
+                    offset_profit=total_offset_profit,
+                    net_result=net_result
+                )
 
                 # Clear skip_once flag if it was set
                 if loser.risk_skip_once:

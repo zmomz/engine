@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -103,6 +104,9 @@ class PositionGroup(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = Column(DateTime)
+
+    # Telegram notification tracking
+    telegram_message_id = Column(BigInteger, nullable=True)
 
     # Relationships
     pyramids = relationship(

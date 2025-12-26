@@ -24,7 +24,14 @@ from app.services.grid_calculator import GridCalculatorService
 from app.services.order_management import OrderService
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.factory import get_exchange_connector
-from app.services.telegram_signal_helper import broadcast_entry_signal, broadcast_exit_signal
+from app.services.telegram_signal_helper import (
+    broadcast_entry_signal,
+    broadcast_exit_signal,
+    broadcast_status_change,
+    broadcast_tp_hit,
+    broadcast_failure,
+    broadcast_pyramid_added,
+)
 from app.core.security import EncryptionService
 from fastapi import HTTPException, status
 
@@ -256,6 +263,14 @@ class PositionManagerService:
         except Exception as e:
             logger.error(f"Failed to submit orders for PositionGroup {new_position_group.id}: {e}")
             new_position_group.status = PositionGroupStatus.FAILED
+            # Broadcast failure alert
+            await broadcast_failure(
+                position_group=new_position_group,
+                error_type="order_failed",
+                error_message=str(e),
+                session=session,
+                pyramid=new_pyramid
+            )
             pass
         
         # Update pyramid status after orders are submitted
@@ -376,6 +391,9 @@ class PositionManagerService:
 
         await self.update_risk_timer(existing_position_group.id, risk_config, session=session)
         await self.update_position_stats(existing_position_group.id, session=session)
+
+        # Broadcast pyramid added notification
+        await broadcast_pyramid_added(existing_position_group, new_pyramid, session)
 
         # Broadcast entry signal to Telegram for the new pyramid
         await broadcast_entry_signal(existing_position_group, new_pyramid, session)
@@ -824,11 +842,33 @@ class PositionManagerService:
 
             # Status Transition Logic
             if position_group.status in [PositionGroupStatus.LIVE, PositionGroupStatus.PARTIALLY_FILLED]:
+                old_status = position_group.status
                 if filled_entry_legs >= position_group.total_dca_legs:
                     position_group.status = PositionGroupStatus.ACTIVE
                     logger.info(f"PositionGroup {group_id} transitioned to ACTIVE")
-                elif filled_entry_legs > 0:
+                    # Broadcast status change
+                    # Get first active pyramid for context
+                    if position_group.pyramids:
+                        active_pyramid = position_group.pyramids[0]
+                        await broadcast_status_change(
+                            position_group=position_group,
+                            old_status=old_status,
+                            new_status=PositionGroupStatus.ACTIVE,
+                            pyramid=active_pyramid,
+                            session=session
+                        )
+                elif filled_entry_legs > 0 and old_status != PositionGroupStatus.PARTIALLY_FILLED:
                     position_group.status = PositionGroupStatus.PARTIALLY_FILLED
+                    # Broadcast status change
+                    if position_group.pyramids:
+                        active_pyramid = position_group.pyramids[0]
+                        await broadcast_status_change(
+                            position_group=position_group,
+                            old_status=old_status,
+                            new_status=PositionGroupStatus.PARTIALLY_FILLED,
+                            pyramid=active_pyramid,
+                            session=session
+                        )
             
             # Auto-close check
             if current_qty <= 0 and len(filled_orders) > 0 and position_group.status not in [PositionGroupStatus.CLOSED, PositionGroupStatus.CLOSING]:
@@ -854,17 +894,34 @@ class PositionManagerService:
                     
                     if should_execute_tp:
                         logger.info(f"Aggregate TP Triggered for Group {group_id} at {current_price} (Target: {aggregate_tp_price})")
-                        
+
                         # Instantiate OrderService
                         order_service = self.order_service_class(
                             session=session,
                             user=user,
                             exchange_connector=exchange_connector
                         )
-                        
+
+                        # Calculate PnL for notification
+                        pnl_percent = position_group.tp_aggregate_percent
+                        pnl_usd = position_group.unrealized_pnl_usd
+
+                        # Broadcast TP hit notification
+                        await broadcast_tp_hit(
+                            position_group=position_group,
+                            pyramid=None,  # Aggregate TP covers all pyramids
+                            tp_type="aggregate",
+                            tp_price=aggregate_tp_price,
+                            pnl_percent=pnl_percent,
+                            session=session,
+                            pnl_usd=pnl_usd,
+                            closed_quantity=current_qty,
+                            remaining_pyramids=0
+                        )
+
                         # 1. Cancel all open orders (remove Limit TPs)
                         await order_service.cancel_open_orders_for_group(group_id)
-                        
+
                         # 2. Execute Market Close for remaining quantity
                         close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
                         await order_service.place_market_order(
@@ -876,7 +933,7 @@ class PositionManagerService:
                             position_group_id=group_id,
                             record_in_db=True
                         )
-                        
+
                         # Mark group as CLOSING
                         position_group.status = PositionGroupStatus.CLOSING
                         await position_group_repo.update(position_group)
@@ -982,6 +1039,28 @@ class PositionManagerService:
                 logger.info(
                     f"Pyramid Aggregate TP Triggered for Pyramid {pyramid.pyramid_index} in Group {position_group.id} "
                     f"at {current_price} (Target: {pyramid_tp_price}, Avg Entry: {pyramid_avg_entry})"
+                )
+
+                # Calculate PnL for notification
+                if position_group.side.lower() == "long":
+                    pnl_usd = (current_price - pyramid_avg_entry) * total_qty
+                else:
+                    pnl_usd = (pyramid_avg_entry - current_price) * total_qty
+
+                # Count remaining pyramids (those not fully TP'd)
+                remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id])
+
+                # Broadcast TP hit notification
+                await broadcast_tp_hit(
+                    position_group=position_group,
+                    pyramid=pyramid,
+                    tp_type="pyramid_aggregate",
+                    tp_price=pyramid_tp_price,
+                    pnl_percent=tp_percent,
+                    session=session,
+                    pnl_usd=pnl_usd,
+                    closed_quantity=total_qty,
+                    remaining_pyramids=remaining_pyramids
                 )
 
                 # Instantiate OrderService

@@ -22,8 +22,10 @@ from app.services.order_management import OrderService
 from app.services.position_manager import PositionManagerService
 from app.services.risk_engine import RiskEngineService
 from app.models.dca_order import DCAOrder, OrderStatus
+from app.models.pyramid import Pyramid
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.core.security import EncryptionService
+from app.services.telegram_signal_helper import broadcast_dca_fill, broadcast_tp_hit
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +251,29 @@ class OrderFillMonitorService:
                                                 # Flush tp_hit update before recalculating stats
                                                 await session.flush()
                                                 await position_manager.update_position_stats(updated_order.group_id, session=session)
+
+                                                # Broadcast per-leg TP hit notification
+                                                if updated_order.group and updated_order.pyramid_id:
+                                                    pyramid = await session.get(Pyramid, updated_order.pyramid_id)
+                                                    if pyramid:
+                                                        # Calculate PnL for this leg
+                                                        entry_price = updated_order.price
+                                                        exit_price = updated_order.tp_price
+                                                        if entry_price and exit_price:
+                                                            pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+                                                            pnl_usd = (exit_price - entry_price) * updated_order.filled_quantity
+                                                            await broadcast_tp_hit(
+                                                                position_group=updated_order.group,
+                                                                pyramid=pyramid,
+                                                                tp_type="per_leg",
+                                                                tp_price=exit_price,
+                                                                pnl_percent=pnl_percent,
+                                                                session=session,
+                                                                pnl_usd=pnl_usd,
+                                                                closed_quantity=updated_order.filled_quantity,
+                                                                leg_index=updated_order.leg_index
+                                                            )
+
                                                 # Trigger risk evaluation on TP hit (position closed/reduced)
                                                 await self._trigger_risk_evaluation_on_fill(user, session)
                                             continue
@@ -287,6 +312,18 @@ class OrderFillMonitorService:
                                                     await position_manager.update_position_stats(order.group_id, session=session)
                                                     # So we need to call `place_tp_order` if filled.
                                                     await order_service.place_tp_order(order)
+
+                                                    # Broadcast DCA fill notification for triggered market order
+                                                    if order.group and order.pyramid_id:
+                                                        pyramid = await session.get(Pyramid, order.pyramid_id)
+                                                        if pyramid:
+                                                            await broadcast_dca_fill(
+                                                                position_group=order.group,
+                                                                order=order,
+                                                                pyramid=pyramid,
+                                                                session=session
+                                                            )
+
                                                     # Trigger risk evaluation on fill
                                                     await self._trigger_risk_evaluation_on_fill(user, session)
                                             continue
@@ -327,6 +364,18 @@ class OrderFillMonitorService:
                                             await position_manager.update_position_stats(updated_order.group_id, session=session)
                                             await order_service.place_tp_order(updated_order)
                                             logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
+
+                                            # Broadcast DCA fill notification
+                                            if updated_order.group and updated_order.pyramid_id:
+                                                pyramid = await session.get(Pyramid, updated_order.pyramid_id)
+                                                if pyramid:
+                                                    await broadcast_dca_fill(
+                                                        position_group=updated_order.group,
+                                                        order=updated_order,
+                                                        pyramid=pyramid,
+                                                        session=session
+                                                    )
+
                                             # Trigger risk evaluation on fill
                                             await self._trigger_risk_evaluation_on_fill(user, session)
 
@@ -343,6 +392,18 @@ class OrderFillMonitorService:
                                                 await position_manager.update_position_stats(updated_order.group_id, session=session)
                                                 await order_service.place_tp_order_for_partial_fill(updated_order)
                                                 logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
+
+                                                # Broadcast DCA fill notification for partial fill
+                                                if updated_order.group and updated_order.pyramid_id:
+                                                    pyramid = await session.get(Pyramid, updated_order.pyramid_id)
+                                                    if pyramid:
+                                                        await broadcast_dca_fill(
+                                                            position_group=updated_order.group,
+                                                            order=updated_order,
+                                                            pyramid=pyramid,
+                                                            session=session
+                                                        )
+
                                                 # Trigger risk evaluation on partial fill
                                                 await self._trigger_risk_evaluation_on_fill(user, session)
                                                 
