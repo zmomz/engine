@@ -17,7 +17,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { PositionGroup } from '../store/positionsStore';
-import { safeToFixed, safeNumber } from '../utils/formatters';
+import { safeToFixed, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
 
 interface PositionCardProps {
   position: PositionGroup;
@@ -26,17 +26,6 @@ interface PositionCardProps {
 
 const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) => {
   const [expanded, setExpanded] = useState(false);
-
-  const formatCurrency = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return '-';
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  const formatPercentage = (value: number | string | null | undefined) => {
-    if (value === null || value === undefined) return '-';
-    const num = safeNumber(value);
-    return `${num >= 0 ? '+' : ''}${safeToFixed(num)}%`;
-  };
 
   const isProfitable = (position.unrealized_pnl_usd || 0) >= 0;
   const pnlColor = isProfitable ? 'success.main' : 'error.main';
@@ -95,14 +84,14 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
               variant="h6"
               sx={{ fontWeight: 700, color: pnlColor, fontSize: '1rem' }}
             >
-              {formatCurrency(position.unrealized_pnl_usd)}
+              {formatCompactCurrency(position.unrealized_pnl_usd)}
             </Typography>
             <Typography
               variant="caption"
               sx={{ color: pnlColor, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
             >
               {isProfitable ? <TrendingUpIcon sx={{ fontSize: 14 }} /> : <TrendingDownIcon sx={{ fontSize: 14 }} />}
-              {formatPercentage(position.unrealized_pnl_percent)}
+              {formatCompactPercent(position.unrealized_pnl_percent)}
             </Typography>
           </Box>
         </Box>
@@ -112,13 +101,13 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
           <Box>
             <Typography variant="caption" color="text.secondary">Entry</Typography>
             <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-              {formatCurrency(position.weighted_avg_entry)}
+              {formatCompactCurrency(position.weighted_avg_entry)}
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'center' }}>
             <Typography variant="caption" color="text.secondary">Invested</Typography>
             <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-              {formatCurrency(position.total_invested_usd)}
+              {formatCompactCurrency(position.total_invested_usd)}
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'right' }}>
@@ -181,7 +170,7 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
             <Box>
               <Typography variant="caption" color="text.secondary">Base Entry</Typography>
               <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                {formatCurrency(position.base_entry_price)}
+                {formatCompactCurrency(position.base_entry_price)}
               </Typography>
             </Box>
             <Box>

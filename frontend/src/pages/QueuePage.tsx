@@ -30,7 +30,7 @@ import { PriorityScoreBreakdown } from '../components/PriorityScoreBreakdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import QueueSignalCard from '../components/QueueSignalCard';
 import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
-import { safeToFixed, safeNumber } from '../utils/formatters';
+import { safeToFixed, formatCompactPercent } from '../utils/formatters';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -133,12 +133,6 @@ const QueuePage: React.FC = () => {
     }
   };
 
-  const formatPercentage = (value: number | string | null) => {
-    if (value === null || value === undefined) return '-';
-    const numValue = safeNumber(value);
-    return `${safeToFixed(numValue)}%`;
-  };
-
   const getPnlColor = (value: number | null) => {
     if (value === null || value === undefined) return 'text.primary';
     return value < 0 ? 'error.main' : 'success.main';
@@ -228,6 +222,9 @@ const QueuePage: React.FC = () => {
 
   const queueHealth = getQueueHealth();
 
+  const cellStyle = { fontSize: '0.813rem' };
+  const monoStyle = { fontSize: '0.813rem', fontFamily: 'monospace' };
+
   const activeColumns: GridColDef[] = [
     {
       field: 'priority_indicator',
@@ -235,6 +232,7 @@ const QueuePage: React.FC = () => {
       width: 40,
       sortable: false,
       filterable: false,
+      align: 'center',
       renderCell: (params: GridRenderCellParams) => {
         const score = Number(params.row.priority_score);
         const color = getPriorityColor(score);
@@ -259,28 +257,43 @@ const QueuePage: React.FC = () => {
     {
       field: 'symbol',
       headerName: 'Symbol',
-      width: 140,
+      width: 100,
       renderCell: (params: GridRenderCellParams) => (
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
-            <Chip
-              label={params.row.side?.toUpperCase()}
-              color={params.row.side === 'long' ? 'success' : 'error'}
-              size="small"
-              sx={{ height: 18, fontSize: '0.6rem' }}
-            />
-          </Box>
-          <Typography variant="caption" color="text.secondary">{params.row.timeframe}m</Typography>
-        </Box>
+        <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
+      )
+    },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 22 }}
+        />
+      )
+    },
+    {
+      field: 'timeframe',
+      headerName: 'TF',
+      width: 55,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams) => (
+        <Typography sx={cellStyle}>{params.value}m</Typography>
       )
     },
     {
       field: 'exchange',
       headerName: 'Exchange',
-      width: 100,
+      width: 85,
       renderCell: (params) => (
-        <Typography variant="body2">{params.value}</Typography>
+        <Typography sx={cellStyle}>{params.value}</Typography>
       )
     },
     {
@@ -301,42 +314,51 @@ const QueuePage: React.FC = () => {
     {
       field: 'queued_at',
       headerName: 'Wait',
-      width: 80,
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-          {formatWaitTime(params.value)}
-        </Typography>
+          <Typography sx={cellStyle}>{formatWaitTime(params.value)}</Typography>
+        </Box>
       )
     },
     {
       field: 'current_loss_percent',
       headerName: 'Loss',
-      width: 90,
+      width: 65,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) => (
         <Typography
-          color={getPnlColor(params.value)}
-          fontWeight={params.value && params.value < 0 ? 'bold' : 'normal'}
-          variant="body2"
+          sx={{
+            ...monoStyle,
+            color: getPnlColor(params.value),
+            fontWeight: params.value && params.value < 0 ? 600 : 400
+          }}
         >
-          {formatPercentage(params.value)}
+          {formatCompactPercent(params.value)}
         </Typography>
       )
     },
     {
       field: 'replacement_count',
       headerName: 'Repl',
-      width: 60,
+      width: 50,
+      align: 'center',
+      headerAlign: 'center',
       type: 'number',
       renderCell: (params) => (
-        <Typography variant="body2">{params.value || 0}</Typography>
+        <Typography sx={cellStyle}>{params.value || 0}</Typography>
       )
     },
     {
       field: 'actions',
       headerName: '',
-      width: 150,
+      width: 155,
       sortable: false,
+      align: 'center',
       renderCell: (params: GridRenderCellParams) => (
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           <Button
@@ -344,7 +366,7 @@ const QueuePage: React.FC = () => {
             color="primary"
             size="small"
             onClick={() => handlePromote(params.row.id)}
-            sx={{ fontSize: '0.7rem', minWidth: 60 }}
+            sx={{ fontSize: '0.75rem', minWidth: 65 }}
           >
             Promote
           </Button>
@@ -353,7 +375,7 @@ const QueuePage: React.FC = () => {
             color="error"
             size="small"
             onClick={() => handleRemove(params.row.id)}
-            sx={{ fontSize: '0.7rem', minWidth: 50 }}
+            sx={{ fontSize: '0.75rem', minWidth: 65 }}
           >
             Remove
           </Button>
@@ -366,51 +388,70 @@ const QueuePage: React.FC = () => {
     {
       field: 'symbol',
       headerName: 'Symbol',
-      width: 140,
+      width: 100,
       renderCell: (params: GridRenderCellParams) => (
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
-            <Chip
-              label={params.row.side?.toUpperCase()}
-              color={params.row.side === 'long' ? 'success' : 'error'}
-              size="small"
-              sx={{ height: 18, fontSize: '0.6rem' }}
-            />
-          </Box>
-          <Typography variant="caption" color="text.secondary">{params.row.timeframe}m</Typography>
-        </Box>
+        <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
+      )
+    },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 22 }}
+        />
+      )
+    },
+    {
+      field: 'timeframe',
+      headerName: 'TF',
+      width: 55,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams) => (
+        <Typography sx={cellStyle}>{params.value}m</Typography>
       )
     },
     {
       field: 'exchange',
       headerName: 'Exchange',
-      width: 100,
+      width: 85,
       renderCell: (params) => (
-        <Typography variant="body2">{params.value}</Typography>
+        <Typography sx={cellStyle}>{params.value}</Typography>
       )
     },
     {
       field: 'status',
       headerName: 'Result',
       width: 110,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
         <Chip
           label={params.value?.toUpperCase()}
           color={params.value === 'promoted' ? 'success' : 'error'}
           size="small"
           icon={params.value === 'promoted' ? <CheckCircleIcon /> : <CancelIcon />}
+          sx={{ fontSize: '0.7rem', height: 22 }}
         />
       )
     },
     {
       field: 'priority_score',
       headerName: 'Score',
-      width: 80,
+      width: 65,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
         <Typography
-          variant="body2"
-          sx={{ color: getPriorityColor(Number(params.value)), fontWeight: 600 }}
+          sx={{ ...monoStyle, color: getPriorityColor(Number(params.value)), fontWeight: 600 }}
         >
           {safeToFixed(params.value, 0)}
         </Typography>
@@ -419,13 +460,12 @@ const QueuePage: React.FC = () => {
     {
       field: 'priority_explanation',
       headerName: 'Reason',
-      flex: 1,
-      minWidth: 200,
+      width: 200,
       renderCell: (params) => (
         <Tooltip title={params.value || ''} arrow>
           <Typography
-            variant="body2"
             sx={{
+              ...cellStyle,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap'
@@ -439,15 +479,14 @@ const QueuePage: React.FC = () => {
     {
       field: 'promoted_at',
       headerName: 'Processed',
-      width: 140,
-      renderCell: (params) => {
-        if (!params.value) return '-';
-        try {
-          return format(new Date(params.value), 'MMM d, HH:mm');
-        } catch {
-          return params.value;
-        }
-      }
+      width: 115,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params) => (
+        <Typography sx={cellStyle}>
+          {params.value ? format(new Date(params.value), 'MMM d, HH:mm') : '-'}
+        </Typography>
+      )
     },
   ];
 
@@ -650,17 +689,6 @@ const QueuePage: React.FC = () => {
                     pagination: { paginationModel: { pageSize: 10 } },
                   }}
                   pageSizeOptions={[10, 25, 50]}
-                  sx={{
-                    '& .MuiDataGrid-root': {
-                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                    },
-                    '& .MuiDataGrid-columnHeaders': {
-                      minHeight: { xs: '40px !important', sm: '56px !important' },
-                    },
-                    '& .MuiDataGrid-cell': {
-                      padding: { xs: '4px', sm: '8px 16px' },
-                    },
-                  }}
                 />
               </ResponsiveTableWrapper>
             )}
@@ -744,17 +772,6 @@ const QueuePage: React.FC = () => {
                     pagination: { paginationModel: { pageSize: 10 } },
                   }}
                   pageSizeOptions={[10, 25, 50]}
-                  sx={{
-                    '& .MuiDataGrid-root': {
-                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                    },
-                    '& .MuiDataGrid-columnHeaders': {
-                      minHeight: { xs: '40px !important', sm: '56px !important' },
-                    },
-                    '& .MuiDataGrid-cell': {
-                      padding: { xs: '4px', sm: '8px 16px' },
-                    },
-                  }}
                 />
               </ResponsiveTableWrapper>
             )}

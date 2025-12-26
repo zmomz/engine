@@ -41,7 +41,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
 import PositionCard from '../components/PositionCard';
 import HistoryPositionCard from '../components/HistoryPositionCard';
-import { safeToFixed, safeNumber } from '../utils/formatters';
+import { safeToFixed, safeNumber, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -135,12 +135,6 @@ const PositionsPage: React.FC = () => {
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(numValue)) return '-';
     return `$${numValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  const formatPercentage = (value: number | string | null | undefined) => {
-    if (value === null || value === undefined) return '-';
-    const numValue = safeNumber(value);
-    return `${numValue >= 0 ? '+' : ''}${safeToFixed(numValue)}%`;
   };
 
   const getPnlColor = (value: number | string | null | undefined) => {
@@ -239,13 +233,17 @@ const PositionsPage: React.FC = () => {
     };
   }, [positionHistory]);
 
+  const cellStyle = { fontSize: '0.813rem' };
+  const monoStyle = { fontSize: '0.813rem', fontFamily: 'monospace' };
+
   const activeColumns: GridColDef[] = [
     {
       field: 'expand',
       headerName: '',
-      width: 50,
+      width: 45,
       sortable: false,
       filterable: false,
+      align: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
         <IconButton
           aria-label="expand row"
@@ -259,10 +257,10 @@ const PositionsPage: React.FC = () => {
     {
       field: 'id',
       headerName: 'ID',
-      width: 90,
+      width: 75,
       renderCell: (params) => (
         <Tooltip title={params.value}>
-          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+          <Typography sx={monoStyle}>
             {formatGroupId(params.value)}
           </Typography>
         </Tooltip>
@@ -271,49 +269,67 @@ const PositionsPage: React.FC = () => {
     {
       field: 'symbol',
       headerName: 'Symbol',
-      width: 130,
+      width: 100,
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Box>
-          <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
-          <Typography variant="caption" color="text.secondary">{params.row.exchange}</Typography>
-        </Box>
+        <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
+      )
+    },
+    {
+      field: 'exchange',
+      headerName: 'Exchange',
+      width: 85,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={cellStyle}>{params.value}</Typography>
       )
     },
     {
       field: 'side',
       headerName: 'Side',
-      width: 80,
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
         <Chip
           label={params.value?.toUpperCase()}
           color={params.value === 'long' ? 'success' : 'error'}
           size="small"
           variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 22 }}
         />
       )
     },
     {
       field: 'weighted_avg_entry',
-      headerName: 'Avg Entry',
-      width: 110,
+      headerName: 'Entry',
+      width: 85,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-          {formatCurrency(params.value)}
+        <Typography sx={monoStyle}>
+          {formatCompactCurrency(params.value)}
         </Typography>
       ),
     },
     {
       field: 'total_invested_usd',
       headerName: 'Invested',
-      width: 100,
-      renderCell: (params) => formatCurrency(params.value),
+      width: 80,
+      align: 'right',
+      headerAlign: 'right',
+      renderCell: (params) => (
+        <Typography sx={monoStyle}>
+          {formatCompactCurrency(params.value)}
+        </Typography>
+      ),
     },
     {
       field: 'pyramid_count',
-      headerName: 'Pyramids',
-      width: 90,
+      headerName: 'Pyr',
+      width: 55,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography variant="body2">
+        <Typography sx={cellStyle}>
           {params.row.pyramid_count || 0}/{params.row.max_pyramids || 5}
         </Typography>
       ),
@@ -321,9 +337,11 @@ const PositionsPage: React.FC = () => {
     {
       field: 'filled_dca_legs',
       headerName: 'DCA',
-      width: 80,
+      width: 55,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography variant="body2">
+        <Typography sx={cellStyle}>
           {params.row.filled_dca_legs || 0}/{params.row.total_dca_legs || 0}
         </Typography>
       ),
@@ -331,9 +349,11 @@ const PositionsPage: React.FC = () => {
     {
       field: 'created_at',
       headerName: 'Age',
-      width: 90,
+      width: 65,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Typography variant="body2">
+        <Typography sx={cellStyle}>
           {formatAge(params.value)}
         </Typography>
       ),
@@ -341,23 +361,33 @@ const PositionsPage: React.FC = () => {
     {
       field: 'unrealized_pnl_usd',
       headerName: 'PnL',
-      width: 130,
+      width: 80,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Box>
-          <Typography color={getPnlColor(params.value)} fontWeight={600}>
-            {formatCurrency(params.value)}
-          </Typography>
-          <Typography variant="caption" color={getPnlColor(params.row.unrealized_pnl_percent)}>
-            {formatPercentage(params.row.unrealized_pnl_percent)}
-          </Typography>
-        </Box>
+        <Typography sx={{ ...monoStyle, fontWeight: 600, color: getPnlColor(params.value) }}>
+          {formatCompactCurrency(params.value)}
+        </Typography>
+      ),
+    },
+    {
+      field: 'unrealized_pnl_percent',
+      headerName: '%',
+      width: 60,
+      align: 'right',
+      headerAlign: 'right',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={{ ...monoStyle, fontWeight: 600, color: getPnlColor(params.value) }}>
+          {formatCompactPercent(params.value)}
+        </Typography>
       ),
     },
     {
       field: 'actions',
       headerName: '',
-      width: 120,
+      width: 80,
       sortable: false,
+      align: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
         <Button
           variant="contained"
@@ -365,7 +395,7 @@ const PositionsPage: React.FC = () => {
           size="small"
           onClick={() => handleForceClose(params.row.id)}
           disabled={params.row.status === 'CLOSING' || params.row.status === 'CLOSED'}
-          sx={{ fontSize: '0.75rem' }}
+          sx={{ fontSize: '0.75rem', minWidth: 65 }}
         >
           Close
         </Button>
@@ -377,10 +407,10 @@ const PositionsPage: React.FC = () => {
     {
       field: 'id',
       headerName: 'ID',
-      width: 90,
+      width: 75,
       renderCell: (params) => (
         <Tooltip title={params.value}>
-          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+          <Typography sx={monoStyle}>
             {formatGroupId(params.value)}
           </Typography>
         </Tooltip>
@@ -389,87 +419,125 @@ const PositionsPage: React.FC = () => {
     {
       field: 'symbol',
       headerName: 'Symbol',
-      width: 130,
+      width: 100,
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
-        <Box>
-          <Typography variant="body2" fontWeight={600}>{params.value}</Typography>
-          <Typography variant="caption" color="text.secondary">{params.row.timeframe}m</Typography>
-        </Box>
+        <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
+      )
+    },
+    {
+      field: 'timeframe',
+      headerName: 'TF',
+      width: 55,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={cellStyle}>{params.value}m</Typography>
       )
     },
     {
       field: 'side',
       headerName: 'Side',
-      width: 80,
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
       renderCell: (params) => (
         <Chip
           label={params.value?.toUpperCase()}
           color={params.value === 'long' ? 'success' : 'error'}
           size="small"
           variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 22 }}
         />
       )
     },
     {
       field: 'weighted_avg_entry',
       headerName: 'Entry',
-      width: 110,
+      width: 85,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params) => (
-        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-          {formatCurrency(params.value)}
+        <Typography sx={monoStyle}>
+          {formatCompactCurrency(params.value)}
         </Typography>
       ),
     },
     {
       field: 'total_invested_usd',
       headerName: 'Invested',
-      width: 100,
-      renderCell: (params) => formatCurrency(params.value),
+      width: 80,
+      align: 'right',
+      headerAlign: 'right',
+      renderCell: (params) => (
+        <Typography sx={monoStyle}>
+          {formatCompactCurrency(params.value)}
+        </Typography>
+      ),
     },
     {
       field: 'pyramid_count',
-      headerName: 'Pyramids',
-      width: 80,
-      valueGetter: (value: any, row: PositionGroup) => row.pyramid_count || 0,
+      headerName: 'Pyr',
+      width: 50,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={cellStyle}>
+          {params.row.pyramid_count || 0}
+        </Typography>
+      ),
     },
     {
       field: 'realized_pnl_usd',
       headerName: 'PnL',
-      width: 130,
+      width: 80,
+      align: 'right',
+      headerAlign: 'right',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={{ ...monoStyle, fontWeight: 600, color: getPnlColor(params.value) }}>
+          {formatCompactCurrency(params.value)}
+        </Typography>
+      ),
+    },
+    {
+      field: 'realized_pnl_percent',
+      headerName: '%',
+      width: 60,
+      align: 'right',
+      headerAlign: 'right',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        const pnl = safeNumber(params.value);
+        const pnl = safeNumber(params.row.realized_pnl_usd);
         const invested = safeNumber(params.row.total_invested_usd);
         const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
         return (
-          <Box>
-            <Typography color={getPnlColor(params.value)} fontWeight={600}>
-              {formatCurrency(params.value)}
-            </Typography>
-            <Typography variant="caption" color={getPnlColor(pnlPercent)}>
-              {formatPercentage(pnlPercent)}
-            </Typography>
-          </Box>
+          <Typography sx={{ ...monoStyle, fontWeight: 600, color: getPnlColor(pnlPercent) }}>
+            {formatCompactPercent(pnlPercent)}
+          </Typography>
         );
       },
     },
     {
       field: 'duration',
       headerName: 'Duration',
-      width: 90,
-      valueGetter: (value: any, row: PositionGroup) => formatDuration(row.created_at, row.closed_at),
+      width: 80,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={cellStyle}>
+          {formatDuration(params.row.created_at, params.row.closed_at)}
+        </Typography>
+      ),
     },
     {
       field: 'closed_at',
       headerName: 'Closed',
-      width: 150,
-      renderCell: (params) => {
-        if (!params.value) return '-';
-        try {
-          return format(new Date(params.value), 'MMM d, HH:mm');
-        } catch {
-          return params.value;
-        }
-      }
+      width: 115,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params) => (
+        <Typography sx={cellStyle}>
+          {params.value ? format(new Date(params.value), 'MMM d, HH:mm') : '-'}
+        </Typography>
+      )
     },
   ];
 
@@ -479,7 +547,7 @@ const PositionsPage: React.FC = () => {
   }
 
   return (
-    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, height: '85vh', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 }, minHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <Box sx={{
         display: 'flex',
@@ -595,7 +663,7 @@ const PositionsPage: React.FC = () => {
         )}
       </Grid>
 
-      <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 400 }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs
             value={tabValue}
@@ -647,17 +715,6 @@ const PositionsPage: React.FC = () => {
                     pagination: { paginationModel: { pageSize: 10 } },
                   }}
                   pageSizeOptions={[5, 10, 20]}
-                  sx={{
-                    '& .MuiDataGrid-root': {
-                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                    },
-                    '& .MuiDataGrid-columnHeaders': {
-                      minHeight: { xs: '40px !important', sm: '56px !important' },
-                    },
-                    '& .MuiDataGrid-cell': {
-                      padding: { xs: '4px', sm: '8px 16px' },
-                    },
-                  }}
                 />
               </ResponsiveTableWrapper>
             )}
@@ -697,17 +754,6 @@ const PositionsPage: React.FC = () => {
                     pagination: { paginationModel: { pageSize: 10 } },
                   }}
                   pageSizeOptions={[5, 10, 20, 50]}
-                  sx={{
-                    '& .MuiDataGrid-root': {
-                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                    },
-                    '& .MuiDataGrid-columnHeaders': {
-                      minHeight: { xs: '40px !important', sm: '56px !important' },
-                    },
-                    '& .MuiDataGrid-cell': {
-                      padding: { xs: '4px', sm: '8px 16px' },
-                    },
-                  }}
                 />
               </ResponsiveTableWrapper>
             )}
@@ -722,9 +768,18 @@ const PositionsPage: React.FC = () => {
             <Card variant="outlined" sx={{ bgcolor: 'background.default' }}>
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
-                    {position.symbol} - {position.side.toUpperCase()} Details
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleExpandClick(position.id)}
+                      sx={{ mr: 1 }}
+                    >
+                      <KeyboardArrowUpIcon />
+                    </IconButton>
+                    <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
+                      {position.symbol} - {position.side.toUpperCase()} Details
+                    </Typography>
+                  </Box>
                   <Button
                     variant="contained"
                     size="small"

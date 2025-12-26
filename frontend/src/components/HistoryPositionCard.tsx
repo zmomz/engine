@@ -10,18 +10,13 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import { format } from 'date-fns';
 import { PositionGroup } from '../store/positionsStore';
-import { safeToFixed, safeNumber } from '../utils/formatters';
+import { safeNumber, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
 
 interface HistoryPositionCardProps {
   position: PositionGroup;
 }
 
 const HistoryPositionCard: React.FC<HistoryPositionCardProps> = ({ position }) => {
-  const formatCurrency = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return '-';
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
   const isProfitable = (position.realized_pnl_usd || 0) >= 0;
   const pnlColor = isProfitable ? 'success.main' : 'error.main';
 
@@ -29,10 +24,6 @@ const HistoryPositionCard: React.FC<HistoryPositionCardProps> = ({ position }) =
   const pnl = safeNumber(position.realized_pnl_usd);
   const invested = safeNumber(position.total_invested_usd);
   const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
-
-  const formatPercentage = (value: number) => {
-    return `${value >= 0 ? '+' : ''}${safeToFixed(value)}%`;
-  };
 
   const formatDuration = () => {
     if (!position.created_at || !position.closed_at) return '-';
@@ -87,14 +78,14 @@ const HistoryPositionCard: React.FC<HistoryPositionCardProps> = ({ position }) =
               variant="h6"
               sx={{ fontWeight: 700, color: pnlColor, fontSize: '1rem' }}
             >
-              {formatCurrency(position.realized_pnl_usd)}
+              {formatCompactCurrency(position.realized_pnl_usd)}
             </Typography>
             <Typography
               variant="caption"
               sx={{ color: pnlColor, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}
             >
               {isProfitable ? <TrendingUpIcon sx={{ fontSize: 14 }} /> : <TrendingDownIcon sx={{ fontSize: 14 }} />}
-              {formatPercentage(pnlPercent)}
+              {formatCompactPercent(pnlPercent)}
             </Typography>
           </Box>
         </Box>
@@ -104,7 +95,7 @@ const HistoryPositionCard: React.FC<HistoryPositionCardProps> = ({ position }) =
           <Box>
             <Typography variant="caption" color="text.secondary">Entry</Typography>
             <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-              {formatCurrency(position.weighted_avg_entry)}
+              {formatCompactCurrency(position.weighted_avg_entry)}
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'center' }}>
