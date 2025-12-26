@@ -4,6 +4,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -32,6 +33,12 @@ class QueuedSignal(Base):
     """
 
     __tablename__ = "queued_signals"
+
+    # Performance indexes for common queries
+    __table_args__ = (
+        Index('ix_queued_signals_user_status', 'user_id', 'status'),
+        Index('ix_queued_signals_priority_score', 'priority_score'),
+    )
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
     user_id = Column(GUID, ForeignKey("users.id"), nullable=False)

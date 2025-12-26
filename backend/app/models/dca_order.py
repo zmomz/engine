@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -41,6 +42,14 @@ class DCAOrder(Base):
     """
 
     __tablename__ = "dca_orders"
+
+    # Performance indexes for common queries
+    __table_args__ = (
+        Index('ix_dca_orders_group_status', 'group_id', 'status'),
+        Index('ix_dca_orders_pyramid_id', 'pyramid_id'),
+        Index('ix_dca_orders_exchange_order_id', 'exchange_order_id', postgresql_where="exchange_order_id IS NOT NULL"),
+        Index('ix_dca_orders_tp_order_id', 'tp_order_id', postgresql_where="tp_order_id IS NOT NULL"),
+    )
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
     group_id = Column(GUID, ForeignKey("position_groups.id"), nullable=False)

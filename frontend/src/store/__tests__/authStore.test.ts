@@ -1,11 +1,32 @@
 
 import axios from 'axios';
-import useAuthStore from '../authStore';
+import useAuthStore, { User } from '../authStore';
 import { act } from '@testing-library/react';
 
 // Mock axios
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
+
+// Helper to create a mock user with all required fields
+const createMockUser = (overrides: Partial<User> = {}): User => ({
+  id: 'test-uuid-123',
+  username: 'testuser',
+  email: 'test@example.com',
+  exchange: 'binance',
+  webhook_secret: 'secret123',
+  configured_exchanges: ['binance'],
+  risk_config: {
+    max_open_positions_global: 5,
+    max_open_positions_per_symbol: 2,
+    max_total_exposure_usd: 10000,
+    max_realized_loss_usd: 500,
+    loss_threshold_percent: 5,
+    required_pyramids_for_timer: 2,
+    post_pyramids_wait_minutes: 15,
+    max_winners_to_combine: 3,
+  },
+  ...overrides,
+});
 
 // Mock localStorage
 const localStorageMock = (function () {
@@ -47,7 +68,7 @@ describe('authStore', () => {
   });
 
   it('should login and set state', () => {
-    const user = { id: 1, username: 'testuser' };
+    const user = createMockUser();
     const token = 'fake-token';
 
     act(() => {
@@ -64,7 +85,7 @@ describe('authStore', () => {
   it('should logout and clear state', () => {
     // Setup initial logged in state
     localStorage.setItem('token', 'token');
-    useAuthStore.setState({ token: 'token', isAuthenticated: true, user: { id: 1 } });
+    useAuthStore.setState({ token: 'token', isAuthenticated: true, user: createMockUser() });
 
     act(() => {
       useAuthStore.getState().logout();
@@ -79,7 +100,7 @@ describe('authStore', () => {
 
   it('should initialize auth from local storage', () => {
     const token = 'stored-token';
-    const user = { id: 123, username: 'stored-user' };
+    const user = createMockUser({ username: 'stored-user' });
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
 
@@ -94,7 +115,7 @@ describe('authStore', () => {
   });
 
   it('should register successfully', async () => {
-    const userData = { id: 1, username: 'newuser', email: 'test@example.com' };
+    const userData = createMockUser({ username: 'newuser', email: 'newuser@example.com' });
     const token = 'new-token';
 
     // Mock register response

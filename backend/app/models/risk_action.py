@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
+    Index,
     JSON,
     Numeric,
     String,
@@ -33,6 +34,12 @@ class RiskAction(Base):
     """
 
     __tablename__ = "risk_actions"
+
+    # Performance indexes for common queries
+    __table_args__ = (
+        Index('ix_risk_actions_action_type', 'action_type'),
+        Index('ix_risk_actions_group_timestamp', 'group_id', 'timestamp'),
+    )
 
     id = Column(GUID, primary_key=True, default=uuid.uuid4)
     group_id = Column(GUID, ForeignKey("position_groups.id"), nullable=False)

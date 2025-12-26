@@ -6,6 +6,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SettingsSectionCard from './SettingsSectionCard';
 import useNotificationStore from '../../store/notificationStore';
 import { z } from 'zod';
+import type { DCAConfiguration } from '../../api/dcaConfig';
 
 // Schema for validating backup file structure
 const dcaLevelSchema = z.object({
@@ -77,7 +78,7 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
       const backupData = {
         exchange: settings?.exchange,
         risk_config: settings?.risk_config,
-        dca_configurations: dcaConfigs.map((config: any) => ({
+        dca_configurations: dcaConfigs.map((config: DCAConfiguration) => ({
           pair: config.pair,
           timeframe: config.timeframe,
           exchange: config.exchange,
