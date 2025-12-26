@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from decimal import Decimal
 
@@ -6,10 +6,10 @@ from app.db.database import get_db_session
 from app.api.dependencies.users import get_current_active_user
 from app.models.user import User
 from app.repositories.position_group import PositionGroupRepository
-from app.services.exchange_abstraction.factory import get_exchange_connector
-from app.core.security import EncryptionService
+from app.services.exchange_config_service import ExchangeConfigService
 from app.core.cache import get_cache
 from app.schemas.dashboard import DashboardOutput
+from app.rate_limiter import limiter
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,9 @@ MIN_BALANCE_THRESHOLD = 0.10  # $0.10 USD
 router = APIRouter()
 
 @router.get("/account-summary", response_model=DashboardOutput)
+@limiter.limit("20/minute")
 async def get_account_summary(
+    request: Request,
     current_user: User = Depends(get_current_active_user)
 ):
     if not current_user.encrypted_api_keys:
@@ -38,41 +40,19 @@ async def get_account_summary(
     total_tvl = 0.0
     total_free_usdt = 0.0
 
-    api_keys_to_process = {}
-    if current_user.encrypted_api_keys and isinstance(current_user.encrypted_api_keys, dict):
-        api_keys_to_process = current_user.encrypted_api_keys
+    # Get all configured exchanges using the centralized service
+    configured_exchanges = ExchangeConfigService.get_all_configured_exchanges(current_user)
+    logger.info(f"Configured exchanges to process: {list(configured_exchanges.keys())}")
 
-    logger.info(f"API Keys to process: {api_keys_to_process}")
-
-    if not api_keys_to_process:
+    if not configured_exchanges:
         return {"tvl": 0.0, "free_usdt": 0.0}
 
     # Iterate over all configured exchanges
-    for exchange_name, encrypted_data_raw in api_keys_to_process.items():
-        exchange_config = {}
-        if isinstance(encrypted_data_raw, str):
-            # Legacy format: encrypted string directly
-            exchange_config = {"encrypted_data": encrypted_data_raw}
-        elif isinstance(encrypted_data_raw, dict):
-            # New format: dictionary with 'encrypted_data' key and potentially 'testnet', 'account_type'
-            exchange_config = encrypted_data_raw
-        else:
-            logger.warning(f"Skipping account summary for {exchange_name}: Unexpected API key data type: {type(encrypted_data_raw)}")
-            continue
-
-        logger.info(f"Processing exchange: {exchange_name}, Exchange config keys: {exchange_config.keys() if isinstance(exchange_config, dict) else 'Not a dict'}")
-        if "encrypted_data" not in exchange_config:
-            logger.warning(f"Skipping account summary for {exchange_name}: 'encrypted_data' key not found in exchange configuration.")
-            continue
-
+    for exchange_name, exchange_config in configured_exchanges.items():
         connector = None
         try:
-            # The factory will now handle decryption and parameter extraction
             try:
-                connector = get_exchange_connector(
-                    exchange_type=exchange_name,
-                    exchange_config=exchange_config
-                )
+                connector = ExchangeConfigService.get_connector(current_user, exchange_name)
             except Exception as e:
                 logger.warning(f"Skipping account summary for {exchange_name}: {e}")
                 continue
@@ -172,7 +152,9 @@ async def get_account_summary(
     return result
 
 @router.get("/pnl")
+@limiter.limit("20/minute")
 async def get_pnl(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session)
 ):
@@ -202,39 +184,17 @@ async def get_pnl(
                 groups_by_exchange[ex] = []
             groups_by_exchange[ex].append(group)
 
-        api_keys_map = {}
-        if current_user.encrypted_api_keys and isinstance(current_user.encrypted_api_keys, dict):
-            api_keys_map = current_user.encrypted_api_keys
-
         # Iterate over exchanges that have active positions
-        logger.debug(f"get_pnl: API Keys map for PnL calculation: {api_keys_map}")
         for exchange_name, groups in groups_by_exchange.items():
-            lookup_key = exchange_name.lower()
-            if lookup_key not in api_keys_map:
-                logger.warning(f"get_pnl: No API keys found for exchange '{exchange_name}' (lookup: '{lookup_key}') to price {len(groups)} positions.")
-                continue
-
-            encrypted_data_raw = api_keys_map[lookup_key]
-            exchange_config = {}
-            if isinstance(encrypted_data_raw, str):
-                exchange_config = {"encrypted_data": encrypted_data_raw}
-            elif isinstance(encrypted_data_raw, dict):
-                exchange_config = encrypted_data_raw
-            else:
-                logger.warning(f"get_pnl: Skipping exchange {exchange_name}: Unexpected API key data type: {type(encrypted_data_raw)}")
-                continue
-
-            if "encrypted_data" not in exchange_config:
-                logger.warning(f"get_pnl: Skipping exchange {exchange_name}: 'encrypted_data' key not found in configuration.")
+            # Check if user has valid config for this exchange
+            if not ExchangeConfigService.has_valid_config(current_user, exchange_name):
+                logger.warning(f"get_pnl: No valid API keys found for exchange '{exchange_name}' to price {len(groups)} positions.")
                 continue
 
             connector = None
             try:
                 try:
-                    connector = get_exchange_connector(
-                        exchange_type=exchange_name,
-                        exchange_config=exchange_config
-                    )
+                    connector = ExchangeConfigService.get_connector(current_user, exchange_name)
                 except Exception as e:
                     logger.warning(f"get_pnl: Could not create connector for {exchange_name}: {e}")
                     continue
@@ -299,7 +259,9 @@ async def get_pnl(
     return result
 
 @router.get("/stats")
+@limiter.limit("20/minute")
 async def get_stats(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session)
 ):
@@ -327,7 +289,9 @@ async def get_stats(
     }
 
 @router.get("/active-groups-count")
+@limiter.limit("30/minute")
 async def get_active_groups_count(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session)
 ):
@@ -336,7 +300,9 @@ async def get_active_groups_count(
     return {"count": len(groups)}
 
 @router.get("/analytics")
+@limiter.limit("20/minute")
 async def get_comprehensive_analytics(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session)
 ):

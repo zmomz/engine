@@ -97,9 +97,10 @@ async def get_risk_engine_status(
             "risk_level": "unknown"
         }
     except Exception as e:
+        logger.error(f"Error getting risk status for user {user.id}: {e}", exc_info=True)
         return {
-            "status": "error", 
-            "message": str(e),
+            "status": "error",
+            "message": "An error occurred while fetching risk status.",
             "active_positions": 0,
             "risk_level": "unknown"
         }
@@ -115,7 +116,8 @@ async def run_risk_evaluation(
         result = await risk_engine_service.run_single_evaluation()
         return {"message": "Risk evaluation initiated.", "result": result}
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(f"Error running risk evaluation: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to run risk evaluation.")
 
 @router.post("/{group_id}/block", response_model=PositionGroupSchema)
 async def block_risk_for_group(
@@ -132,7 +134,7 @@ async def block_risk_for_group(
         raise e
     except Exception as e:
         logger.error(f"Error blocking risk for group {group_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to block position from risk evaluation.")
 
 
 @router.post("/{group_id}/unblock", response_model=PositionGroupSchema)
@@ -149,7 +151,8 @@ async def unblock_risk_for_group(
     except HTTPException as e:
         raise e
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(f"Error unblocking risk for group {group_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to unblock position from risk evaluation.")
 
 @router.post("/{group_id}/skip", response_model=PositionGroupSchema)
 async def skip_next_risk_evaluation(
@@ -165,7 +168,8 @@ async def skip_next_risk_evaluation(
     except HTTPException as e:
         raise e
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.error(f"Error skipping risk evaluation for group {group_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to skip risk evaluation for position.")
 
 
 @router.post("/force-stop")
@@ -186,7 +190,7 @@ async def force_stop_engine(
         return result
     except Exception as e:
         logger.error(f"Error force stopping engine: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to stop the trading engine.")
 
 
 @router.post("/force-start")
@@ -207,7 +211,7 @@ async def force_start_engine(
         return result
     except Exception as e:
         logger.error(f"Error force starting engine: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to start the trading engine.")
 
 
 @router.post("/sync-exchange")
@@ -227,4 +231,4 @@ async def sync_with_exchange(
         return result
     except Exception as e:
         logger.error(f"Error syncing with exchange: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to synchronize with exchange.")

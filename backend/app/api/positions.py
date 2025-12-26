@@ -14,8 +14,8 @@ from app.services.grid_calculator import GridCalculatorService
 from app.api.dependencies.users import get_current_active_user # New import
 from app.models.user import User # New import
 from app.exceptions import APIError # New import
-from app.core.security import EncryptionService
-from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.services.exchange_config_service import ExchangeConfigService, ExchangeConfigError
+from app.rate_limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -25,37 +25,20 @@ async def get_order_service(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user)
 ) -> OrderService:
-    # Use user's credentials to initialize the exchange connector
-    if not current_user.encrypted_api_keys:
+    """Initialize OrderService with exchange connector from user credentials."""
+    try:
+        exchange_connector = ExchangeConfigService.get_connector(current_user)
+    except ExchangeConfigError as e:
+        logger.warning(f"Exchange config error for user {current_user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User does not have API keys configured."
-        )
-
-    encryption_service = EncryptionService()
-    try:
-        # Handle multi-exchange keys
-        encrypted_data = current_user.encrypted_api_keys
-        target_exchange_config = None
-
-        if isinstance(encrypted_data, dict):
-             if current_user.exchange in encrypted_data:
-                 target_exchange_config = encrypted_data[current_user.exchange]
-             elif "encrypted_data" in encrypted_data:
-                 # Legacy fallback for single key
-                 target_exchange_config = encrypted_data
-        
-        if not target_exchange_config:
-            raise ValueError(f"No API keys or configuration found for exchange {current_user.exchange}")
-
-        exchange_connector = get_exchange_connector(
-            exchange_type=current_user.exchange or "binance", # Default to binance if not set
-            exchange_config=target_exchange_config
+            detail=str(e)
         )
     except Exception as e:
+        logger.error(f"Failed to initialize exchange connector: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initialize exchange connector: {str(e)}"
+            detail="Failed to initialize exchange connection. Please check your API credentials."
         )
 
     return OrderService(
@@ -65,7 +48,9 @@ async def get_order_service(
     )
 
 @router.get("/{user_id}/history")
+@limiter.limit("30/minute")
 async def get_position_history(
+    request: Request,
     user_id: uuid.UUID,
     limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
@@ -94,7 +79,9 @@ async def get_position_history(
     }
 
 @router.get("/active", response_model=List[PositionGroupSchema])
+@limiter.limit("60/minute")
 async def get_current_user_active_positions(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session)
 ):
@@ -108,7 +95,9 @@ async def get_current_user_active_positions(
 
 
 @router.get("/history")
+@limiter.limit("30/minute")
 async def get_current_user_position_history(
+    request: Request,
     limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     current_user: User = Depends(get_current_active_user),
@@ -133,7 +122,9 @@ async def get_current_user_position_history(
     }
 
 @router.get("/{user_id}", response_model=List[PositionGroupSchema])
+@limiter.limit("30/minute")
 async def get_all_positions(
+    request: Request,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user)
@@ -150,7 +141,9 @@ async def get_all_positions(
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 @router.get("/{user_id}/{group_id}", response_model=PositionGroupSchema)
+@limiter.limit("30/minute")
 async def get_position_group(
+    request: Request,
     user_id: uuid.UUID,
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
@@ -169,7 +162,9 @@ async def get_position_group(
     return PositionGroupSchema.from_orm(position)
 
 @router.post("/{group_id}/close", response_model=PositionGroupSchema)
+@limiter.limit("5/minute")
 async def force_close_position(
+    request: Request,
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user)
@@ -184,31 +179,16 @@ async def force_close_position(
 
     exchange_connector = None
     try:
-        # 2. Get credentials and config for the specific exchange
+        # Get exchange connector for the position's exchange
         target_exchange = position_group.exchange
-        exchange_config_data = None
-
-        # Handle multi-exchange keys
-        encrypted_keys_map = current_user.encrypted_api_keys
-        if isinstance(encrypted_keys_map, dict):
-             if target_exchange in encrypted_keys_map:
-                 exchange_config_data = encrypted_keys_map[target_exchange]
-             elif "encrypted_data" in encrypted_keys_map and (current_user.exchange == target_exchange or not current_user.exchange):
-                  # Legacy fallback for single key
-                 exchange_config_data = encrypted_keys_map
-        
-        if not exchange_config_data:
-             raise HTTPException(
+        try:
+            exchange_connector = ExchangeConfigService.get_connector(current_user, target_exchange)
+        except ExchangeConfigError as e:
+            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No API keys configured for exchange: {target_exchange}"
+                detail=str(e)
             )
 
-        # 3. Initialize OrderService dynamically, passing the full config
-        exchange_connector = get_exchange_connector(
-            exchange_type=target_exchange,
-            exchange_config=exchange_config_data
-        )
-        
         order_service = OrderService(
             session=db,
             user=current_user,
@@ -236,11 +216,12 @@ async def force_close_position(
         return PositionGroupSchema.from_orm(updated_position)
     except APIError as e:
         await db.rollback()
-        raise HTTPException(status_code=e.status_code, detail=str(e))
+        logger.error(f"API error force closing position {group_id}: {e}")
+        raise HTTPException(status_code=e.status_code, detail="Failed to close position. Please try again.")
     except Exception as e:
         logger.error(f"Error force closing position {group_id}: {e}\n{traceback.format_exc()}")
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred during force close: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred while closing the position.")
     finally:
         # Always close the exchange connector
         if exchange_connector:

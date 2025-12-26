@@ -20,7 +20,7 @@ from app.schemas.webhook_payloads import WebhookPayload
 
 from app.services.position_manager import PositionManagerService, DuplicatePositionException
 from app.services.execution_pool_manager import ExecutionPoolManager
-from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.services.exchange_config_service import ExchangeConfigService, ExchangeConfigError
 from app.services.precision_validator import PrecisionValidator
 
 
@@ -109,30 +109,12 @@ class SignalRouterService:
         
         # Initialize Exchange Connector
         exchange: Optional[Any] = None
+        target_exchange = signal.tv.exchange.lower()
         try:
-            target_exchange = signal.tv.exchange.lower()
-            encrypted_data = self.user.encrypted_api_keys
-            
-            if isinstance(encrypted_data, dict):
-                 if target_exchange in encrypted_data:
-                     encrypted_data = encrypted_data[target_exchange]
-                 elif "encrypted_data" not in encrypted_data:
-                     logger.error(f"Signal Router: No keys configured for {target_exchange}")
-                     return f"Configuration Error: No API keys for {signal.tv.exchange}"
-
-            # Build exchange_config dict for the factory function
-            exchange_config = {}
-            if isinstance(encrypted_data, str):
-                # Legacy format
-                exchange_config = {"encrypted_data": encrypted_data}
-            elif isinstance(encrypted_data, dict):
-                exchange_config = encrypted_data
-            else:
-                # Should not happen based on previous logic but safe fallback
-                logger.error(f"Signal Router: Unexpected encrypted_data format: {type(encrypted_data)}")
-                return f"Configuration Error: Invalid key format for {target_exchange}"
-
-            exchange = get_exchange_connector(target_exchange, exchange_config)
+            exchange = ExchangeConfigService.get_connector(self.user, target_exchange)
+        except ExchangeConfigError as e:
+            logger.error(f"Signal Router: {e}")
+            return f"Configuration Error: {e}"
         except Exception as e:
             logger.error(f"Signal Router: Failed to initialize exchange connector for {target_exchange}: {e}")
             return f"Configuration Error: Failed to initialize exchange connector for {signal.tv.exchange}"
