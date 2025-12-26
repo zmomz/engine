@@ -92,7 +92,7 @@ class PositionGroup(Base):
 
     # Take-profit configuration
     tp_mode = Column(
-        SQLAlchemyEnum("per_leg", "aggregate", "hybrid", name="tp_mode_enum"),
+        SQLAlchemyEnum("per_leg", "aggregate", "hybrid", "pyramid_aggregate", name="tp_mode_enum", create_type=False),
         nullable=False,
     )
     tp_aggregate_percent = Column(Numeric(10, 4))

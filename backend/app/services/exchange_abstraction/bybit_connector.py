@@ -146,8 +146,7 @@ class BybitConnector(ExchangeInterface):
             else:
                 logger.info(f"Order placed successfully: {result.get('id', 'unknown')}")
 
-            # Small delay to allow background tasks to complete cleanly
-            await asyncio.sleep(0.05)
+            # Removed blocking 50ms sleep for performance - CCXT handles rate limiting
             return result
         except ccxt.ExchangeError as e:
             # Check for error code 10005 (Invalid permissions/key) or 170131 (Insufficient balance)

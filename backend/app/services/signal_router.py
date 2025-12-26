@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from typing import List, Dict, Any, Optional
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import AsyncSessionLocal
+from app.core.cache import get_cache
 
 from app.core.config import settings
 from app.core.security import EncryptionService
@@ -64,9 +66,8 @@ class SignalRouterService:
             else:
                 risk_config = RiskEngineConfig(**user_risk_config)
 
-        # DCA Config Loading Strategy: Specific > Global Legacy
+        # DCA Config Loading Strategy: Cache > DB
         from app.repositories.dca_configuration import DCAConfigurationRepository
-        dca_config_repo = DCAConfigurationRepository(db_session)
 
         # Normalize pair format: BTCUSDT -> BTC/USDT
         normalized_pair = signal.tv.symbol
@@ -77,28 +78,48 @@ class SignalRouterService:
             elif normalized_pair.endswith(('USD', 'BTC', 'ETH', 'BNB')):
                 normalized_pair = normalized_pair[:-3] + '/' + normalized_pair[-3:]
 
-        specific_config = await dca_config_repo.get_specific_config(
-            user_id=self.user.id,
-            pair=normalized_pair,
-            timeframe=signal.tv.timeframe,
-            exchange=signal.tv.exchange.lower()
+        target_exchange = signal.tv.exchange.lower()
+        user_id_str = str(self.user.id)
+
+        # Try cache first for DCA config
+        cache = await get_cache()
+        cached_dca = await cache.get_dca_config(
+            user_id_str, normalized_pair, signal.tv.timeframe, target_exchange
         )
-        
-        if specific_config:
-            logger.info(f"Using specific DCA configuration for {signal.tv.symbol} {signal.tv.timeframe}")
-            # Map DB model to Pydantic Schema
-            from enum import Enum as PyEnum
-            dca_config = DCAGridConfig(
-                levels=specific_config.dca_levels,
-                tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
-                tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
-                max_pyramids=specific_config.max_pyramids,
-                entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
-                pyramid_specific_levels=specific_config.pyramid_specific_levels or {}
-            )
+
+        if cached_dca:
+            logger.debug(f"Using cached DCA config for {signal.tv.symbol} {signal.tv.timeframe}")
+            dca_config = DCAGridConfig(**cached_dca)
         else:
-            logger.error(f"No DCA configuration found for {signal.tv.symbol} {signal.tv.timeframe} (Exchange: {signal.tv.exchange})")
-            return f"Configuration Error: No active DCA configuration for {signal.tv.symbol} on {signal.tv.timeframe}."
+            # Fetch from DB and cache
+            dca_config_repo = DCAConfigurationRepository(db_session)
+            specific_config = await dca_config_repo.get_specific_config(
+                user_id=self.user.id,
+                pair=normalized_pair,
+                timeframe=signal.tv.timeframe,
+                exchange=target_exchange
+            )
+
+            if specific_config:
+                logger.info(f"Using specific DCA configuration for {signal.tv.symbol} {signal.tv.timeframe}")
+                # Map DB model to Pydantic Schema
+                from enum import Enum as PyEnum
+                dca_config = DCAGridConfig(
+                    levels=specific_config.dca_levels,
+                    tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
+                    tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
+                    max_pyramids=specific_config.max_pyramids,
+                    entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
+                    pyramid_specific_levels=specific_config.pyramid_specific_levels or {}
+                )
+                # Cache for future requests
+                await cache.set_dca_config(
+                    user_id_str, normalized_pair, signal.tv.timeframe, target_exchange,
+                    dca_config.model_dump(mode='json')
+                )
+            else:
+                logger.error(f"No DCA configuration found for {signal.tv.symbol} {signal.tv.timeframe} (Exchange: {signal.tv.exchange})")
+                return f"Configuration Error: No active DCA configuration for {signal.tv.symbol} on {signal.tv.timeframe}."
             
         logger.debug(f"Resolved DCA Config: {dca_config}")
 
@@ -106,10 +127,9 @@ class SignalRouterService:
         pg_repo = PositionGroupRepository(db_session)
         exec_pool = ExecutionPoolManager(AsyncSessionLocal, PositionGroupRepository, max_open_groups=risk_config.max_open_positions_global)
         queue_service = QueueManagerService(AsyncSessionLocal, user=self.user, execution_pool_manager=exec_pool)
-        
-        # Initialize Exchange Connector
+
+        # Initialize Exchange Connector (target_exchange already defined above)
         exchange: Optional[Any] = None
-        target_exchange = signal.tv.exchange.lower()
         try:
             exchange = ExchangeConfigService.get_connector(self.user, target_exchange)
         except ExchangeConfigError as e:
@@ -233,25 +253,28 @@ class SignalRouterService:
                 )
                 logger.debug(f"DEBUG: Existing group from SQL query: {existing_group}")
                 
-                # Fetch Capital (Try to get from exchange, fallback to default)
-                total_capital = Decimal("1000")
-                try:
-                    balance = await exchange.fetch_balance()
-                    # Standardized flat structure (e.g., {'USDT': 1000.0})
-                    # Handle legacy/standard CCXT nested structure if present (robustness)
-                    if "total" in balance and isinstance(balance["total"], dict):
-                        balance = balance["total"]
+                # Calculate position size from signal's order_size
+                # order_size is the total position size from TradingView
+                # position_size_type determines the unit: contracts/base (qty) or quote (USD)
+                order_size = Decimal(str(signal.tv.order_size))
+                entry_price = Decimal(str(signal.tv.entry_price))
+                position_size_type = signal.execution_intent.position_size_type
 
-                    if isinstance(balance, dict):
-                        total_capital = Decimal(str(balance.get('USDT', 1000)))
-                except Exception as e:
-                     logger.warning(f"Failed to fetch balance, using default: {e}")
+                # Convert order_size to USD value for capital allocation
+                if position_size_type == "quote":
+                    # Already in quote currency (e.g., USDT)
+                    total_capital = order_size
+                else:
+                    # contracts or base: multiply by entry price to get USD value
+                    total_capital = order_size * entry_price
 
-                # Apply Risk Config Limit (max exposure)
+                logger.info(f"Signal order_size: {order_size} ({position_size_type}), Entry: {entry_price}, Total Capital USD: {total_capital}")
+
+                # Apply Risk Config Limit (max exposure) as safety cap
                 if risk_config.max_total_exposure_usd:
                     max_exposure = Decimal(str(risk_config.max_total_exposure_usd))
                     if total_capital > max_exposure:
-                        logger.info(f"Capping total capital {total_capital} to max exposure {max_exposure}")
+                        logger.warning(f"Order size {total_capital} USD exceeds max exposure {max_exposure} USD. Capping to max exposure.")
                         total_capital = max_exposure
 
                 # Define Helper for New Position Execution

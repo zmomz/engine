@@ -53,7 +53,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 136.82 \
-  --order-size 0.1
+  --order-size 0.4
 ```
 
 ### Queue Priority Testing Scripts (NEW)
@@ -182,6 +182,114 @@ docker compose exec db psql -U tv_user -d tv_engine_db -c \
 
 ---
 
+## ⚙️ PRACTICAL TEST CONFIGURATION - QUICK RISK ENGINE TESTING
+
+### Overview
+
+The Risk Engine has several configurable thresholds that determine when it activates. For **practical observable testing**, we need to temporarily reduce these values to trigger the Risk Engine quickly during testing.
+
+**Default Production Values:**
+- `loss_threshold_percent`: -1.5% (position must lose 1.5%+ to start timer)
+- `required_pyramids_for_timer`: 3 (need 3 pyramids complete)
+- `post_pyramids_wait_minutes`: 15 (wait 15 minutes after conditions met)
+
+**Practical Testing Values:**
+- `loss_threshold_percent`: -0.005% (triggers on 0.005% loss - very easy to hit)
+- `required_pyramids_for_timer`: 1 (need only 1 pyramid - first entry)
+- `post_pyramids_wait_minutes`: 1 (wait only 1 minute)
+
+---
+
+### Configure Risk Engine for Fast Testing
+
+**STEP 1: Apply Test Configuration**
+
+```bash
+# View current Risk Engine config
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT risk_config FROM users WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+
+# Update Risk Engine config for FAST TESTING
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE users SET risk_config = jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        risk_config,
+        '{loss_threshold_percent}',
+        '\"-0.005\"'
+      ),
+      '{required_pyramids_for_timer}',
+      '1'
+    ),
+    '{post_pyramids_wait_minutes}',
+    '1'
+  )
+  WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1'
+  RETURNING risk_config->'loss_threshold_percent' as loss_threshold,
+            risk_config->'required_pyramids_for_timer' as required_pyramids,
+            risk_config->'post_pyramids_wait_minutes' as wait_minutes;"
+```
+
+**STEP 2: Verify Configuration Applied**
+
+```bash
+# Verify the new values
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    risk_config->>'loss_threshold_percent' as loss_threshold,
+    risk_config->>'required_pyramids_for_timer' as required_pyramids,
+    risk_config->>'post_pyramids_wait_minutes' as wait_minutes
+   FROM users
+   WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+```
+
+**Expected Output:**
+```
+ loss_threshold | required_pyramids | wait_minutes
+----------------+-------------------+--------------
+ -0.005         | 1                 | 1
+```
+
+---
+
+### Restore Production Configuration (After Testing)
+
+**IMPORTANT:** Always restore production values after testing!
+
+```bash
+# Restore PRODUCTION Risk Engine config
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE users SET risk_config = jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        risk_config,
+        '{loss_threshold_percent}',
+        '\"-1.5\"'
+      ),
+      '{required_pyramids_for_timer}',
+      '3'
+    ),
+    '{post_pyramids_wait_minutes}',
+    '15'
+  )
+  WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1'
+  RETURNING 'Production config restored' as status;"
+```
+
+---
+
+### Quick Reference: Configuration Commands
+
+| Setting | Test Value | Production Value | Purpose |
+|---------|------------|------------------|---------|
+| `loss_threshold_percent` | -0.005 | -1.5 | % loss to trigger timer |
+| `required_pyramids_for_timer` | 1 | 3 | Pyramids needed before timer |
+| `post_pyramids_wait_minutes` | 1 | 15 | Minutes to wait after conditions met |
+
+**Pro Tip:** Create positions at prices slightly above market price to immediately trigger loss conditions for testing.
+
+---
+
 ## 🔥 TEST SUITE 1: BASIC SIGNAL INGESTION & EXECUTION (30 mins)
 
 ### Test 1.1: First Entry Signal - Single Position Creation
@@ -197,7 +305,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 136.82 \
-  --order-size 0.1
+  --order-size 0.4
 
 # Verify orders on exchange
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -241,7 +349,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 92454.0 \
-  --order-size 0.001
+  --order-size 0.01
 
 # Send second pyramid entry
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -253,7 +361,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 91529.0 \
-  --order-size 0.001
+  --order-size 0.01
 
 # Verify
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -282,7 +390,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 3232.0 \
-  --order-size 0.01
+  --order-size 0.04
 
 # Verify
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -309,7 +417,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 2.03 \
-  --order-size 10
+  --order-size 40
 
 # Verify
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -340,7 +448,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.14 \
-  --order-size 100
+  --order-size 400
 
 # Position 6 - ADAUSDT on Binance (1 DCA level, market orders, max_pyramids=1)
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -352,7 +460,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.42 \
-  --order-size 50
+  --order-size 200
 
 # Position 7 - DOTUSDT on Bybit (5 DCA levels, limit orders, max_pyramids=2)
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -364,7 +472,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 2.11 \
-  --order-size 10
+  --order-size 40
 
 # Position 8 - TRXUSDT on Binance (6 DCA levels, market orders, max_pyramids=4)
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -376,7 +484,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.28 \
-  --order-size 100
+  --order-size 400
 
 # Position 9 - MATICUSDT on Bybit (2 DCA levels, limit orders, max_pyramids=1)
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -388,7 +496,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.21 \
-  --order-size 100
+  --order-size 400
 
 # Position 10 - LINKUSDT on Binance (8 DCA levels, market orders, max_pyramids=3)
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -400,7 +508,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 14.09 \
-  --order-size 2
+  --order-size 8
 
 # Verify pool is full
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -428,7 +536,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.14 \
-  --order-size 100
+  --order-size 400
 
 # Verify queued
 docker compose exec app python3 scripts/list_queue.py
@@ -458,7 +566,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 2.09 \
-  --order-size 10
+  --order-size 40
 
 # Verify
 docker compose exec app python3 scripts/list_queue.py
@@ -529,7 +637,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 3196.80 \
-  --order-size 0.01
+  --order-size 0.04
 
 # Order B: 0.1% above ($3,203.20) - fills when price dips
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -541,7 +649,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 2.032 \
-  --order-size 10
+  --order-size 40
 
 # Wait 5-10 minutes for fills
 sleep 300
@@ -598,7 +706,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 92454.00 \
-  --order-size 0.001
+  --order-size 0.01
 
 # Wait 30 seconds for fill
 sleep 30
@@ -716,7 +824,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price <USE_PRICE_FROM_SCRIPT_0.1%_BELOW> \
-  --order-size 2
+  --order-size 8
 
 # Bybit positions with bracket strategy
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -728,7 +836,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price <USE_PRICE_FROM_SCRIPT_0.1%_BELOW> \
-  --order-size 0.1
+  --order-size 0.4
 
 # Wait for fills and verify
 sleep 600  # Wait 10 minutes
@@ -761,7 +869,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 2.03 \
-  --order-size 10
+  --order-size 40
 
 # Verify orders on exchange
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -791,7 +899,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.14 \
-  --order-size 100
+  --order-size 400
 
 # Test LINKUSDT on Binance (8 DCA levels, market orders)
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -803,7 +911,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 14.09 \
-  --order-size 2
+  --order-size 8
 
 # Verify
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -883,7 +991,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.50 \
-  --order-size 100
+  --order-size 200
 
 # Wait for position to show loss, then check timer
 docker compose exec db psql -U tv_user -d tv_engine_db -c \
@@ -1094,6 +1202,426 @@ docker compose exec db psql -U tv_user -d tv_engine_db -c \
 
 ---
 
+## 🔥 TEST SUITE 5A: PRACTICAL RISK ENGINE TESTING (30 mins) ⭐ NEW
+
+### Overview
+
+This test suite provides **practical, observable Risk Engine tests** using reduced thresholds for quick feedback. Instead of waiting 15+ minutes with 3 pyramids at -1.5% loss, we configure:
+
+- **Loss threshold**: -0.005% (triggers on almost any market movement)
+- **Required pyramids**: 1 (first entry counts)
+- **Wait time**: 1 minute (observable in real-time)
+
+**IMPORTANT:** This suite requires running the configuration commands from the "Practical Test Configuration" section first!
+
+---
+
+### Test 5A.1: Setup - Apply Test Configuration
+
+**Objective:** Configure Risk Engine for fast, observable testing
+
+```bash
+# STEP 1: Apply test configuration (REQUIRED before other tests)
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE users SET risk_config = jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        risk_config,
+        '{loss_threshold_percent}',
+        '\"-0.005\"'
+      ),
+      '{required_pyramids_for_timer}',
+      '1'
+    ),
+    '{post_pyramids_wait_minutes}',
+    '1'
+  )
+  WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1'
+  RETURNING 'Test config applied' as status;"
+
+# STEP 2: Verify configuration
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    risk_config->>'loss_threshold_percent' as loss_threshold,
+    risk_config->>'required_pyramids_for_timer' as required_pyramids,
+    risk_config->>'post_pyramids_wait_minutes' as wait_minutes
+   FROM users
+   WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+
+# STEP 3: Clean slate
+docker compose exec app python3 scripts/clean_positions_in_exchanges.py
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+```
+
+**Expected Result:**
+
+- ✅ loss_threshold = -0.005
+- ✅ required_pyramids = 1
+- ✅ wait_minutes = 1
+- ✅ Clean exchange and database state
+
+---
+
+### Test 5A.2: Create Losing Position - Observe Timer Start
+
+**Objective:** Create a position that immediately shows loss and triggers risk timer
+
+```bash
+# Get current BTC price (approximate)
+# Entry should be ABOVE current market to create instant loss
+
+# Create position at price ABOVE market (instant loss)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 100000.0 \
+  --order-size 0.001
+
+# Wait 5 seconds for order submission
+sleep 5
+
+# Check timer started (should show risk_timer_start and risk_timer_expires)
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    symbol,
+    status,
+    pyramid_count,
+    unrealized_pnl_percent,
+    risk_timer_start,
+    risk_timer_expires,
+    CASE
+      WHEN risk_timer_expires IS NOT NULL
+      THEN EXTRACT(EPOCH FROM (risk_timer_expires - NOW()))::int
+      ELSE NULL
+    END as seconds_until_expiry
+   FROM position_groups
+   WHERE symbol = 'BTCUSDT' AND status = 'live'
+   ORDER BY created_at DESC LIMIT 1;"
+```
+
+**Expected Result:**
+
+- ✅ Position created with entry price above market
+- ✅ Position shows negative unrealized_pnl_percent
+- ✅ risk_timer_start is NOT NULL (timer started)
+- ✅ risk_timer_expires shows ~60 seconds in future
+- ✅ seconds_until_expiry counts down from ~60
+
+---
+
+### Test 5A.3: Watch Risk Timer Countdown
+
+**Objective:** Observe the risk timer counting down in real-time
+
+```bash
+# Run this command every 10 seconds to watch countdown
+# Option 1: Manual checks
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    symbol,
+    unrealized_pnl_percent as pnl_pct,
+    EXTRACT(EPOCH FROM (risk_timer_expires - NOW()))::int as seconds_left,
+    CASE
+      WHEN risk_timer_expires < NOW() THEN 'EXPIRED - READY FOR CLOSURE'
+      ELSE 'COUNTING DOWN'
+    END as timer_status
+   FROM position_groups
+   WHERE risk_timer_start IS NOT NULL
+   AND status = 'live';"
+
+# Option 2: Use watch command (run for 90 seconds)
+# watch -n 10 'docker compose exec db psql -U tv_user -d tv_engine_db -c "SELECT symbol, EXTRACT(EPOCH FROM (risk_timer_expires - NOW()))::int as seconds_left FROM position_groups WHERE risk_timer_start IS NOT NULL AND status = '\''live'\'';"'
+```
+
+**Expected Result:**
+
+- ✅ Timer counts down from ~60 to 0
+- ✅ When seconds_left reaches 0, shows "EXPIRED - READY FOR CLOSURE"
+- ✅ Position remains open until Risk Engine evaluation runs
+
+---
+
+### Test 5A.4: Trigger Risk Engine Evaluation
+
+**Objective:** Manually trigger risk evaluation to close expired position
+
+```bash
+# After timer expires, trigger risk evaluation via API
+TOKEN="<your_jwt_token>"
+
+# Method 1: Via API (if endpoint exists)
+curl -X POST http://localhost:8000/api/v1/risk/run-evaluation \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json"
+
+# Method 2: Check if background service auto-evaluates
+# Wait 60-90 seconds after timer expires
+
+# Verify position status changed
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    symbol,
+    status,
+    closed_at,
+    realized_pnl_usd,
+    close_reason
+   FROM position_groups
+   WHERE symbol = 'BTCUSDT'
+   ORDER BY created_at DESC LIMIT 1;"
+
+# Check risk actions logged
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    action_type,
+    created_at,
+    details
+   FROM risk_actions
+   ORDER BY created_at DESC LIMIT 5;"
+
+# Verify orders cancelled on exchange
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Position status changed from 'live' to 'closing' or 'closed'
+- ✅ closed_at timestamp recorded
+- ✅ Risk action logged with action_type = 'timer_expired' or similar
+- ✅ Exchange shows no open orders for this position
+- ✅ All DCA orders cancelled
+
+---
+
+### Test 5A.5: Timer Reset on Pyramid
+
+**Objective:** Verify pyramid continuation resets risk timer
+
+```bash
+# Create initial position
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 4000.0 \
+  --order-size 0.01
+
+# Wait for timer to start
+sleep 10
+
+# Check initial timer
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, risk_timer_start, risk_timer_expires FROM position_groups WHERE symbol = 'ETHUSDT' AND status = 'live';"
+
+# Wait 30 seconds (halfway through timer)
+sleep 30
+
+# Add pyramid (should reset timer)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 3950.0 \
+  --order-size 0.01
+
+# Check timer was reset (new risk_timer_start, new risk_timer_expires)
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    symbol,
+    pyramid_count,
+    risk_timer_start,
+    risk_timer_expires,
+    EXTRACT(EPOCH FROM (risk_timer_expires - NOW()))::int as seconds_left
+   FROM position_groups
+   WHERE symbol = 'ETHUSDT' AND status = 'live';"
+```
+
+**Expected Result:**
+
+- ✅ Initial timer started after first entry
+- ✅ After pyramid, timer is RESET (risk_timer_start updated)
+- ✅ New risk_timer_expires shows ~60 seconds from NOW
+- ✅ Pyramid count incremented
+- ✅ Position gets "fresh" 1 minute countdown
+
+---
+
+### Test 5A.6: Timer Stops When Loss Recovers
+
+**Objective:** Verify timer clears if position returns to profit
+
+```bash
+# Create position at price slightly above market
+# (small loss that might recover)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol XRPUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.10 \
+  --order-size 20
+
+# Wait for timer to start
+sleep 10
+
+# Check timer started
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, unrealized_pnl_percent, risk_timer_start, risk_timer_expires FROM position_groups WHERE symbol = 'XRPUSDT' AND status = 'live';"
+
+# If price recovers and PnL goes above -0.005%, timer should clear
+# (This depends on market movement - may need to manually update for testing)
+
+# Simulate recovery by updating weighted_avg_entry to current market price
+# docker compose exec db psql -U tv_user -d tv_engine_db -c \
+#   "UPDATE position_groups SET weighted_avg_entry = <current_market_price> WHERE symbol = 'XRPUSDT';"
+
+# Check timer cleared
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    symbol,
+    unrealized_pnl_percent,
+    risk_timer_start,
+    risk_timer_expires,
+    CASE
+      WHEN risk_timer_start IS NULL THEN 'TIMER_CLEARED'
+      ELSE 'TIMER_ACTIVE'
+    END as timer_status
+   FROM position_groups
+   WHERE symbol = 'XRPUSDT' AND status = 'live';"
+```
+
+**Expected Result:**
+
+- ✅ Timer starts when loss exceeds -0.005%
+- ✅ Timer CLEARS (risk_timer_start = NULL) when loss recovers
+- ✅ Position remains open (not closed by risk engine)
+- ✅ If loss returns, timer restarts fresh
+
+---
+
+### Test 5A.7: Blocked Position Ignores Timer
+
+**Objective:** Verify blocked positions don't close even with expired timer
+
+```bash
+# Create losing position
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ADAUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.60 \
+  --order-size 50
+
+# Wait for timer to start
+sleep 5
+
+# Block the position
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE position_groups
+   SET risk_blocked = true
+   WHERE symbol = 'ADAUSDT' AND status = 'live'
+   RETURNING symbol, risk_blocked;"
+
+# Wait for timer to expire (70+ seconds)
+sleep 70
+
+# Check position still open despite expired timer
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    symbol,
+    status,
+    risk_blocked,
+    risk_timer_expires,
+    EXTRACT(EPOCH FROM (risk_timer_expires - NOW()))::int as seconds_since_expiry
+   FROM position_groups
+   WHERE symbol = 'ADAUSDT';"
+
+# Trigger risk evaluation
+TOKEN="<your_jwt_token>"
+curl -X POST http://localhost:8000/api/v1/risk/run-evaluation \
+  -H "Authorization: Bearer $TOKEN"
+
+# Verify still open
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, risk_blocked FROM position_groups WHERE symbol = 'ADAUSDT';"
+```
+
+**Expected Result:**
+
+- ✅ Position blocked (risk_blocked = true)
+- ✅ Timer expires (seconds_since_expiry shows negative)
+- ✅ After risk evaluation, position STILL OPEN
+- ✅ Status remains 'live' (not closed)
+- ✅ Blocked positions protected from auto-closure
+
+---
+
+### Test 5A.8: Cleanup - Restore Production Config
+
+**Objective:** Restore production risk engine configuration
+
+```bash
+# IMPORTANT: Always restore after testing!
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE users SET risk_config = jsonb_set(
+    jsonb_set(
+      jsonb_set(
+        risk_config,
+        '{loss_threshold_percent}',
+        '\"-1.5\"'
+      ),
+      '{required_pyramids_for_timer}',
+      '3'
+    ),
+    '{post_pyramids_wait_minutes}',
+    '15'
+  )
+  WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1'
+  RETURNING 'Production config restored' as status;"
+
+# Verify restoration
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    risk_config->>'loss_threshold_percent' as loss_threshold,
+    risk_config->>'required_pyramids_for_timer' as required_pyramids,
+    risk_config->>'post_pyramids_wait_minutes' as wait_minutes
+   FROM users
+   WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+
+# Clean up test positions
+docker compose exec app python3 scripts/clean_positions_in_exchanges.py
+docker compose exec app python3 scripts/clean_positions_in_db.py --username zmomz --confirm true
+```
+
+**Expected Result:**
+
+- ✅ loss_threshold = -1.5
+- ✅ required_pyramids = 3
+- ✅ wait_minutes = 15
+- ✅ Production configuration restored
+- ✅ Test positions cleaned
+
+---
+
 ## 🔥 TEST SUITE 6: BASIC SYSTEM HEALTH (30 mins)
 
 ### Test 6.1: Clean Slate Test
@@ -1131,7 +1659,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 136.82 \
-  --order-size 0.1
+  --order-size 0.4
 
 docker compose exec app python3 scripts/simulate_webhook.py \
   --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
@@ -1142,7 +1670,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 0.14 \
-  --order-size 100
+  --order-size 400
 
 # Binance positions
 docker compose exec app python3 scripts/simulate_webhook.py \
@@ -1154,7 +1682,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 92454.0 \
-  --order-size 0.001
+  --order-size 0.01
 
 docker compose exec app python3 scripts/simulate_webhook.py \
   --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
@@ -1165,7 +1693,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 3232.0 \
-  --order-size 0.01
+  --order-size 0.04
 
 # Verify all positions
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -1195,7 +1723,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 92454.0 \
-  --order-size 0.001
+  --order-size 0.01
 
 docker compose exec app python3 scripts/simulate_webhook.py \
   --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
@@ -1206,7 +1734,7 @@ docker compose exec app python3 scripts/simulate_webhook.py \
   --side long \
   --action buy \
   --entry-price 136.82 \
-  --order-size 0.1
+  --order-size 0.4
 
 # Verify before restart
 docker compose exec app python3 scripts/verify_exchange_positions.py
@@ -3689,11 +4217,681 @@ This test suite covers frontend component testing across all pages. Tests should
 
 ---
 
+## 🔥 TEST SUITE 15: EXIT SIGNALS & POSITION CLOSURE (45 mins) ⭐ NEW
+
+### Overview
+
+This test suite covers all position closure scenarios including:
+- Exit signals from TradingView
+- Manual position closure via API/UI
+- Take-profit triggered closures
+- Risk engine forced closures
+
+**Prerequisites:**
+- Active positions on exchanges
+- DCA orders filled (for TP testing)
+- Risk engine configured
+
+---
+
+### Test 15.1: Exit Signal - Close All Position Orders
+
+**Objective:** Verify exit signal closes position and cancels all orders
+
+```bash
+# Create a position first
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+
+# Wait for orders to be placed
+sleep 5
+
+# Verify position exists
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, pyramid_count FROM position_groups WHERE symbol = 'BTCUSDT' AND status = 'live';"
+
+# Send EXIT signal (action=sell for long position)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action sell \
+  --entry-price 92500.0 \
+  --order-size 0.001
+
+# Verify position closed
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, closed_at, close_reason FROM position_groups WHERE symbol = 'BTCUSDT' ORDER BY created_at DESC LIMIT 1;"
+
+# Verify orders cancelled on exchange
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Position status changed to 'closing' then 'closed'
+- ✅ All open DCA orders cancelled on exchange
+- ✅ close_reason set to 'exit_signal'
+- ✅ closed_at timestamp recorded
+- ✅ Exchange shows no open orders for this position
+- ✅ Telegram notification sent (if enabled)
+
+---
+
+### Test 15.2: Exit Signal with Partial Fills
+
+**Objective:** Verify exit signal handles partially filled positions
+
+```bash
+# Create position with multiple DCA levels
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 3200.0 \
+  --order-size 0.02
+
+# Wait for some orders to fill (may need to adjust entry price for fills)
+sleep 60
+
+# Check fill status
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT do.leg_index, do.status, do.filled_quantity
+   FROM dca_orders do
+   JOIN position_groups pg ON do.group_id = pg.id
+   WHERE pg.symbol = 'ETHUSDT' AND pg.status = 'live'
+   ORDER BY do.leg_index;"
+
+# Send exit signal
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action sell \
+  --entry-price 3250.0 \
+  --order-size 0.02
+
+# Verify filled quantity sold, unfilled orders cancelled
+docker compose exec app python3 scripts/verify_exchange_positions.py
+
+# Check realized PnL calculated
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, realized_pnl_usd, total_filled_quantity, status
+   FROM position_groups WHERE symbol = 'ETHUSDT' ORDER BY created_at DESC LIMIT 1;"
+```
+
+**Expected Result:**
+
+- ✅ Filled DCA orders result in market sell order
+- ✅ Unfilled DCA orders cancelled (not sold)
+- ✅ Realized PnL calculated from filled portion only
+- ✅ Position marked as closed
+- ✅ No orphaned orders on exchange
+
+---
+
+### Test 15.3: Manual Close via API
+
+**Objective:** Test position closure through API endpoint
+
+```bash
+TOKEN="<your_jwt_token>"
+
+# Create position
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol XRPUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 2.00 \
+  --order-size 20
+
+# Get position group ID
+GROUP_ID=$(docker compose exec db psql -U tv_user -d tv_engine_db -t -c \
+  "SELECT id FROM position_groups WHERE symbol = 'XRPUSDT' AND status = 'live' LIMIT 1;" | tr -d ' ')
+
+# Close via API
+curl -X POST "http://localhost:8000/api/v1/positions/$GROUP_ID/close" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json"
+
+# Verify closure
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, close_reason FROM position_groups WHERE id = '$GROUP_ID';"
+```
+
+**Expected Result:**
+
+- ✅ API returns success response
+- ✅ Position status changes to 'closing' then 'closed'
+- ✅ close_reason set to 'manual_close'
+- ✅ All orders cancelled on exchange
+- ✅ Telegram notification sent (if enabled)
+
+---
+
+## 🔥 TEST SUITE 16: TAKE-PROFIT EXECUTION (60 mins) ⭐ NEW
+
+### Overview
+
+This test suite verifies Take-Profit order creation and execution for all 4 TP modes.
+
+**Prerequisites:**
+- Live prices from fetch_live_prices.py
+- Understanding of each TP mode behavior
+
+**Fill Strategies Used:**
+1. **Market Orders (Instant Fill)**: Use ETH, ADA, TRX, LINK - configured with `entry_order_type: market`
+2. **Bracket Strategy (5-10 min fill)**: Use entry price 0.1% below current market for quick fills
+
+---
+
+### Test 16.1: Per-Leg TP Mode - Individual TP Orders
+
+**Objective:** Verify each DCA leg has independent TP order
+
+**Fill Strategy:** Use ADAUSDT (market order config) for instant first-leg fill
+
+```bash
+# STEP 1: Get current ADA price
+docker compose exec app python3 scripts/fetch_live_prices.py
+
+# STEP 2: Create position - ADA has market order for leg 0 (instant fill)
+# Use exact current price for market order fill
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ADAUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.90 \
+  --order-size 100
+
+# First leg fills INSTANTLY via market order
+sleep 5
+
+# Check TP orders created for filled DCA leg
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    do.leg_index,
+    do.status as dca_status,
+    do.fill_price,
+    do.tp_percent,
+    do.tp_price,
+    CASE
+      WHEN do.fill_price IS NOT NULL
+      THEN ROUND(do.fill_price * (1 + do.tp_percent/100), 4)
+      ELSE NULL
+    END as expected_tp_price
+   FROM dca_orders do
+   JOIN position_groups pg ON do.group_id = pg.id
+   WHERE pg.symbol = 'ADAUSDT' AND pg.status = 'live'
+   ORDER BY do.leg_index;"
+
+# Verify TP orders on exchange
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Leg 0 fills instantly (market order)
+- ✅ TP order created for filled leg
+- ✅ TP price calculated from FILL PRICE (not entry price)
+- ✅ TP order visible on exchange as limit sell order
+- ✅ Unfilled DCA legs have no TP orders yet
+
+---
+
+### Test 16.2: Aggregate TP Mode - Single TP Order
+
+**Objective:** Verify aggregate TP uses weighted average entry
+
+**Fill Strategy:** Use ETHUSDT (market order config) for instant first-leg fill
+
+```bash
+# STEP 1: Get current ETH price
+docker compose exec app python3 scripts/fetch_live_prices.py
+
+# STEP 2: Create position - ETH has market order for leg 0 (instant fill)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 3400.0 \
+  --order-size 0.02
+
+# First leg fills INSTANTLY via market order
+sleep 5
+
+# Check weighted average entry and aggregate TP
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    pg.symbol,
+    pg.weighted_avg_entry,
+    pg.tp_aggregate_percent,
+    ROUND(pg.weighted_avg_entry * (1 + pg.tp_aggregate_percent/100), 2) as expected_tp_price,
+    pg.total_filled_quantity
+   FROM position_groups pg
+   WHERE pg.symbol = 'ETHUSDT' AND pg.status = 'live';"
+
+# Verify single TP order on exchange (not multiple per-leg TPs)
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Leg 0 fills instantly (market order)
+- ✅ Single aggregate TP order created (not per-leg)
+- ✅ TP price based on weighted_avg_entry + tp_aggregate_percent
+- ✅ TP quantity = sum of all filled quantities
+
+---
+
+### Test 16.3: Pyramid Aggregate TP Mode - Multi-Pyramid Weighted Average
+
+**Objective:** Verify pyramid_aggregate TP mode calculates weighted average across ALL pyramids
+
+**Fill Strategy:** Use TRXUSDT (market order config) for instant fills on both pyramids
+
+```bash
+# First, check which pairs are configured with pyramid_aggregate TP mode
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pair, exchange, tp_mode, max_pyramids
+   FROM dca_configurations
+   WHERE tp_mode = 'pyramid_aggregate';"
+
+# If none configured, temporarily update TRX for testing (has market orders):
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE dca_configurations SET tp_mode = 'pyramid_aggregate'
+   WHERE pair = 'TRX/USDT' AND exchange = 'binance' RETURNING pair, tp_mode;"
+
+# STEP 1: Get current TRX price
+docker compose exec app python3 scripts/fetch_live_prices.py
+
+# STEP 2: Create position with first pyramid - TRX has market order (instant fill)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol TRXUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.26 \
+  --order-size 200
+
+# First pyramid leg 0 fills INSTANTLY via market order
+sleep 5
+
+# Check weighted average after first pyramid
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, pyramid_count, weighted_avg_entry, tp_mode
+   FROM position_groups WHERE symbol = 'TRXUSDT' AND status = 'live';"
+
+# STEP 3: Add second pyramid at lower price (wait 30 sec between signals)
+sleep 30
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol TRXUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.25 \
+  --order-size 250
+
+# Second pyramid leg 0 fills INSTANTLY via market order
+sleep 5
+
+# Check weighted average NOW INCLUDES BOTH PYRAMIDS
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    pg.symbol,
+    pg.pyramid_count,
+    pg.weighted_avg_entry as combined_avg,
+    pg.tp_aggregate_percent,
+    ROUND(pg.weighted_avg_entry * (1 + pg.tp_aggregate_percent/100), 4) as tp_target
+   FROM position_groups pg
+   WHERE pg.symbol = 'TRXUSDT' AND pg.status = 'live';"
+
+# View individual pyramid entries for comparison
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    p.pyramid_index,
+    p.entry_price as pyramid_entry,
+    p.status
+   FROM pyramids p
+   JOIN position_groups pg ON p.group_id = pg.id
+   WHERE pg.symbol = 'TRXUSDT' AND pg.status = 'live'
+   ORDER BY p.pyramid_index;"
+
+# Verify single aggregate TP order on exchange
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ tp_mode = 'pyramid_aggregate' for position
+- ✅ weighted_avg_entry includes fills from ALL pyramids
+- ✅ Pyramid 1 at $0.26 + Pyramid 2 at $0.25 = lower combined average (~$0.255)
+- ✅ Single TP order based on combined weighted average
+- ✅ TP order quantity = total filled across all pyramids
+- ✅ When new pyramid added, weighted avg recalculated
+- ✅ TP order updated with new combined average
+
+**Key Difference from Regular Aggregate:**
+
+- Regular `aggregate`: TP based on weighted avg of DCA levels within ONE pyramid
+- `pyramid_aggregate`: TP based on weighted avg across ALL pyramids (entire position)
+
+---
+
+### Test 16.4: Hybrid TP Mode - Per-Leg AND Aggregate
+
+**Objective:** Verify hybrid mode runs both TP systems simultaneously
+
+**Fill Strategy:** Use LINKUSDT (market order config) for instant first-leg fill
+
+```bash
+# STEP 1: Check for hybrid TP mode configurations
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pair, exchange, tp_mode FROM dca_configurations WHERE tp_mode = 'hybrid';"
+
+# If none configured, temporarily update LINK for testing (has market orders):
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE dca_configurations SET tp_mode = 'hybrid'
+   WHERE pair = 'LINK/USDT' AND exchange = 'binance' RETURNING pair, tp_mode;"
+
+# STEP 2: Get current LINK price
+docker compose exec app python3 scripts/fetch_live_prices.py
+
+# STEP 3: Create position - LINK has market order for leg 0 (instant fill)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol LINKUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 14.50 \
+  --order-size 5
+
+# First leg fills INSTANTLY via market order
+sleep 5
+
+# Check that BOTH per-leg AND aggregate TPs exist
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    do.leg_index,
+    do.status,
+    do.fill_price,
+    do.tp_price as per_leg_tp,
+    do.tp_percent as leg_tp_pct,
+    pg.weighted_avg_entry,
+    pg.tp_aggregate_percent,
+    ROUND(pg.weighted_avg_entry * (1 + pg.tp_aggregate_percent/100), 4) as aggregate_tp
+   FROM dca_orders do
+   JOIN position_groups pg ON do.group_id = pg.id
+   WHERE pg.symbol = 'LINKUSDT' AND pg.status = 'live'
+   ORDER BY do.leg_index;"
+
+# Verify exchange has BOTH types of TP orders
+docker compose exec app python3 scripts/verify_exchange_positions.py
+```
+
+**Expected Result:**
+
+- ✅ Leg 0 fills instantly (market order)
+- ✅ Per-leg TP order exists for filled DCA leg (based on fill price)
+- ✅ Aggregate TP order exists for combined position (based on weighted avg)
+- ✅ "First trigger wins" - whichever TP hits first closes that portion
+- ✅ Both TP orders visible on exchange
+- ✅ If per-leg hits first, only that leg closes
+- ✅ If aggregate hits first, entire position closes
+
+---
+
+### Test 16.5: TP Order Fill Handling
+
+**Objective:** Verify system handles TP order fills correctly
+
+**Fill Strategy:** Use ETHUSDT with bracket strategy - enter 0.1% below market for quick fill, then wait for TP
+
+```bash
+# STEP 1: Get current ETH price
+docker compose exec app python3 scripts/fetch_live_prices.py
+# Note the ETH price (e.g., $3400)
+
+# STEP 2: Calculate bracket entry (0.1% below current price)
+# If ETH = $3400, then entry = $3396.60
+
+# STEP 3: Create position with tight TP (0.2% to increase TP hit chance)
+# First, temporarily set a very tight TP percent:
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT pair, tp_aggregate_percent FROM dca_configurations
+   WHERE pair = 'ETH/USDT' AND exchange = 'binance';"
+
+# Optionally update TP to 0.2% for faster testing:
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "UPDATE dca_configurations
+   SET tp_aggregate_percent = 0.2
+   WHERE pair = 'ETH/USDT' AND exchange = 'binance'
+   RETURNING pair, tp_aggregate_percent;"
+
+# STEP 4: Create position - ETH has market order (instant fill)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 240 \
+  --side long \
+  --action buy \
+  --entry-price 3400.0 \
+  --order-size 0.015
+
+# First leg fills INSTANTLY via market order
+sleep 5
+
+# STEP 5: Monitor for TP fills (TP at ~0.2% above fill price)
+# With 0.2% TP, if fill was $3400, TP target is ~$3406.80
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT
+    pg.symbol,
+    pg.weighted_avg_entry as fill_price,
+    pg.tp_aggregate_percent,
+    ROUND(pg.weighted_avg_entry * (1 + pg.tp_aggregate_percent/100), 2) as tp_target,
+    pg.status
+   FROM position_groups pg
+   WHERE pg.symbol = 'ETHUSDT' AND pg.status IN ('live', 'closed')
+   ORDER BY pg.created_at DESC LIMIT 1;"
+
+# STEP 6: Wait and monitor for TP hit (check every 30 seconds)
+watch -n 30 'docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, realized_pnl_usd, close_reason, closed_at
+   FROM position_groups
+   WHERE symbol = '\''ETHUSDT'\''
+   ORDER BY created_at DESC LIMIT 1;"'
+
+# Alternative: Check logs for TP fill events
+docker compose logs -f app 2>&1 | grep -i "tp_fill\|take_profit\|position.*closed"
+```
+
+**Expected Result:**
+
+- ✅ Entry leg fills instantly via market order
+- ✅ TP order placed at calculated target price
+- ✅ When price reaches TP target, TP order fills
+- ✅ order_fill_monitor detects the TP fill
+- ✅ Position status changes to 'closed'
+- ✅ realized_pnl_usd calculated correctly (should be ~0.2% of position value)
+- ✅ close_reason set to 'tp_hit'
+- ✅ Remaining unfilled DCA orders cancelled
+- ✅ Telegram notification sent (if enabled)
+
+---
+
+## 🔥 TEST SUITE 17: SIGNAL VALIDATION & TRANSFORMATION (30 mins) ⭐ NEW
+
+### Overview
+
+This test suite verifies signal validation, transformation, and rejection logic.
+
+---
+
+### Test 17.1: Missing Required Fields Rejection
+
+**Objective:** Verify signals with missing fields are rejected
+
+```bash
+# Test with missing symbol (should fail)
+curl -X POST http://localhost:8000/api/v1/webhooks/f937c6cb-f9f9-4d25-be19-db9bf596d7e1/tradingview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "f937c6cb-f9f9-4d25-be19-db9bf596d7e1",
+    "secret": "ecd78c38d5ec54b4cd892735d0423671",
+    "tv": {
+      "exchange": "binance",
+      "timeframe": 60,
+      "action": "buy"
+    }
+  }'
+```
+
+**Expected Result:**
+
+- ✅ Returns 422 Unprocessable Entity
+- ✅ Error message indicates missing 'symbol' field
+- ✅ No position created
+- ✅ Validation error logged
+
+---
+
+### Test 17.2: Invalid Exchange Rejection
+
+**Objective:** Verify unsupported exchanges are rejected
+
+```bash
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange kraken \
+  --symbol BTCUSD \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+```
+
+**Expected Result:**
+
+- ✅ Error returned for unsupported exchange
+- ✅ No position created
+- ✅ Only 'binance' and 'bybit' accepted
+
+---
+
+### Test 17.3: Exchange Name Normalization
+
+**Objective:** Verify exchange names are normalized (case-insensitive)
+
+```bash
+# Test with uppercase BINANCE (should work)
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange BINANCE \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+
+# Verify position created with lowercase exchange
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, exchange FROM position_groups ORDER BY created_at DESC LIMIT 1;"
+```
+
+**Expected Result:**
+
+- ✅ BINANCE normalized to 'binance'
+- ✅ BYBIT normalized to 'bybit'
+- ✅ Position created successfully
+
+---
+
+### Test 17.4: Unconfigured Pair Rejection
+
+**Objective:** Verify signals for unconfigured pairs are rejected
+
+```bash
+# Try to create position for pair without DCA config
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol PEPEUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 0.00001 \
+  --order-size 1000000
+```
+
+**Expected Result:**
+
+- ✅ Error returned: "No DCA configuration found"
+- ✅ No position created
+- ✅ Only configured pairs allowed
+
+---
+
 ## 📊 UPDATED TEST RESULTS TEMPLATE (v2)
 
 Add these new test suites to the results template:
 
 ```markdown
+### TEST SUITE 5A: Practical Risk Engine Testing
+- [ ] Test 5A.1: Setup - Apply Test Configuration - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.2: Create Losing Position - Observe Timer - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.3: Watch Risk Timer Countdown - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.4: Trigger Risk Engine Evaluation - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.5: Timer Reset on Pyramid - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.6: Timer Stops When Loss Recovers - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.7: Blocked Position Ignores Timer - ✅ PASS / ❌ FAIL
+- [ ] Test 5A.8: Cleanup - Restore Production Config - ✅ PASS / ❌ FAIL
+
 ### TEST SUITE 13: Telegram Notification System
 - [ ] Test 13.1: Telegram Configuration API - ✅ PASS / ❌ FAIL
 - [ ] Test 13.2: Telegram Connection Test - ✅ PASS / ❌ FAIL
@@ -3730,23 +4928,28 @@ Add these new test suites to the results template:
 
 ## 🎯 FINAL SUCCESS CRITERIA (COMPLETE)
 
-**Total Test Suites: 14**
-**Total Individual Tests: 100+**
+**Total Test Suites: 17**
+**Total Individual Tests: 130+**
 
 ### Core Trading Engine
+
 - ✅ Signal ingestion and position creation
 - ✅ Pyramid management and DCA execution
 - ✅ Queue system with priority rules
-- ✅ Risk engine with offset logic
+- ✅ Risk engine with offset logic (practical testing with reduced thresholds)
 - ✅ All 4 TP modes (per_leg, aggregate, hybrid, pyramid_aggregate)
+- ✅ Exit signal handling and position closure
+- ✅ Signal validation and transformation
 
 ### API & Backend Services
+
 - ✅ All 41 API endpoints functional
 - ✅ Authentication and authorization
 - ✅ Background workers (order monitor, queue promotion, risk engine)
 - ✅ Multi-exchange support (Binance, Bybit)
 
 ### Telegram Notification System
+
 - ✅ All 8 message types (entry, exit, DCA fill, status, pyramid, TP hit, risk, failure)
 - ✅ Message consolidation (update existing vs new)
 - ✅ Quiet hours with urgent-only mode
@@ -3755,6 +4958,7 @@ Add these new test suites to the results template:
 - ✅ Test mode for debugging
 
 ### Frontend Application
+
 - ✅ All 9 pages functional
 - ✅ Settings persistence (all 4 tabs)
 - ✅ Real-time updates (polling)
@@ -3762,13 +4966,23 @@ Add these new test suites to the results template:
 - ✅ Error handling and loading states
 
 ### Security & Isolation
+
 - ✅ Multi-user data isolation
 - ✅ API key encryption
 - ✅ JWT token validation
 - ✅ Webhook signature verification
 
+### Practical Risk Engine Testing (NEW)
+
+- ✅ Configurable thresholds for quick testing (-0.005% loss, 1 min timer)
+- ✅ Observable timer countdown
+- ✅ Timer reset on pyramid
+- ✅ Timer recovery when loss improves
+- ✅ Blocked position protection
+- ✅ Production config restoration
+
 ---
 
-**Test Plan Version:** 2.0
+**Test Plan Version:** 2.1
 **Last Updated:** December 2024
-**Coverage:** Comprehensive (Backend + Frontend + Telegram)
+**Coverage:** Comprehensive (Backend + Frontend + Telegram + Practical Risk Engine)

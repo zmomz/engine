@@ -25,7 +25,12 @@
       "Bash(cat:*)",
       "Bash(node -e:*)",
       "Bash(powershell -Command \"\\(Get-Content ''c:\\\\Users\\\\zmzer\\\\Documents\\\\freelancing\\\\engine\\\\investigation.md'' | Measure-Object -Line\\).Lines\")",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(timeout 15 docker compose logs:*)",
+      "Bash(python:*)",
+      "Bash(timeout 5 docker compose:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6bW9teiIsImV4cCI6MTc2Njc1MzQxNywiaWF0IjoxNzY2NzUxNjE3LCJqdGkiOiI1MWE4ZmY2NC04ZGRmLTRmY2YtOGZhMy0yMzYwYTE4ZTRkZWEifQ.yTbtoBM69ZmvhrGpsWvAQYrCt7Hwhk0Iz6PoGvu27J4\")"
     ]
   }
 }
