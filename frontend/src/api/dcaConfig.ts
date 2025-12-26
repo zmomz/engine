@@ -3,6 +3,11 @@ import api from '../services/api';
 export type EntryOrderType = 'limit' | 'market';
 export type TPMode = 'per_leg' | 'aggregate' | 'hybrid' | 'pyramid_aggregate';
 
+export interface TPSettings {
+    tp_aggregate_percent?: number;
+    pyramid_tp_percents?: Record<string, number>;  // "0": 2.0, "1": 3.0, etc.
+}
+
 export interface DCALevelConfig {
     gap_percent: number;
     weight_percent: number;
@@ -19,7 +24,7 @@ export interface DCAConfiguration {
     dca_levels: DCALevelConfig[];
     pyramid_specific_levels?: Record<string, DCALevelConfig[]>;
     tp_mode: TPMode;
-    tp_settings: Record<string, any>;
+    tp_settings: TPSettings;
     max_pyramids: number;
     created_at?: string;
     updated_at?: string;
@@ -33,7 +38,7 @@ export interface DCAConfigurationCreate {
     dca_levels: DCALevelConfig[];
     pyramid_specific_levels?: Record<string, DCALevelConfig[]>;
     tp_mode: TPMode;
-    tp_settings: Record<string, any>;
+    tp_settings: TPSettings;
     max_pyramids?: number;
 }
 
@@ -42,7 +47,7 @@ export interface DCAConfigurationUpdate {
     dca_levels?: DCALevelConfig[];
     pyramid_specific_levels?: Record<string, DCALevelConfig[]>;
     tp_mode?: TPMode;
-    tp_settings?: Record<string, any>;
+    tp_settings?: TPSettings;
     max_pyramids?: number;
 }
 

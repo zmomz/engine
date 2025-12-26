@@ -962,8 +962,15 @@ class PositionManagerService:
 
             pyramid_avg_entry = total_value / total_qty
 
-            # Calculate pyramid TP target
-            tp_percent = position_group.tp_aggregate_percent
+            # Calculate pyramid TP target - check for pyramid-specific TP first
+            pyramid_config = pyramid.dca_config or {}
+            pyramid_tp_percents = pyramid_config.get("pyramid_tp_percents", {})
+            pyramid_index_key = str(pyramid.pyramid_index)
+
+            if pyramid_index_key in pyramid_tp_percents:
+                tp_percent = Decimal(str(pyramid_tp_percents[pyramid_index_key]))
+            else:
+                tp_percent = position_group.tp_aggregate_percent
             if position_group.side.lower() == "long":
                 pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
                 tp_triggered = current_price >= pyramid_tp_price
