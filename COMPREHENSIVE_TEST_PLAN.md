@@ -2873,3 +2873,902 @@ Update the test results template to include new test suites:
 ---
 
 **Good luck with testing! 🚀**
+
+---
+
+## 🔥 TEST SUITE 13: TELEGRAM NOTIFICATION SYSTEM (60 mins)
+
+### Overview
+
+The Telegram notification system provides comprehensive, smart notifications for all position lifecycle events. This test suite covers all 8 message types and their configuration options.
+
+**Prerequisites:**
+- Telegram bot token and channel configured
+- Active positions for testing
+- Risk engine enabled
+
+---
+
+### Test 13.1: Telegram Configuration API
+
+**Objective:** Test Telegram configuration CRUD via API
+
+```bash
+TOKEN="<jwt_token>"
+
+# Get current Telegram config
+curl http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN"
+
+# Update Telegram configuration
+curl -X PUT http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "bot_token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+    "channel_id": "@test_channel",
+    "channel_name": "Test Signals",
+    "send_entry_signals": true,
+    "send_exit_signals": true,
+    "send_status_updates": true,
+    "send_dca_fill_updates": true,
+    "send_pyramid_updates": true,
+    "send_tp_hit_updates": true,
+    "send_failure_alerts": true,
+    "send_risk_alerts": true,
+    "update_existing_message": true,
+    "show_unrealized_pnl": true,
+    "show_invested_amount": true,
+    "show_duration": true,
+    "test_mode": true
+  }'
+
+# Verify config stored in database
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT telegram_config
+   FROM users
+   WHERE id = 'f937c6cb-f9f9-4d25-be19-db9bf596d7e1';"
+```
+
+**Expected Result:**
+
+- ✅ GET returns current configuration
+- ✅ PUT updates configuration successfully
+- ✅ All 20+ fields stored correctly
+- ✅ Config persists after refresh
+- ✅ Default values applied for missing fields
+
+---
+
+### Test 13.2: Telegram Connection Test
+
+**Objective:** Test bot connection verification
+
+```bash
+TOKEN="<jwt_token>"
+
+# Test connection to Telegram bot
+curl -X POST http://localhost:8000/api/v1/telegram/test-connection \
+  -H "Authorization: Bearer $TOKEN"
+
+# Send test message
+curl -X POST http://localhost:8000/api/v1/telegram/test-message \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Expected Result:**
+
+- ✅ Test connection returns bot info if successful
+- ✅ Invalid token returns error with details
+- ✅ Test message sent to configured channel
+- ✅ Message format matches expected template
+
+---
+
+### Test 13.3: Entry Signal Notification
+
+**Objective:** Verify entry signal broadcast with all context
+
+```bash
+# Create position with Telegram enabled
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 92000.0 \
+  --order-size 0.001
+
+# Check Telegram channel for message
+# Check database for telegram_message_id
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, telegram_message_id, status
+   FROM position_groups
+   WHERE symbol = 'BTCUSDT'
+   ORDER BY created_at DESC LIMIT 1;"
+```
+
+**Expected Result:**
+
+- ✅ Entry signal message sent to Telegram
+- ✅ Message includes: 🆔 Position ID, symbol, exchange, timeframe
+- ✅ DCA levels displayed with status (✅/⏳)
+- ✅ TP mode displayed correctly (per_leg, aggregate, hybrid, pyramid_aggregate)
+- ✅ Pyramid count shown (e.g., "🔷 Pyramid 1/5")
+- ✅ Invested amount shown (if enabled)
+- ✅ telegram_message_id stored in database
+
+---
+
+### Test 13.4: DCA Fill Update Notification
+
+**Objective:** Verify DCA leg fill broadcasts
+
+```bash
+# Wait for DCA order to fill (use live price or market order)
+# Monitor fills
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT do.leg_index, do.status, do.filled_quantity, do.avg_fill_price
+   FROM dca_orders do
+   JOIN position_groups pg ON do.group_id = pg.id
+   WHERE pg.symbol = 'BTCUSDT'
+   ORDER BY do.leg_index;"
+
+# Check Telegram channel for DCA fill message
+```
+
+**Expected Result:**
+
+- ✅ DCA fill notification sent when order fills
+- ✅ Message includes: leg number, fill price, quantity
+- ✅ Progress shown (e.g., "Filled: 2/3 legs (70%)")
+- ✅ Avg entry and invested amount updated
+- ✅ Message updates existing entry message (if update_existing_message=true)
+
+---
+
+### Test 13.5: Status Change Notification
+
+**Objective:** Verify status transition broadcasts
+
+```bash
+# Verify status transitions trigger notifications
+# LIVE → PARTIALLY_FILLED → ACTIVE
+
+# Check position status history
+docker compose exec db psql -U tv_user -d tv_engine_db -c \
+  "SELECT symbol, status, updated_at
+   FROM position_groups
+   WHERE symbol = 'BTCUSDT'
+   ORDER BY created_at DESC LIMIT 1;"
+```
+
+**Expected Result:**
+
+- ✅ Status change notification sent on transition
+- ✅ Shows old status → new status
+- ✅ Position summary included (filled legs, avg entry)
+- ✅ Time to fill shown (for PARTIALLY_FILLED → ACTIVE)
+
+---
+
+### Test 13.6: Pyramid Added Notification
+
+**Objective:** Verify new pyramid broadcasts
+
+```bash
+# Add pyramid to existing position
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 91000.0 \
+  --order-size 0.001
+
+# Check Telegram for pyramid notification
+```
+
+**Expected Result:**
+
+- ✅ Pyramid added notification sent
+- ✅ Shows new pyramid DCA levels
+- ✅ Total pyramids displayed (e.g., "📊 Total pyramids: 2/5")
+- ✅ Previous pyramid invested amount shown
+- ✅ New TP target shown (for pyramid_aggregate mode)
+
+---
+
+### Test 13.7: Take-Profit Hit Notification
+
+**Objective:** Verify TP hit broadcasts for different modes
+
+```bash
+# Wait for TP order to fill
+# Or manually trigger TP for testing
+
+# Check Telegram for TP hit message
+
+# Verify for each TP mode:
+# - PER_LEG: Individual leg TP hit
+# - AGGREGATE: Full position TP hit
+# - PYRAMID_AGGREGATE: Pyramid-level TP hit
+# - HYBRID: Combination TP hit
+```
+
+**Expected Result:**
+
+- ✅ TP hit notification sent when order fills
+- ✅ **PER_LEG**: Shows leg entry, exit, profit %, remaining legs
+- ✅ **AGGREGATE**: Shows avg entry, exit, total profit
+- ✅ **PYRAMID_AGGREGATE**: Shows pyramid-specific TP, remaining pyramids
+- ✅ Duration shown for closed legs/pyramids
+
+---
+
+### Test 13.8: Risk Alert Notifications
+
+**Objective:** Verify risk engine event broadcasts
+
+```bash
+# Create losing position to trigger risk timer
+docker compose exec app python3 scripts/simulate_webhook.py \
+  --user-id f937c6cb-f9f9-4d25-be19-db9bf596d7e1 \
+  --secret ecd78c38d5ec54b4cd892735d0423671 \
+  --exchange binance \
+  --symbol ETHUSDT \
+  --timeframe 60 \
+  --side long \
+  --action buy \
+  --entry-price 4000.0 \
+  --order-size 0.01
+
+# Wait for risk timer to start (when required pyramids filled + loss threshold)
+
+# Check Telegram for risk alerts:
+# - Timer started
+# - Timer expired
+# - Offset executed (if applicable)
+```
+
+**Expected Result:**
+
+- ✅ **Timer Started**: Shows loss %, countdown time, position info
+- ✅ **Timer Expired**: Shows loss persisted, offset pending message
+- ✅ **Offset Executed**: Shows entry/exit, loss, offset details, net result
+- ✅ Risk alerts sent even during quiet hours (urgent)
+
+---
+
+### Test 13.9: Failure Alert Notification
+
+**Objective:** Verify failure/error broadcasts
+
+```bash
+# Trigger an order failure (e.g., insufficient balance)
+# Check Telegram for failure alert
+```
+
+**Expected Result:**
+
+- ✅ Failure alert sent with error details
+- ✅ Shows failed order info (price, qty, value)
+- ✅ Actionable suggestion included
+- ✅ Failure alerts sent even during quiet hours (urgent)
+
+---
+
+### Test 13.10: Exit Signal Notification
+
+**Objective:** Verify position close broadcasts
+
+```bash
+# Close position (manual or TP/risk triggered)
+curl -X POST http://localhost:8000/api/v1/positions/<GROUP_ID>/close \
+  -H "Authorization: Bearer $TOKEN"
+
+# Check Telegram for exit message
+```
+
+**Expected Result:**
+
+- ✅ Exit signal sent with trade summary
+- ✅ Shows entry, exit, profit/loss %, USD amount
+- ✅ Position stats (pyramids used, DCA legs, TP mode)
+- ✅ Duration shown
+- ✅ Exit reason included (engine close, TP hit, manual, etc.)
+
+---
+
+### Test 13.11: Message Toggle Tests
+
+**Objective:** Verify individual message type toggles work
+
+```bash
+TOKEN="<jwt_token>"
+
+# Disable DCA fill updates
+curl -X PUT http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "send_dca_fill_updates": false
+  }'
+
+# Create position and verify NO DCA fill messages sent
+# Re-enable and verify messages resume
+```
+
+**Expected Result:**
+
+- ✅ Disabled message types not sent
+- ✅ Other message types still work
+- ✅ Toggle changes apply immediately
+- ✅ All 8 toggles work independently
+
+---
+
+### Test 13.12: Quiet Hours Functionality
+
+**Objective:** Verify quiet hours suppress non-urgent notifications
+
+```bash
+TOKEN="<jwt_token>"
+
+# Enable quiet hours (current time within window)
+curl -X PUT http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quiet_hours_enabled": true,
+    "quiet_hours_start": "00:00",
+    "quiet_hours_end": "23:59",
+    "quiet_hours_urgent_only": true
+  }'
+
+# Create position - entry signal should NOT be sent
+# Trigger failure - failure alert SHOULD be sent (urgent)
+```
+
+**Expected Result:**
+
+- ✅ Non-urgent messages blocked during quiet hours
+- ✅ Urgent messages (failures, risk alerts) still sent
+- ✅ Quiet hours respect configured start/end times
+- ✅ quiet_hours_urgent_only toggle works correctly
+
+---
+
+### Test 13.13: Threshold Alerts
+
+**Objective:** Verify profit/loss threshold alerts
+
+```bash
+TOKEN="<jwt_token>"
+
+# Set threshold alerts
+curl -X PUT http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "alert_loss_threshold_percent": 5.0,
+    "alert_profit_threshold_percent": 10.0
+  }'
+
+# Create position with loss > 5%
+# Verify threshold alert sent
+
+# Create position with profit > 10%
+# Verify threshold alert sent
+```
+
+**Expected Result:**
+
+- ✅ Loss threshold alert sent when loss exceeds configured %
+- ✅ Profit threshold alert sent when profit exceeds configured %
+- ✅ Threshold alerts work in addition to regular updates
+- ✅ Null thresholds disable threshold alerts
+
+---
+
+### Test 13.14: Test Mode
+
+**Objective:** Verify test mode logs without sending
+
+```bash
+TOKEN="<jwt_token>"
+
+# Enable test mode
+curl -X PUT http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "test_mode": true
+  }'
+
+# Create position
+# Check application logs for message content (not actually sent)
+docker compose logs app | grep "telegram" | tail -20
+```
+
+**Expected Result:**
+
+- ✅ Messages logged to console/log file
+- ✅ Messages NOT sent to Telegram channel
+- ✅ Message content visible in logs
+- ✅ Useful for debugging message formatting
+
+---
+
+### Test 13.15: Message Update vs New Message
+
+**Objective:** Verify message consolidation behavior
+
+```bash
+TOKEN="<jwt_token>"
+
+# Enable update existing message
+curl -X PUT http://localhost:8000/api/v1/telegram/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "update_existing_message": true,
+    "update_on_pyramid": true
+  }'
+
+# Create position - check original message
+# Wait for DCA fill - verify SAME message updated (not new message)
+# Add pyramid - verify message updated
+
+# Disable update_existing_message and repeat
+# Verify NEW messages sent for each event
+```
+
+**Expected Result:**
+
+- ✅ update_existing_message=true: Same message edited
+- ✅ update_existing_message=false: New message for each event
+- ✅ update_on_pyramid: Pyramid adds update existing or new based on setting
+- ✅ Reduces channel spam with consolidation
+- ✅ telegram_message_id tracks the main position message
+
+---
+
+## 🔥 TEST SUITE 14: FRONTEND UI TESTING (90 mins)
+
+### Overview
+
+This test suite covers frontend component testing across all pages. Tests should be executed in a browser or via automated UI testing framework.
+
+**Prerequisites:**
+- Frontend running at http://localhost:3000
+- Backend API accessible
+- Authenticated user session
+
+---
+
+### Test 14.1: Dashboard Page
+
+**Objective:** Verify all dashboard components render and update correctly
+
+**Test Steps:**
+
+1. Navigate to `/dashboard`
+2. Verify all status indicators display:
+   - Engine status (running/stopped)
+   - Risk engine status (active/inactive)
+   - Queue status (running/paused/stopped)
+3. Verify PnL metrics update:
+   - Total PnL with trend indicator
+   - Today's PnL
+   - Win rate with win/loss counts
+4. Verify capital section:
+   - TVL displayed correctly
+   - Free USDT balance
+   - Deployment percentage
+5. Test control buttons:
+   - Start/Stop Queue
+   - Sync Exchange
+6. Verify live polling (data refreshes every 5 seconds)
+7. Test keyboard shortcuts (R for refresh)
+
+**Expected Result:**
+
+- ✅ All metrics display correctly
+- ✅ Status indicators reflect current state
+- ✅ Data updates every 5 seconds
+- ✅ Controls work as expected
+- ✅ Mobile responsive layout works
+
+---
+
+### Test 14.2: Settings Page - Trading Tab
+
+**Objective:** Verify trading settings functionality
+
+**Test Steps:**
+
+1. Navigate to `/settings`
+2. Select "Trading" tab
+3. Test active exchange selection
+4. Test API key management:
+   - Add new exchange keys
+   - Edit existing keys
+   - Delete keys
+5. Test DCA configuration management:
+   - Create new config
+   - Edit existing config
+   - Delete config
+6. Verify form validation errors
+
+**Expected Result:**
+
+- ✅ Exchange selection persists
+- ✅ API keys encrypted and stored
+- ✅ DCA configs CRUD works
+- ✅ Validation errors display clearly
+- ✅ Success notifications shown
+
+---
+
+### Test 14.3: Settings Page - Risk Tab
+
+**Objective:** Verify risk settings functionality
+
+**Test Steps:**
+
+1. Navigate to `/settings`
+2. Select "Risk" tab
+3. Test risk limit fields:
+   - Max open positions (global)
+   - Max positions per symbol
+   - Max total exposure (USD)
+   - Loss limit (circuit breaker)
+4. Test queue priority settings:
+   - Toggle each rule enabled/disabled
+   - Drag-and-drop reordering
+5. Test timer configuration fields
+
+**Expected Result:**
+
+- ✅ All fields validate correctly
+- ✅ Priority rules drag-and-drop works
+- ✅ At least one priority rule must be enabled
+- ✅ Settings persist after save
+- ✅ Changes reflected in backend
+
+---
+
+### Test 14.4: Settings Page - Alerts Tab (Telegram)
+
+**Objective:** Verify Telegram configuration UI
+
+**Test Steps:**
+
+1. Navigate to `/settings`
+2. Select "Alerts" tab
+3. Test connection fields:
+   - Bot token input
+   - Channel ID input
+   - Channel name input
+4. Test message type toggles (8 toggles)
+5. Test advanced controls (4 toggles)
+6. Test threshold alerts:
+   - Loss threshold %
+   - Profit threshold %
+7. Test quiet hours:
+   - Enable/disable toggle
+   - Start/end time pickers
+   - Urgent only toggle
+8. Test connection button
+9. Test send test message button
+
+**Expected Result:**
+
+- ✅ All 20+ fields save correctly
+- ✅ Toggles persist state
+- ✅ Test connection shows result
+- ✅ Test message sends successfully
+- ✅ Form validation works
+- ✅ Settings persist after refresh
+
+---
+
+### Test 14.5: Settings Page - Account Tab
+
+**Objective:** Verify account settings functionality
+
+**Test Steps:**
+
+1. Navigate to `/settings`
+2. Select "Account" tab
+3. Verify username/email display
+4. Test webhook URL copy functionality
+5. Test backup export
+6. Test configuration restore from file
+
+**Expected Result:**
+
+- ✅ Account info displays correctly
+- ✅ Webhook URL copyable
+- ✅ Backup exports valid JSON
+- ✅ Restore parses uploaded file
+
+---
+
+### Test 14.6: Positions Page
+
+**Objective:** Verify positions display and management
+
+**Test Steps:**
+
+1. Navigate to `/positions`
+2. Test "Active" tab:
+   - Position cards display
+   - PnL calculations correct
+   - Pyramid details expandable
+   - DCA legs status shown
+3. Test "History" tab:
+   - Closed positions display
+   - Realized PnL shown
+4. Test position metrics cards
+5. Test force close functionality (if available)
+
+**Expected Result:**
+
+- ✅ Active positions display correctly
+- ✅ History shows closed positions
+- ✅ Metrics calculate accurately
+- ✅ Expandable details work
+- ✅ Mobile responsive
+
+---
+
+### Test 14.7: Queue Page
+
+**Objective:** Verify queue management UI
+
+**Test Steps:**
+
+1. Navigate to `/queue`
+2. Verify queued signals display
+3. Test promote signal action
+4. Test remove signal action
+5. Verify priority score breakdown displays
+6. Test queue history tab
+
+**Expected Result:**
+
+- ✅ Queued signals display with all info
+- ✅ Priority scores shown correctly
+- ✅ Promote action works
+- ✅ Remove action works
+- ✅ History displays processed signals
+
+---
+
+### Test 14.8: Risk Page
+
+**Objective:** Verify risk management UI
+
+**Test Steps:**
+
+1. Navigate to `/risk`
+2. Verify identified loser display
+3. Verify available winners display
+4. Verify projected offset plan
+5. Test at-risk positions list
+6. Test timeline of recent actions
+7. Test control buttons:
+   - Run evaluation
+   - Force start/stop
+   - Block/unblock position
+   - Skip position
+
+**Expected Result:**
+
+- ✅ Risk status displays correctly
+- ✅ Offset plan calculated
+- ✅ Control buttons work
+- ✅ Timeline shows actions
+- ✅ Updates in real-time
+
+---
+
+### Test 14.9: Analytics Page
+
+**Objective:** Verify analytics and charts functionality
+
+**Test Steps:**
+
+1. Navigate to `/analytics`
+2. Test time range selector (24h, 7d, 30d, all)
+3. Verify key metrics cards:
+   - Total PnL
+   - Win rate
+   - Profit factor
+   - Avg hold time
+4. Verify equity curve chart renders
+5. Verify performance summary
+6. Verify pair performance table
+7. Verify PnL by day of week chart
+8. Test CSV export (both full trades and summary)
+9. Test pull-to-refresh on mobile
+
+**Expected Result:**
+
+- ✅ Time range filter works
+- ✅ Metrics calculate correctly
+- ✅ Charts render properly
+- ✅ Tables display data
+- ✅ CSV export downloads valid file
+- ✅ Mobile responsive
+
+---
+
+### Test 14.10: Authentication Flow
+
+**Objective:** Verify login/logout and token management
+
+**Test Steps:**
+
+1. Navigate to `/login` (unauthenticated)
+2. Test login with valid credentials
+3. Verify redirect to dashboard
+4. Verify token stored in localStorage
+5. Test logout functionality
+6. Verify redirect to login
+7. Test protected route access (without token)
+8. Test token expiration handling
+
+**Expected Result:**
+
+- ✅ Login works with valid credentials
+- ✅ Invalid credentials show error
+- ✅ Token stored correctly
+- ✅ Logout clears token
+- ✅ Protected routes redirect to login
+- ✅ Expired tokens trigger re-auth
+
+---
+
+### Test 14.11: Mobile Responsiveness
+
+**Objective:** Verify mobile-friendly UI across all pages
+
+**Test Steps:**
+
+1. Use browser dev tools or mobile device
+2. Test each page at mobile viewport:
+   - Dashboard
+   - Settings (all tabs)
+   - Positions
+   - Queue
+   - Risk
+   - Analytics
+3. Verify bottom navigation works
+4. Test pull-to-refresh gesture
+5. Verify modals/dialogs work on mobile
+
+**Expected Result:**
+
+- ✅ All pages render correctly on mobile
+- ✅ Bottom navigation visible
+- ✅ Pull-to-refresh works
+- ✅ Forms usable on mobile
+- ✅ Tables/charts responsive
+
+---
+
+### Test 14.12: Error States and Loading
+
+**Objective:** Verify error handling and loading states in UI
+
+**Test Steps:**
+
+1. Disconnect backend and test error states
+2. Verify loading skeletons display during fetch
+3. Test error banners/toasts
+4. Verify empty states (no data scenarios)
+5. Test API error response handling
+
+**Expected Result:**
+
+- ✅ Loading skeletons display during fetch
+- ✅ Error messages display clearly
+- ✅ Empty states show helpful message
+- ✅ Network errors handled gracefully
+- ✅ Retry mechanisms work
+
+---
+
+## 📊 UPDATED TEST RESULTS TEMPLATE (v2)
+
+Add these new test suites to the results template:
+
+```markdown
+### TEST SUITE 13: Telegram Notification System
+- [ ] Test 13.1: Telegram Configuration API - ✅ PASS / ❌ FAIL
+- [ ] Test 13.2: Telegram Connection Test - ✅ PASS / ❌ FAIL
+- [ ] Test 13.3: Entry Signal Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.4: DCA Fill Update Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.5: Status Change Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.6: Pyramid Added Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.7: Take-Profit Hit Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.8: Risk Alert Notifications - ✅ PASS / ❌ FAIL
+- [ ] Test 13.9: Failure Alert Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.10: Exit Signal Notification - ✅ PASS / ❌ FAIL
+- [ ] Test 13.11: Message Toggle Tests - ✅ PASS / ❌ FAIL
+- [ ] Test 13.12: Quiet Hours Functionality - ✅ PASS / ❌ FAIL
+- [ ] Test 13.13: Threshold Alerts - ✅ PASS / ❌ FAIL
+- [ ] Test 13.14: Test Mode - ✅ PASS / ❌ FAIL
+- [ ] Test 13.15: Message Update vs New Message - ✅ PASS / ❌ FAIL
+
+### TEST SUITE 14: Frontend UI Testing
+- [ ] Test 14.1: Dashboard Page - ✅ PASS / ❌ FAIL
+- [ ] Test 14.2: Settings Page - Trading Tab - ✅ PASS / ❌ FAIL
+- [ ] Test 14.3: Settings Page - Risk Tab - ✅ PASS / ❌ FAIL
+- [ ] Test 14.4: Settings Page - Alerts Tab - ✅ PASS / ❌ FAIL
+- [ ] Test 14.5: Settings Page - Account Tab - ✅ PASS / ❌ FAIL
+- [ ] Test 14.6: Positions Page - ✅ PASS / ❌ FAIL
+- [ ] Test 14.7: Queue Page - ✅ PASS / ❌ FAIL
+- [ ] Test 14.8: Risk Page - ✅ PASS / ❌ FAIL
+- [ ] Test 14.9: Analytics Page - ✅ PASS / ❌ FAIL
+- [ ] Test 14.10: Authentication Flow - ✅ PASS / ❌ FAIL
+- [ ] Test 14.11: Mobile Responsiveness - ✅ PASS / ❌ FAIL
+- [ ] Test 14.12: Error States and Loading - ✅ PASS / ❌ FAIL
+```
+
+---
+
+## 🎯 FINAL SUCCESS CRITERIA (COMPLETE)
+
+**Total Test Suites: 14**
+**Total Individual Tests: 100+**
+
+### Core Trading Engine
+- ✅ Signal ingestion and position creation
+- ✅ Pyramid management and DCA execution
+- ✅ Queue system with priority rules
+- ✅ Risk engine with offset logic
+- ✅ All 4 TP modes (per_leg, aggregate, hybrid, pyramid_aggregate)
+
+### API & Backend Services
+- ✅ All 41 API endpoints functional
+- ✅ Authentication and authorization
+- ✅ Background workers (order monitor, queue promotion, risk engine)
+- ✅ Multi-exchange support (Binance, Bybit)
+
+### Telegram Notification System
+- ✅ All 8 message types (entry, exit, DCA fill, status, pyramid, TP hit, risk, failure)
+- ✅ Message consolidation (update existing vs new)
+- ✅ Quiet hours with urgent-only mode
+- ✅ Threshold alerts (loss/profit %)
+- ✅ Per-message-type toggles
+- ✅ Test mode for debugging
+
+### Frontend Application
+- ✅ All 9 pages functional
+- ✅ Settings persistence (all 4 tabs)
+- ✅ Real-time updates (polling)
+- ✅ Mobile responsive design
+- ✅ Error handling and loading states
+
+### Security & Isolation
+- ✅ Multi-user data isolation
+- ✅ API key encryption
+- ✅ JWT token validation
+- ✅ Webhook signature verification
+
+---
+
+**Test Plan Version:** 2.0
+**Last Updated:** December 2024
+**Coverage:** Comprehensive (Backend + Frontend + Telegram)

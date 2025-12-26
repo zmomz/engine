@@ -29,14 +29,41 @@ export interface User {
     };
   };
   telegram_config?: {
+    // Connection
     enabled: boolean;
     bot_token?: string;
     channel_id?: string;
     channel_name: string;
     engine_signature: string;
+
+    // Message Type Toggles
     send_entry_signals: boolean;
     send_exit_signals: boolean;
+    send_status_updates: boolean;
+    send_dca_fill_updates: boolean;
+    send_pyramid_updates: boolean;
+    send_tp_hit_updates: boolean;
+    send_failure_alerts: boolean;
+    send_risk_alerts: boolean;
+
+    // Advanced Controls
+    update_existing_message: boolean;
     update_on_pyramid: boolean;
+    show_unrealized_pnl: boolean;
+    show_invested_amount: boolean;
+    show_duration: boolean;
+
+    // Threshold Alerts
+    alert_loss_threshold_percent?: number | null;
+    alert_profit_threshold_percent?: number | null;
+
+    // Quiet Hours
+    quiet_hours_enabled: boolean;
+    quiet_hours_start?: string | null;
+    quiet_hours_end?: string | null;
+    quiet_hours_urgent_only: boolean;
+
+    // Test mode
     test_mode: boolean;
   };
   configured_exchange_details?: Record<string, {

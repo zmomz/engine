@@ -39,14 +39,41 @@ import {
 
 // Zod Schemas
 const telegramConfigSchema = z.object({
+  // Connection
   enabled: z.boolean(),
   bot_token: z.string().optional(),
   channel_id: z.string().optional(),
   channel_name: z.string().optional(),
   engine_signature: z.string().optional(),
+
+  // Message Type Toggles
   send_entry_signals: z.boolean(),
   send_exit_signals: z.boolean(),
+  send_status_updates: z.boolean(),
+  send_dca_fill_updates: z.boolean(),
+  send_pyramid_updates: z.boolean(),
+  send_tp_hit_updates: z.boolean(),
+  send_failure_alerts: z.boolean(),
+  send_risk_alerts: z.boolean(),
+
+  // Advanced Controls
+  update_existing_message: z.boolean(),
   update_on_pyramid: z.boolean(),
+  show_unrealized_pnl: z.boolean(),
+  show_invested_amount: z.boolean(),
+  show_duration: z.boolean(),
+
+  // Threshold Alerts
+  alert_loss_threshold_percent: z.number().nullable().optional(),
+  alert_profit_threshold_percent: z.number().nullable().optional(),
+
+  // Quiet Hours
+  quiet_hours_enabled: z.boolean(),
+  quiet_hours_start: z.string().nullable().optional(),
+  quiet_hours_end: z.string().nullable().optional(),
+  quiet_hours_urgent_only: z.boolean(),
+
+  // Test mode
   test_mode: z.boolean(),
 });
 
@@ -193,7 +220,23 @@ const SettingsPage: React.FC = () => {
         engine_signature: '',
         send_entry_signals: true,
         send_exit_signals: true,
+        send_status_updates: true,
+        send_dca_fill_updates: true,
+        send_pyramid_updates: true,
+        send_tp_hit_updates: true,
+        send_failure_alerts: true,
+        send_risk_alerts: true,
+        update_existing_message: true,
         update_on_pyramid: true,
+        show_unrealized_pnl: true,
+        show_invested_amount: true,
+        show_duration: true,
+        alert_loss_threshold_percent: null,
+        alert_profit_threshold_percent: null,
+        quiet_hours_enabled: false,
+        quiet_hours_start: null,
+        quiet_hours_end: null,
+        quiet_hours_urgent_only: true,
         test_mode: false,
       },
     },
@@ -228,7 +271,8 @@ const SettingsPage: React.FC = () => {
           email: settings.email,
           webhook_secret: settings.webhook_secret,
         },
-        telegramSettings: settings.telegram_config || {
+        telegramSettings: {
+          // Defaults merged with saved settings to handle new fields
           enabled: false,
           bot_token: '',
           channel_id: '',
@@ -236,8 +280,26 @@ const SettingsPage: React.FC = () => {
           engine_signature: '',
           send_entry_signals: true,
           send_exit_signals: true,
+          send_status_updates: true,
+          send_dca_fill_updates: true,
+          send_pyramid_updates: true,
+          send_tp_hit_updates: true,
+          send_failure_alerts: true,
+          send_risk_alerts: true,
+          update_existing_message: true,
           update_on_pyramid: true,
+          show_unrealized_pnl: true,
+          show_invested_amount: true,
+          show_duration: true,
+          alert_loss_threshold_percent: null,
+          alert_profit_threshold_percent: null,
+          quiet_hours_enabled: false,
+          quiet_hours_start: null,
+          quiet_hours_end: null,
+          quiet_hours_urgent_only: true,
           test_mode: false,
+          // Override with saved settings
+          ...settings.telegram_config,
         },
       });
     }
