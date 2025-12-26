@@ -629,12 +629,53 @@ class QueueManagerService:
         logger.info("Queue Promotion Task Stopped")
 
     async def _promotion_loop(self):
+        cycle_count = 0
+        error_count = 0
+        last_error = None
+        promotions_count = 0
+
         while self._running:
             try:
                 async with self.session_factory() as session:
-                    await self.promote_highest_priority_signal(session)
-                    await session.commit() # Commit any changes made during promotion
+                    result = await self.promote_highest_priority_signal(session)
+                    await session.commit()
+                    if result:
+                        promotions_count += 1
+
+                cycle_count += 1
+
+                # Report health metrics
+                await self._report_health(
+                    status="running",
+                    metrics={
+                        "cycle_count": cycle_count,
+                        "promotions_count": promotions_count,
+                        "error_count": error_count,
+                        "last_error": last_error
+                    }
+                )
             except Exception as e:
+                error_count += 1
+                last_error = str(e)
                 logger.error(f"Error in promotion loop: {e}")
-            
+
+                await self._report_health(
+                    status="error",
+                    metrics={
+                        "cycle_count": cycle_count,
+                        "promotions_count": promotions_count,
+                        "error_count": error_count,
+                        "last_error": last_error
+                    }
+                )
+
             await asyncio.sleep(self.polling_interval_seconds)
+
+    async def _report_health(self, status: str, metrics: dict = None):
+        """Report service health to cache."""
+        try:
+            from app.core.cache import get_cache
+            cache = await get_cache()
+            await cache.update_service_health("queue_manager", status, metrics)
+        except Exception as e:
+            logger.debug(f"Failed to report health: {e}")

@@ -373,6 +373,115 @@ class OrderService:
             except Exception as e:
                 logger.error(f"OrderService: Unexpected error during reconciliation for order {order.id}: {e}")
 
+    async def check_and_retry_stale_tp(
+        self,
+        dca_order: DCAOrder,
+        stale_threshold_hours: float = 24.0,
+        use_market_fallback: bool = True
+    ) -> DCAOrder:
+        """
+        Check if a TP order is stale (unfilled for too long) and retry.
+
+        If the TP has been open for longer than stale_threshold_hours,
+        cancels it and either:
+        1. Places a new limit order at current market price + TP%, or
+        2. Places a market order if use_market_fallback is True
+
+        Args:
+            dca_order: The DCA order with TP to check
+            stale_threshold_hours: Hours after which TP is considered stale
+            use_market_fallback: If True, use market order for stale TPs
+
+        Returns:
+            Updated DCA order
+        """
+        if not dca_order.tp_order_id or dca_order.tp_hit:
+            return dca_order
+
+        # Check how long the TP has been open
+        if not dca_order.filled_at:
+            return dca_order
+
+        hours_since_fill = (datetime.utcnow() - dca_order.filled_at).total_seconds() / 3600
+
+        if hours_since_fill < stale_threshold_hours:
+            return dca_order
+
+        logger.info(
+            f"TP order {dca_order.tp_order_id} for {dca_order.symbol} is stale "
+            f"({hours_since_fill:.1f} hours). Attempting retry..."
+        )
+
+        try:
+            # First check if the TP is still open on exchange
+            exchange_order_data = await self.exchange_connector.get_order_status(
+                order_id=dca_order.tp_order_id,
+                symbol=dca_order.symbol
+            )
+
+            status = exchange_order_data["status"].lower()
+
+            # If already filled, just update and return
+            if status in ["closed", "filled"]:
+                dca_order.tp_hit = True
+                dca_order.tp_executed_at = datetime.utcnow()
+                await self.dca_order_repository.update(dca_order)
+                return dca_order
+
+            # If still open, cancel and retry
+            if status == "open":
+                logger.info(f"Cancelling stale TP order {dca_order.tp_order_id}")
+
+                try:
+                    await self.exchange_connector.cancel_order(
+                        order_id=dca_order.tp_order_id,
+                        symbol=dca_order.symbol
+                    )
+                except Exception as cancel_error:
+                    logger.warning(f"Failed to cancel stale TP: {cancel_error}")
+                    return dca_order
+
+                # Clear the old TP order ID
+                old_tp_order_id = dca_order.tp_order_id
+                dca_order.tp_order_id = None
+                await self.dca_order_repository.update(dca_order)
+
+                if use_market_fallback:
+                    # Use market order for guaranteed execution
+                    logger.info(f"Placing market order fallback for stale TP on {dca_order.symbol}")
+
+                    tp_side = "SELL" if dca_order.side.upper() == "BUY" else "BUY"
+
+                    try:
+                        market_result = await self.exchange_connector.place_order(
+                            symbol=dca_order.symbol,
+                            order_type="MARKET",
+                            side=tp_side,
+                            quantity=dca_order.filled_quantity
+                        )
+
+                        dca_order.tp_order_id = market_result["id"]
+                        dca_order.tp_hit = True
+                        dca_order.tp_executed_at = datetime.utcnow()
+                        await self.dca_order_repository.update(dca_order)
+
+                        logger.info(
+                            f"Market fallback executed for stale TP. "
+                            f"Old order: {old_tp_order_id}, New order: {market_result['id']}"
+                        )
+                    except Exception as market_error:
+                        logger.error(f"Market fallback failed for stale TP: {market_error}")
+                else:
+                    # Place new limit order at better price
+                    logger.info(f"Placing new limit TP for {dca_order.symbol}")
+                    await self.place_tp_order(dca_order, adjust_for_fill_price=True)
+
+            return dca_order
+
+        except Exception as e:
+            logger.error(f"Failed to handle stale TP for order {dca_order.id}: {e}")
+            return dca_order
+
     async def check_tp_status(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Checks the status of the TP order associated with this DCA order.
@@ -385,9 +494,9 @@ class OrderService:
                 order_id=dca_order.tp_order_id,
                 symbol=dca_order.symbol
             )
-            
+
             status = exchange_order_data["status"].lower()
-            
+
             if status == "closed" or status == "filled":
                 dca_order.tp_hit = True
                 dca_order.tp_executed_at = datetime.utcnow()
