@@ -226,3 +226,138 @@ async def force_close_position(
         # Always close the exchange connector
         if exchange_connector:
             await exchange_connector.close()
+
+
+@router.post("/{group_id}/sync")
+@limiter.limit("5/minute")
+async def sync_position_with_exchange(
+    request: Request,
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Synchronize a position's orders with exchange state.
+
+    This is useful when:
+    - Orders may have filled on exchange but local DB wasn't updated
+    - Need to reconcile local state with exchange state
+    - Debugging order status discrepancies
+    """
+    from app.services.exchange_sync import ExchangeSyncService
+
+    repo = PositionGroupRepository(db)
+    position_group = await repo.get_by_user_and_id(current_user.id, group_id)
+    if not position_group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
+
+    exchange_connector = None
+    try:
+        # Get exchange connector for the position's exchange
+        target_exchange = position_group.exchange
+        try:
+            exchange_connector = ExchangeConfigService.get_connector(current_user, target_exchange)
+        except ExchangeConfigError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+
+        sync_service = ExchangeSyncService(
+            session=db,
+            user=current_user,
+            exchange_connector=exchange_connector
+        )
+
+        result = await sync_service.sync_orders_with_exchange(
+            position_group_id=group_id,
+            update_local=True
+        )
+
+        await db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Synchronized {result['synced']} orders, updated {result['updated']}, "
+                      f"not found {result['not_found']}, errors {result['errors']}",
+            "details": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing position {group_id}: {e}\n{traceback.format_exc()}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while syncing with exchange."
+        )
+    finally:
+        if exchange_connector:
+            await exchange_connector.close()
+
+
+@router.post("/{group_id}/cleanup-stale")
+@limiter.limit("3/minute")
+async def cleanup_stale_orders(
+    request: Request,
+    group_id: uuid.UUID,
+    stale_hours: int = Query(default=48, ge=1, le=168, description="Hours after which an order is considered stale"),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Clean up stale orders for a position by checking their status on exchange.
+
+    Useful for orders stuck in OPEN status that may have been cancelled
+    or filled on the exchange.
+    """
+    from app.services.exchange_sync import ExchangeSyncService
+
+    repo = PositionGroupRepository(db)
+    position_group = await repo.get_by_user_and_id(current_user.id, group_id)
+    if not position_group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position group not found.")
+
+    exchange_connector = None
+    try:
+        target_exchange = position_group.exchange
+        try:
+            exchange_connector = ExchangeConfigService.get_connector(current_user, target_exchange)
+        except ExchangeConfigError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+
+        sync_service = ExchangeSyncService(
+            session=db,
+            user=current_user,
+            exchange_connector=exchange_connector
+        )
+
+        result = await sync_service.cleanup_stale_local_orders(
+            position_group_id=group_id,
+            stale_hours=stale_hours
+        )
+
+        await db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Checked {result['checked']} stale orders, cleaned {result['cleaned']}, errors {result['errors']}",
+            "details": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cleaning up stale orders for position {group_id}: {e}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while cleaning up stale orders."
+        )
+    finally:
+        if exchange_connector:
+            await exchange_connector.close()

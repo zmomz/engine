@@ -367,15 +367,56 @@ class RiskEngineService:
 
     async def _monitoring_loop(self):
         """The main loop for the Risk Engine monitoring task."""
+        cycle_count = 0
+        error_count = 0
+        last_error = None
+        actions_count = 0
+
         while self._running:
             try:
                 await self._evaluate_positions()
+                cycle_count += 1
+
+                # Report health metrics
+                await self._report_health(
+                    status="running",
+                    metrics={
+                        "cycle_count": cycle_count,
+                        "actions_count": actions_count,
+                        "error_count": error_count,
+                        "last_error": last_error
+                    }
+                )
+
                 await asyncio.sleep(self.polling_interval_seconds)
             except asyncio.CancelledError:
+                await self._report_health(status="stopped", metrics={"cycle_count": cycle_count})
                 break
             except Exception as e:
+                error_count += 1
+                last_error = str(e)
                 logger.error(f"Error in Risk Engine monitoring loop: {e}")
+
+                await self._report_health(
+                    status="error",
+                    metrics={
+                        "cycle_count": cycle_count,
+                        "actions_count": actions_count,
+                        "error_count": error_count,
+                        "last_error": last_error
+                    }
+                )
+
                 await asyncio.sleep(self.polling_interval_seconds)
+
+    async def _report_health(self, status: str, metrics: dict = None):
+        """Report service health to cache."""
+        try:
+            from app.core.cache import get_cache
+            cache = await get_cache()
+            await cache.update_service_health("risk_engine", status, metrics)
+        except Exception as e:
+            logger.debug(f"Failed to report health: {e}")
 
     async def stop_monitoring_task(self):
         """Stops the background Risk Engine monitoring task."""

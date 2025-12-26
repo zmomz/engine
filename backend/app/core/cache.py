@@ -54,6 +54,9 @@ class CacheService:
     PREFIX_BALANCE = "balance"
     PREFIX_TICKERS = "tickers"
     PREFIX_DASHBOARD = "dashboard"
+    PREFIX_TOKEN_BLACKLIST = "token_blacklist"
+    PREFIX_DISTRIBUTED_LOCK = "lock"
+    PREFIX_SERVICE_HEALTH = "service_health"
 
     def __init__(self):
         self._redis: Optional[redis.Redis] = None
@@ -217,6 +220,168 @@ class CacheService:
         """Invalidate all cached dashboard data for a user."""
         pattern = self._make_key(self.PREFIX_DASHBOARD, user_id, "*")
         return await self.delete_pattern(pattern)
+
+    # ==================== Token Blacklist ====================
+
+    async def blacklist_token(self, jti: str, ttl_seconds: int) -> bool:
+        """
+        Add a token to the blacklist.
+
+        Args:
+            jti: JWT ID (unique identifier for the token)
+            ttl_seconds: Time until token expires (blacklist entry auto-removes after)
+        """
+        if not self._connected:
+            return False
+
+        try:
+            key = self._make_key(self.PREFIX_TOKEN_BLACKLIST, jti)
+            await self._redis.setex(key, ttl_seconds, "1")
+            return True
+        except Exception as e:
+            logger.warning(f"Token blacklist failed for {jti}: {e}")
+            return False
+
+    async def is_token_blacklisted(self, jti: str) -> bool:
+        """Check if a token is blacklisted."""
+        if not self._connected:
+            return False
+
+        try:
+            key = self._make_key(self.PREFIX_TOKEN_BLACKLIST, jti)
+            result = await self._redis.exists(key)
+            return result > 0
+        except Exception as e:
+            logger.warning(f"Token blacklist check failed for {jti}: {e}")
+            return False
+
+    # ==================== Distributed Locking ====================
+
+    async def acquire_lock(
+        self,
+        resource: str,
+        lock_id: str,
+        ttl_seconds: int = 30
+    ) -> bool:
+        """
+        Acquire a distributed lock for a resource.
+
+        Args:
+            resource: The resource to lock (e.g., "webhook:user123:BTCUSDT:15")
+            lock_id: Unique identifier for this lock attempt
+            ttl_seconds: Lock timeout to prevent deadlocks
+
+        Returns:
+            True if lock acquired, False otherwise
+        """
+        if not self._connected:
+            return True  # Fallback to no-lock if Redis unavailable
+
+        try:
+            key = self._make_key(self.PREFIX_DISTRIBUTED_LOCK, resource)
+            # SET NX (only set if not exists) with expiry
+            result = await self._redis.set(key, lock_id, nx=True, ex=ttl_seconds)
+            return result is not None
+        except Exception as e:
+            logger.warning(f"Lock acquisition failed for {resource}: {e}")
+            return True  # Fallback to allowing operation
+
+    async def release_lock(self, resource: str, lock_id: str) -> bool:
+        """
+        Release a distributed lock.
+
+        Args:
+            resource: The resource to unlock
+            lock_id: The lock ID used when acquiring (only release if it matches)
+
+        Returns:
+            True if lock released, False otherwise
+        """
+        if not self._connected:
+            return True
+
+        try:
+            key = self._make_key(self.PREFIX_DISTRIBUTED_LOCK, resource)
+            # Only delete if the lock_id matches (prevent releasing others' locks)
+            lua_script = """
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+            """
+            result = await self._redis.eval(lua_script, 1, key, lock_id)
+            return result == 1
+        except Exception as e:
+            logger.warning(f"Lock release failed for {resource}: {e}")
+            return False
+
+    # ==================== Service Health ====================
+
+    async def update_service_health(
+        self,
+        service_name: str,
+        status: str,
+        metrics: dict = None
+    ) -> bool:
+        """
+        Update health status for a background service.
+
+        Args:
+            service_name: Name of the service (e.g., "order_fill_monitor")
+            status: Current status ("running", "error", "stopped")
+            metrics: Optional metrics dict (cycle_count, last_error, etc.)
+        """
+        if not self._connected:
+            return False
+
+        try:
+            import time
+            key = self._make_key(self.PREFIX_SERVICE_HEALTH, service_name)
+            health_data = {
+                "status": status,
+                "last_heartbeat": time.time(),
+                "metrics": metrics or {}
+            }
+            # Use 5 minute TTL - if not updated, service is considered unhealthy
+            await self._redis.setex(key, 300, json.dumps(health_data, cls=DecimalEncoder))
+            return True
+        except Exception as e:
+            logger.warning(f"Service health update failed for {service_name}: {e}")
+            return False
+
+    async def get_service_health(self, service_name: str) -> Optional[dict]:
+        """Get health status for a service."""
+        if not self._connected:
+            return None
+
+        try:
+            key = self._make_key(self.PREFIX_SERVICE_HEALTH, service_name)
+            value = await self._redis.get(key)
+            if value:
+                return json.loads(value)
+            return None
+        except Exception as e:
+            logger.warning(f"Service health get failed for {service_name}: {e}")
+            return None
+
+    async def get_all_services_health(self) -> dict:
+        """Get health status for all services."""
+        if not self._connected:
+            return {}
+
+        try:
+            pattern = self._make_key(self.PREFIX_SERVICE_HEALTH, "*")
+            result = {}
+            async for key in self._redis.scan_iter(match=pattern):
+                service_name = key.split(":")[-1]
+                value = await self._redis.get(key)
+                if value:
+                    result[service_name] = json.loads(value)
+            return result
+        except Exception as e:
+            logger.warning(f"Get all services health failed: {e}")
+            return {}
 
 
 # Global cache instance

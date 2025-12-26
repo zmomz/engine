@@ -1,8 +1,9 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 import os
 import json
+import uuid
 from cryptography.fernet import Fernet
 
 from jose import jwt
@@ -21,23 +22,66 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> Tuple[str, str, int]:
+    """
+    Create a JWT access token with a unique JTI.
 
+    Returns:
+        Tuple of (encoded_jwt, jti, expires_in_seconds)
+    """
     to_encode = data.copy()
 
     if expires_delta:
-
         expire = datetime.utcnow() + expires_delta
-
+        expires_in_seconds = int(expires_delta.total_seconds())
     else:
-
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_in_seconds = ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
-    to_encode.update({"exp": expire})
+    # Generate unique token ID for blacklisting support
+    jti = str(uuid.uuid4())
+
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.utcnow(),
+        "jti": jti
+    })
 
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-    return encoded_jwt
+    return encoded_jwt, jti, expires_in_seconds
+
+
+def decode_token(token: str) -> Optional[dict]:
+    """
+    Decode and validate a JWT token.
+
+    Returns:
+        Token payload if valid, None otherwise
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except Exception:
+        return None
+
+
+def get_token_jti(token: str) -> Optional[str]:
+    """Extract JTI from a token without full validation."""
+    payload = decode_token(token)
+    if payload:
+        return payload.get("jti")
+    return None
+
+
+def get_token_expiry_seconds(token: str) -> int:
+    """Get remaining seconds until token expires."""
+    payload = decode_token(token)
+    if payload and "exp" in payload:
+        exp_timestamp = payload["exp"]
+        remaining = exp_timestamp - datetime.utcnow().timestamp()
+        return max(0, int(remaining))
+    return 0
 
 
 
