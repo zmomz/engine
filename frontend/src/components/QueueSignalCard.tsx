@@ -16,7 +16,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import { format } from 'date-fns';
-import { safeToFixed, safeNumber } from '../utils/formatters';
+import { safeToFixed, formatCompactPercent } from '../utils/formatters';
 
 interface QueueSignal {
   id: string;
@@ -53,12 +53,6 @@ const QueueSignalCard: React.FC<QueueSignalCardProps> = ({ signal, onPromote, on
     if (score >= 60) return 'HIGH';
     if (score >= 40) return 'MEDIUM';
     return 'LOW';
-  };
-
-  const formatPercentage = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return '-';
-    const num = safeNumber(value);
-    return `${num >= 0 ? '+' : ''}${safeToFixed(num)}%`;
   };
 
   const getTimeInQueue = () => {
@@ -180,7 +174,7 @@ const QueueSignalCard: React.FC<QueueSignalCardProps> = ({ signal, onPromote, on
               }}
             >
               {hasLoss && <TrendingDownIcon sx={{ fontSize: 14 }} />}
-              {formatPercentage(signal.current_loss_percent)}
+              {formatCompactPercent(signal.current_loss_percent)}
             </Typography>
           </Box>
           <Box sx={{ textAlign: 'center' }}>

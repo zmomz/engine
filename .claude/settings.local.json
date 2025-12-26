@@ -23,7 +23,9 @@
       "Bash(ls:*)",
       "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(powershell -Command \"\\(Get-Content ''c:\\\\Users\\\\zmzer\\\\Documents\\\\freelancing\\\\engine\\\\investigation.md'' | Measure-Object -Line\\).Lines\")",
+      "Bash(powershell -Command:*)"
     ]
   }
 }

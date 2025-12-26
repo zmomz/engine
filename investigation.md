@@ -4486,3 +4486,1094 @@ No partial TP handling	Only "filled" status checked	Partial TP fills ignored
 No TP adjustment	TP price fixed at creation	Can't adapt to market conditions
 No stale order detection	Orders can sit for days	No alerts or auto-cleanup
 5s latency	Polling-based monitoring	Price could move significantly
+
+
+Pyramid Aggregate TP Mode (NEW)
+==============================
+
+A fourth TP mode has been added: `pyramid_aggregate`. This mode allows each pyramid within a position group to have its own independent aggregate TP evaluation.
+
+1. What is Pyramid Aggregate TP Mode?
+
+Unlike regular `aggregate` mode which closes the entire position when a single TP target is hit, `pyramid_aggregate` mode evaluates each pyramid independently and closes them separately when their individual TP targets are reached.
+
+Location: position_manager.py:416-571
+
+```python
+elif position_group.tp_mode == "pyramid_aggregate" and position_group.tp_aggregate_percent > 0:
+    await self._check_pyramid_aggregate_tp(...)
+```
+
+2. How Does It Work?
+
+For each pyramid in the position group:
+
+Step 1: Calculate Pyramid-Specific Weighted Average Entry
+```python
+for order in pyramid_filled_orders:
+    qty = order.filled_quantity or order.quantity
+    price = order.avg_fill_price or order.price
+    total_qty += qty
+    total_value += qty * price
+
+pyramid_avg_entry = total_value / total_qty
+```
+
+Step 2: Get Pyramid-Specific TP Percentage
+```python
+pyramid_tp_percents = pyramid_config.get("pyramid_tp_percents", {})
+pyramid_index_key = str(pyramid.pyramid_index)
+
+if pyramid_index_key in pyramid_tp_percents:
+    tp_percent = Decimal(str(pyramid_tp_percents[pyramid_index_key]))
+else:
+    tp_percent = position_group.tp_aggregate_percent  # Fallback
+```
+
+Step 3: Calculate and Check TP Target
+```python
+if position_group.side.lower() == "long":
+    pyramid_tp_price = pyramid_avg_entry * (1 + tp_percent / 100)
+    tp_triggered = current_price >= pyramid_tp_price
+else:
+    pyramid_tp_price = pyramid_avg_entry * (1 - tp_percent / 100)
+    tp_triggered = current_price <= pyramid_tp_price
+```
+
+3. Per-Pyramid TP Percentages
+
+Configuration supports per-pyramid TP percentages via `tp_settings.pyramid_tp_percents`:
+
+```json
+{
+  "tp_settings": {
+    "tp_aggregate_percent": 3.0,  // Default fallback
+    "pyramid_tp_percents": {
+      "0": 2.0,    // Pyramid 0: 2% TP
+      "1": 2.5,    // Pyramid 1: 2.5% TP
+      "2": 3.0,    // Pyramid 2: 3% TP
+      "3": 4.0     // Pyramid 3: 4% TP
+    }
+  }
+}
+```
+
+Location: grid_config.py:31-35
+
+```python
+class TPSettings(BaseModel):
+    tp_aggregate_percent: Decimal = Field(default=Decimal("0"))
+    pyramid_tp_percents: Dict[str, Decimal] = Field(
+        default_factory=dict,
+        description="Per-pyramid TP percentages. Key is pyramid index, value is TP %."
+    )
+```
+
+4. Key Differences from Other TP Modes
+
+Aspect	Per-Leg	Aggregate	Hybrid	Pyramid Aggregate
+Evaluation Level	Each DCA order	Entire position	Both	Each pyramid
+TP Price Basis	Pre-calculated per order	Position weighted avg	Both	Pyramid weighted avg
+Closes	One order at a time	Entire position	First wins	One pyramid at a time
+Independent Targets	No	No	No	Yes - per pyramid
+Configurable Per-Entry	Yes (tp_percent per level)	No	Yes	Yes (pyramid_tp_percents)
+
+5. Execution Flow
+
+```
+Position with 3 Pyramids (pyramid_aggregate mode):
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  Pyramid 0: Entry $100 avg, TP target 2% = $102                     │
+│  Pyramid 1: Entry $95 avg, TP target 2.5% = $97.375                 │
+│  Pyramid 2: Entry $90 avg, TP target 3% = $92.70                    │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Price rises to $93:                                                 │
+│  - Pyramid 0: $93 < $102 → NOT triggered                            │
+│  - Pyramid 1: $93 < $97.375 → NOT triggered                         │
+│  - Pyramid 2: $93 >= $92.70 → TRIGGERED! → Close Pyramid 2          │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Price continues to $98:                                             │
+│  - Pyramid 0: $98 < $102 → NOT triggered                            │
+│  - Pyramid 1: $98 >= $97.375 → TRIGGERED! → Close Pyramid 1         │
+│  - Pyramid 2: Already closed                                         │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Price hits $102:                                                    │
+│  - Pyramid 0: $102 >= $102 → TRIGGERED! → Close Pyramid 0           │
+│  - Entire position now closed                                        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+6. Summary
+
+Question	Answer
+Mode name	pyramid_aggregate
+Scope	Each pyramid evaluated independently
+TP calculation	Pyramid's weighted avg × (1 + pyramid_tp_percent%)
+Per-pyramid config	tp_settings.pyramid_tp_percents dict
+Fallback	tp_aggregate_percent if no specific config
+Order type	Market order on trigger (per pyramid)
+
+
+Risk Engine Implementation
+==========================
+
+The Risk Engine is a multi-component system that manages position risk through timer management, loser/winner selection, and simultaneous offset execution.
+
+1. Risk Engine Architecture
+
+Location: backend/app/services/risk/
+
+Module	File	Purpose
+risk_engine.py	Main orchestrator	Coordinates all components, monitoring loop
+risk_timer.py	Timer management	Start, reset, expire timer lifecycle
+risk_selector.py	Selection algorithms	Identify worst loser and best winners
+risk_executor.py	Execution calculations	Partial close quantity calculations
+
+2. Risk Action Types
+
+Location: models/risk_action.py:22-28
+
+```python
+class RiskActionType(str, Enum):
+    OFFSET_LOSS = "offset_loss"      # Loser + winners partially closed
+    MANUAL_BLOCK = "manual_block"    # User blocked position from risk
+    MANUAL_SKIP = "manual_skip"      # User skipped next evaluation
+    MANUAL_CLOSE = "manual_close"    # User manually closed position
+    ENGINE_CLOSE = "engine_close"    # Engine closed due to conditions
+    TP_HIT = "tp_hit"               # Take-profit triggered
+```
+
+3. Timer Management
+
+Location: risk_timer.py
+
+Timer States:
+```
+NULL ──► TIMER_STARTED ──► TIMER_EXPIRED ──► ELIGIBLE
+  ▲              │                              │
+  └──────────────┴──── RESET (conditions change)
+```
+
+Database Fields on PositionGroup (position_group.py:101-105):
+```python
+risk_timer_start = Column(DateTime)       # When timer started
+risk_timer_expires = Column(DateTime)     # When timer expires
+risk_eligible = Column(Boolean)           # True if ready for offset
+risk_blocked = Column(Boolean)            # User can block from evaluation
+risk_skip_once = Column(Boolean)          # Skip next evaluation only
+```
+
+Timer Start Conditions:
+1. Required pyramids complete (all DCAs filled)
+2. Loss threshold exceeded (e.g., -1.5% or worse)
+3. Timer set to expire after `post_pyramids_wait_minutes`
+
+Timer Reset Triggers:
+- New pyramid received (pyramid_count increases)
+- Price improved beyond loss threshold
+- Pyramids no longer complete
+
+4. Offset Execution Flow
+
+Location: risk_engine.py:150-354
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. Get active positions for user                                   │
+│  2. Update timers for all positions                                 │
+│  3. Select loser and winners                                        │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  LOSER SELECTION (risk_selector.py)                                 │
+│                                                                     │
+│  Eligibility:                                                       │
+│  - ACTIVE status                                                    │
+│  - Not blocked (risk_blocked = False)                               │
+│  - Not skipped (risk_skip_once = False)                             │
+│  - Required pyramids complete                                       │
+│  - Loss threshold exceeded                                          │
+│  - Timer expired (risk_timer_expires <= now)                        │
+│                                                                     │
+│  Ranking: (highest_loss_percent, highest_loss_usd, oldest_trade)    │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  WINNER SELECTION                                                   │
+│                                                                     │
+│  Required USD = abs(loser.unrealized_pnl_usd)                       │
+│  Select top N winners (max_winners_to_combine, default 3)           │
+│  Ranked by unrealized profit USD (descending)                       │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  PARTIAL CLOSE CALCULATIONS (risk_executor.py)                      │
+│                                                                     │
+│  For each winner:                                                   │
+│    profit_per_unit = current_price - weighted_avg_entry             │
+│    quantity_to_close = profit_to_take / profit_per_unit             │
+│    (Rounded to exchange precision, validated against minimums)      │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  SIMULTANEOUS EXECUTION                                             │
+│                                                                     │
+│  results = await asyncio.gather(*close_tasks, return_exceptions=True)│
+│                                                                     │
+│  All market orders hit exchange at the same time!                   │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Record RiskAction with details + Broadcast Telegram notification   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+5. Risk Engine Configuration
+
+Location: schemas/grid_config.py:212-323
+
+Parameter	Type	Default	Description
+max_open_positions_global	int	10	Maximum positions across all symbols
+max_open_positions_per_symbol	int	1	Max positions per trading pair
+max_total_exposure_usd	Decimal	10000	Total capital exposed limit
+max_realized_loss_usd	Decimal	500	Circuit breaker (auto-pauses queue)
+loss_threshold_percent	Decimal	-1.5	Loss % that triggers timer start
+required_pyramids_for_timer	int	3	Pyramids needed before timer starts
+post_pyramids_wait_minutes	int	15	Minutes to wait after conditions met
+max_winners_to_combine	int	3	Max winners to close for offsetting
+evaluate_on_fill	bool	False	Trigger evaluation on position fill
+evaluate_interval_seconds	int	60	Polling interval for evaluation
+engine_paused_by_loss_limit	bool	False	Engine auto-paused due to max loss
+engine_force_stopped	bool	False	Engine manually stopped by user
+
+6. Risk API Endpoints
+
+Location: api/risk.py
+
+Endpoint	Method	Purpose
+/risk/status	GET	Get current status, loser/winners, timer states
+/risk/run-evaluation	POST	Manually trigger single evaluation
+/risk/{group_id}/block	POST	Block position from risk evaluation
+/risk/{group_id}/unblock	POST	Unblock position
+/risk/{group_id}/skip	POST	Skip next evaluation for position
+/risk/force-stop	POST	Stop queue (risk engine continues)
+/risk/force-start	POST	Resume queue after stop
+/risk/sync-exchange	POST	Sync local PnL with exchange
+
+7. RiskAction Model
+
+Location: models/risk_action.py:31-71
+
+Field	Type	Purpose
+id	UUID	Primary key
+group_id	UUID FK	Position group involved
+action_type	RiskActionType	Type of action (OFFSET_LOSS, etc.)
+timestamp	DateTime	When action occurred
+loser_group_id	UUID FK	The losing position
+loser_pnl_usd	Decimal	Loss amount
+winner_details	JSON	Array of {group_id, pnl_usd, symbol, quantity_closed}
+exit_price	Decimal	Exit price for close actions
+entry_price	Decimal	Entry price
+pnl_percent	Decimal	PnL percentage
+realized_pnl_usd	Decimal	Realized profit/loss
+quantity_closed	Decimal	Amount closed
+duration_seconds	Decimal	How long position was held
+notes	String	Additional details
+
+8. Risk Engine Example Scenario
+
+```
+BEFORE OFFSET:
+┌─────────────────────────────────────────────────────────────────────┐
+│  LOSER: BTCUSDT Long                                                 │
+│  - Entry: $100, Current: $95                                        │
+│  - Qty: 1.0 BTC                                                     │
+│  - Unrealized PnL: -$5.00 (-5%)                                     │
+│  - Timer EXPIRED, ELIGIBLE                                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  WINNER 1: ETHUSDT Long                                              │
+│  - Entry: $2,000, Current: $2,100                                   │
+│  - Qty: 2.0 ETH                                                     │
+│  - Unrealized PnL: +$200 (+5%)                                      │
+│  - Available profit: $200                                           │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  WINNER 2: SOLUSDT Long                                              │
+│  - Entry: $50, Current: $55                                         │
+│  - Qty: 10.0 SOL                                                    │
+│  - Unrealized PnL: +$50 (+10%)                                      │
+│  - Available profit: $50                                            │
+└─────────────────────────────────────────────────────────────────────┘
+
+EXECUTION:
+- Required to offset: $5.00 (loser's loss)
+- From WINNER 1: Close 0.025 ETH ($5.25 profit covers $5.00)
+- LOSER: Market close entire 1.0 BTC
+
+AFTER OFFSET:
+- BTC position CLOSED with -$5.00 realized loss
+- ETH position REDUCED by 0.025 ETH with +$5.25 realized profit
+- NET: +$0.25 realized profit (loss offset + small gain)
+- SOL position unchanged (wasn't needed)
+```
+
+9. Summary
+
+Question	Answer
+What triggers risk evaluation?	Timer expiration + eligibility criteria
+How is loser selected?	Highest loss %, then USD, then oldest
+How are winners selected?	Top N by unrealized profit USD
+Are orders simultaneous?	Yes - asyncio.gather() executes all at once
+What gets recorded?	RiskAction with loser, winners, quantities
+Can users control it?	Yes - block, skip, force-stop options
+
+---
+
+# Recent Architecture Refactoring (December 2025)
+
+This section documents the major architectural improvements made to the codebase.
+
+## 1. Exchange Configuration Service
+
+**Location:** `backend/app/services/exchange_config_service.py`
+
+A centralized service for extracting and validating exchange configurations from user credentials. This eliminates duplicated code across signal_router, positions, risk_engine, and dashboard.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| Multi-exchange support | Handles both legacy single-key format and new multi-exchange format |
+| Legacy fallback | Automatically detects and converts old `encrypted_data` format |
+| Connector initialization | Provides ready-to-use exchange connectors |
+| Validation | Validates configuration before returning |
+
+### API Methods
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_exchange_config(user, target_exchange)` | Extract exchange config for specific exchange | `Tuple[str, Dict]` |
+| `get_connector(user, target_exchange)` | Get initialized ExchangeInterface | `ExchangeInterface` |
+| `get_all_configured_exchanges(user)` | Get all exchange configs for user | `Dict[str, Dict]` |
+| `has_valid_config(user, exchange)` | Check if valid config exists | `bool` |
+
+### Configuration Format Handling
+
+```
+Legacy Format (single exchange):
+{
+  "encrypted_data": "base64_encrypted_string"
+}
+
+Multi-Exchange Format:
+{
+  "binance": {"encrypted_data": "..."},
+  "bybit": {"encrypted_data": "..."}
+}
+```
+
+### Usage Example
+
+```python
+from app.services.exchange_config_service import ExchangeConfigService, ExchangeConfigError
+
+try:
+    connector = ExchangeConfigService.get_connector(user, "binance")
+    # Use connector...
+except ExchangeConfigError as e:
+    logger.error(f"Exchange config error: {e}")
+```
+
+---
+
+## 2. Risk Engine Refactoring
+
+The Risk Engine has been refactored into a modular architecture with separate concerns.
+
+### Module Structure
+
+```
+backend/app/services/risk/
+├── __init__.py              # Exports
+├── risk_engine.py           # Main orchestrator (RiskEngineService)
+├── risk_selector.py         # Loser/winner selection algorithms
+├── risk_timer.py            # Timer management logic
+└── risk_executor.py         # Offset execution calculations
+```
+
+### 2.1 Risk Selector Module
+
+**Location:** `backend/app/services/risk/risk_selector.py`
+
+Pure selection logic for filtering eligible losers and selecting top winners.
+
+#### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `_check_pyramids_complete(pg, required_pyramids)` | Check if required pyramids have ALL DCAs filled |
+| `_filter_eligible_losers(positions, config)` | Filter positions eligible for loss offset |
+| `_select_top_winners(positions, count, exclude_id)` | Select top profitable positions |
+| `select_loser_and_winners(positions, config)` | Main selection logic returning loser, winners, required_usd |
+
+#### Eligibility Criteria
+
+A position is eligible for loss offset when ALL conditions are met:
+
+1. Status is ACTIVE
+2. Required number of pyramids are filled (all DCAs complete)
+3. Loss threshold is exceeded (`unrealized_pnl_percent <= loss_threshold_percent`)
+4. Timer has expired (`risk_timer_expires <= now`)
+5. Not blocked (`risk_blocked = False`)
+6. Not skip_once flagged (`risk_skip_once = False`)
+
+#### Selection Priority
+
+**Loser Selection (by % loss):**
+1. Highest loss percentage (primary)
+2. Highest unrealized loss USD (secondary)
+3. Oldest trade (tertiary)
+
+**Winner Selection (by $ profit):**
+- Rank all winning positions by unrealized profit USD
+- Select up to `max_winners_to_combine` (default: 3)
+- Exclude the loser from winner selection
+
+### 2.2 Risk Timer Module
+
+**Location:** `backend/app/services/risk/risk_timer.py`
+
+Handles starting, resetting, and expiring risk timers for positions.
+
+#### Timer State Machine
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Timer STARTS when BOTH conditions are met:                    │
+│  1. Required pyramids are complete (all DCAs filled)           │
+│  2. Loss threshold is exceeded                                 │
+│                                                                 │
+│  Timer RESETS (stops and clears) when:                         │
+│  - A new pyramid is received (pyramid_count increases)         │
+│  - Loss threshold is no longer exceeded (price improved)       │
+│  - Pyramids are no longer complete (should not happen)         │
+│                                                                 │
+│  Timer EXPIRES when:                                           │
+│  - risk_timer_expires <= now                                   │
+│  - Position becomes eligible for offset                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Telegram Notifications
+
+The timer module broadcasts Telegram events:
+- `timer_started` - When timer begins countdown
+- `timer_expired` - When timer expires and position is eligible
+- `timer_reset` - When timer is reset due to conditions changing
+
+### 2.3 Risk Executor Module
+
+**Location:** `backend/app/services/risk/risk_executor.py`
+
+Handles calculating partial close quantities and precision handling.
+
+#### Partial Close Calculation Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  For each winner:                                               │
+│  1. Get exchange connector and precision rules                  │
+│  2. Calculate available profit = unrealized_pnl_usd             │
+│  3. profit_to_take = min(available_profit, remaining_needed)    │
+│  4. Get current price from exchange                             │
+│  5. profit_per_unit = current_price - weighted_avg_entry        │
+│     (For shorts: weighted_avg_entry - current_price)            │
+│  6. quantity_to_close = profit_to_take / profit_per_unit        │
+│  7. Round to step_size                                          │
+│  8. Validate against min_notional                               │
+│  9. Cap at total_filled_quantity if needed                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Position Manager Refactoring
+
+The Position Manager has been split into focused modules.
+
+### Module Structure
+
+```
+backend/app/services/position/
+├── __init__.py              # Exports and re-exports exceptions
+├── position_manager.py      # Main orchestrator (PositionManagerService)
+├── position_creator.py      # Position and pyramid creation
+└── position_closer.py       # Position exit and closing logic
+```
+
+### 3.1 Position Creator Module
+
+**Location:** `backend/app/services/position/position_creator.py`
+
+Handles creating new positions from signals and adding pyramids.
+
+#### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `create_position_group_from_signal()` | Create new position group from signal |
+| `handle_pyramid_continuation()` | Add pyramid to existing position |
+| `_get_exchange_connector_for_user()` | Get exchange connector for user |
+
+#### Custom Exceptions
+
+| Exception | When Raised |
+|-----------|-------------|
+| `UserNotFoundException` | User not found in database |
+| `DuplicatePositionException` | Attempting to create duplicate active position |
+
+#### Position Creation Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. Get user from database                                      │
+│  2. Get exchange connector                                      │
+│  3. Fetch precision rules                                       │
+│  4. Calculate DCA levels and quantities                         │
+│  5. Create PositionGroup model                                  │
+│  6. Create Pyramid model (pyramid_index=0)                      │
+│  7. Create DCAOrder objects                                     │
+│  8. Submit limit orders to exchange                             │
+│  9. Broadcast entry signal via Telegram                         │
+│  10. Update risk timer                                          │
+│  11. Return PositionGroup                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 Position Closer Module
+
+**Location:** `backend/app/services/position/position_closer.py`
+
+Handles closing positions, TP execution, and recording close actions.
+
+#### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `execute_handle_exit_signal()` | Handle exit signal within provided session |
+| `save_close_action()` | Save close action to risk_actions history |
+| `_get_exchange_connector_for_user()` | Get exchange connector for user |
+
+#### Close Action Recording
+
+When a position is closed, a RiskAction record is created:
+
+| Field | Source |
+|-------|--------|
+| `action_type` | Mapped from exit_reason (manual, engine, tp_hit, risk_offset) |
+| `exit_price` | Current market price at close |
+| `entry_price` | weighted_avg_entry from position |
+| `pnl_percent` | Calculated from entry/exit prices |
+| `realized_pnl_usd` | Actual realized PnL |
+| `quantity_closed` | Amount that was closed |
+| `duration_seconds` | Time from position open to close |
+
+#### Exit Reason to Action Type Mapping
+
+| exit_reason | RiskActionType |
+|-------------|----------------|
+| "manual" | MANUAL_CLOSE |
+| "engine" | ENGINE_CLOSE |
+| "tp_hit" | TP_HIT |
+| "risk_offset" | OFFSET_LOSS |
+
+---
+
+## 4. Architecture Benefits
+
+### Before Refactoring
+
+```
+services/
+├── position_manager.py      # ~1200 lines, monolithic
+├── risk_engine.py           # ~1300 lines, monolithic
+└── exchange connector logic duplicated everywhere
+```
+
+### After Refactoring
+
+```
+services/
+├── exchange_config_service.py   # Centralized, reusable
+├── position/
+│   ├── position_manager.py      # ~500 lines, orchestration only
+│   ├── position_creator.py      # ~400 lines, creation logic
+│   └── position_closer.py       # ~280 lines, exit logic
+└── risk/
+    ├── risk_engine.py           # ~880 lines, orchestration only
+    ├── risk_selector.py         # ~130 lines, selection logic
+    ├── risk_timer.py            # ~115 lines, timer logic
+    └── risk_executor.py         # ~130 lines, execution logic
+```
+
+### Key Improvements
+
+| Aspect | Improvement |
+|--------|-------------|
+| Separation of Concerns | Each module has a single responsibility |
+| Testability | Pure functions can be unit tested independently |
+| Maintainability | Smaller files are easier to understand and modify |
+| Reusability | ExchangeConfigService eliminates code duplication |
+| Debugging | Easier to trace issues to specific modules |
+
+---
+
+## 5. Updated Service Dependencies
+
+### PositionManagerService
+
+```python
+PositionManagerService(
+    session_factory: Callable[..., AsyncSession],
+    user: User,
+    position_group_repository_class: type[PositionGroupRepository],
+    grid_calculator_service: GridCalculatorService,
+    order_service_class: type[OrderService],
+)
+```
+
+### RiskEngineService
+
+```python
+RiskEngineService(
+    session_factory: callable,
+    position_group_repository_class: type[PositionGroupRepository],
+    risk_action_repository_class: type[RiskActionRepository],
+    dca_order_repository_class: type[DCAOrderRepository],
+    order_service_class: type[OrderService],
+    risk_engine_config: RiskEngineConfig,
+    polling_interval_seconds: int = None,
+    user: Optional[User] = None
+)
+```
+
+---
+
+## 6. Migration Notes
+
+### Using ExchangeConfigService
+
+Old pattern (duplicated everywhere):
+```python
+encrypted_data = user.encrypted_api_keys
+exchange_key = exchange_name.lower()
+if isinstance(encrypted_data, dict):
+    if exchange_key in encrypted_data:
+        exchange_config = encrypted_data[exchange_key]
+    # ... more conditional logic
+connector = get_exchange_connector(exchange_name, exchange_config)
+```
+
+New pattern:
+```python
+from app.services.exchange_config_service import ExchangeConfigService
+
+connector = ExchangeConfigService.get_connector(user, exchange_name)
+```
+
+### Importing from Split Modules
+
+The main orchestrator classes re-export exceptions for backward compatibility:
+
+```python
+# Both work:
+from app.services.position.position_manager import PositionManagerService, UserNotFoundException
+from app.services.position.position_creator import UserNotFoundException
+```
+
+---
+
+## 7. Telegram Broadcasting System
+
+A comprehensive notification system for broadcasting trading events to Telegram channels.
+
+### Architecture Overview
+
+```
+backend/app/
+├── schemas/
+│   └── telegram_config.py           # TelegramConfig schema
+└── services/
+    ├── telegram_broadcaster.py      # Core broadcaster class
+    └── telegram_signal_helper.py    # Integration helpers
+```
+
+### 7.1 TelegramConfig Schema
+
+**Location:** `backend/app/schemas/telegram_config.py`
+
+#### Connection Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | False | Enable/disable broadcasting |
+| `bot_token` | str | None | Telegram bot token |
+| `channel_id` | str | None | Channel ID (e.g., @channelname or -100123456789) |
+| `channel_name` | str | "AlgoMakers.Ai Signals" | Display name |
+| `engine_signature` | str | (multiline) | Signature shown in messages |
+
+#### Message Type Toggles
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `send_entry_signals` | bool | True | Entry signal messages |
+| `send_exit_signals` | bool | True | Exit signal messages |
+| `send_status_updates` | bool | True | Status transitions (PARTIALLY_FILLED, ACTIVE, etc.) |
+| `send_dca_fill_updates` | bool | True | Individual DCA leg fill notifications |
+| `send_pyramid_updates` | bool | True | New pyramid notifications |
+| `send_tp_hit_updates` | bool | True | Take profit hit notifications |
+| `send_failure_alerts` | bool | True | Order/position failure alerts |
+| `send_risk_alerts` | bool | True | Risk timer event alerts |
+
+#### Advanced Controls
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `update_existing_message` | bool | True | Edit existing message instead of new one (reduces spam) |
+| `update_on_pyramid` | bool | True | Update message when pyramid fills |
+| `show_unrealized_pnl` | bool | True | Show live unrealized P&L |
+| `show_invested_amount` | bool | True | Show invested amount |
+| `show_duration` | bool | True | Show position duration |
+| `alert_loss_threshold_percent` | float | None | Alert if loss exceeds threshold |
+| `alert_profit_threshold_percent` | float | None | Alert if profit exceeds threshold |
+
+#### Quiet Hours
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `quiet_hours_enabled` | bool | False | Enable quiet hours |
+| `quiet_hours_start` | str | None | Start time (e.g., "22:00") |
+| `quiet_hours_end` | str | None | End time (e.g., "08:00") |
+| `quiet_hours_urgent_only` | bool | True | Only send urgent alerts during quiet hours |
+
+### 7.2 TelegramBroadcaster Class
+
+**Location:** `backend/app/services/telegram_broadcaster.py`
+
+The core class responsible for formatting and sending messages to Telegram.
+
+#### Key Methods
+
+| Method | Purpose |
+|--------|---------|
+| `send_entry_signal()` | Send entry signal with DCA levels, weights, TP targets |
+| `send_exit_signal()` | Send exit signal with PnL and duration |
+| `send_dca_fill()` | Send DCA leg fill notification |
+| `send_status_change()` | Send status transition notification |
+| `send_tp_hit()` | Send take profit hit notification |
+| `send_risk_event()` | Send risk engine event notification |
+| `send_failure()` | Send failure/error alert |
+| `send_pyramid_added()` | Send new pyramid notification |
+
+#### Helper Methods
+
+| Method | Purpose |
+|--------|---------|
+| `_format_duration(hours)` | Format duration as "15m", "2.5h", "1.2d" |
+| `_format_price(price, decimals)` | Format price with comma separators |
+| `_format_pnl(percent, usd)` | Format P&L with sign and optional USD |
+| `_is_quiet_hours()` | Check if current time is within quiet hours |
+| `_should_send(is_urgent)` | Determine if message should be sent |
+
+#### Message Format Example (Entry Signal)
+
+```
+📈 LONG Entry
+BINANCE · BTCUSDT · 15m
+🆔 a1b2c3d4
+
+┌─ DCA Levels ─────────────────
+│ ✅ 40%  50,000.00  → TP 52,500.00
+│ ⏳ 30%  49,500.00  → TP 51,975.00
+│ ⏳ 30%  49,000.00  → TP 51,450.00
+└──────────────────────────────
+🎯 Aggregate TP: 52,000.00 (+4.0%)
+
+📊 PARTIALLY_FILLED (1/3 legs)
+💰 Invested: $500.00
+📈 Unrealized: +1.25% (+$6.25)
+📈 Avg Entry: 50,000.00
+
+🔷 Pyramid 1/5 · per_leg TP
+⏱️ Open: 15m
+```
+
+### 7.3 Signal Helper Functions
+
+**Location:** `backend/app/services/telegram_signal_helper.py`
+
+High-level functions that integrate with the position lifecycle.
+
+#### Broadcast Functions
+
+| Function | Triggered By | Config Check |
+|----------|--------------|--------------|
+| `broadcast_entry_signal()` | New pyramid fills | `send_entry_signals` |
+| `broadcast_exit_signal()` | Position closes | `send_exit_signals` |
+| `broadcast_dca_fill()` | Individual DCA leg fills | `send_dca_fill_updates` |
+| `broadcast_status_change()` | Position status changes | `send_status_updates` |
+| `broadcast_tp_hit()` | Take profit triggered | `send_tp_hit_updates` |
+| `broadcast_risk_event()` | Risk timer events | `send_risk_alerts` |
+| `broadcast_failure()` | Order/position failures | `send_failure_alerts` |
+| `broadcast_pyramid_added()` | New pyramid added | `send_pyramid_updates` |
+
+#### Event Types
+
+**Risk Events:**
+- `timer_started` - Risk timer began countdown
+- `timer_expired` - Timer expired, position eligible for offset
+- `timer_reset` - Timer reset due to conditions changing
+- `offset_executed` - Loss offset operation completed
+
+**Exit Reasons:**
+- `manual` - User-initiated close
+- `engine` - System-initiated close
+- `tp_hit` - Take profit triggered
+- `risk_offset` - Closed by risk engine offset
+
+### 7.4 Message Update Strategy
+
+The system supports updating existing messages instead of sending new ones:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Message Update Flow                                            │
+│                                                                 │
+│  1. Initial message sent → telegram_message_id stored           │
+│  2. On DCA fill → Edit existing message with updated progress   │
+│  3. On pyramid fill → Update or send new based on config        │
+│  4. On close → Send final exit message                          │
+│                                                                 │
+│  Benefits:                                                      │
+│  - Reduces channel spam                                         │
+│  - All position updates in one message thread                   │
+│  - Better user experience                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 7.5 Quiet Hours Implementation
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Quiet Hours Logic                                              │
+│                                                                 │
+│  Normal Hours: Send all enabled message types                   │
+│                                                                 │
+│  Quiet Hours (e.g., 22:00 - 08:00):                             │
+│  ├─ If urgent_only=True:                                        │
+│  │   ├─ Send: failure_alerts, risk_alerts                       │
+│  │   └─ Skip: entry, exit, dca_fill, status, tp_hit, pyramid    │
+│  └─ If urgent_only=False:                                       │
+│      └─ Skip all notifications                                  │
+│                                                                 │
+│  Supports overnight ranges (start > end)                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 7.6 Integration Points
+
+The Telegram system is called from:
+
+| Component | Event | Function Called |
+|-----------|-------|-----------------|
+| `position_creator.py` | Position created | `broadcast_entry_signal()` |
+| `position_closer.py` | Position closed | `broadcast_exit_signal()` |
+| `order_fill_monitor.py` | DCA leg fills | `broadcast_dca_fill()` |
+| `order_fill_monitor.py` | Status changes | `broadcast_status_change()` |
+| `position_manager.py` | TP hit | `broadcast_tp_hit()` |
+| `risk_timer.py` | Timer events | `broadcast_risk_event()` |
+| `position_creator.py` | Failures | `broadcast_failure()` |
+| `position_creator.py` | Pyramid added | `broadcast_pyramid_added()` |
+
+### 7.7 Configuration Storage
+
+Telegram config is stored in the User model as JSON:
+
+```python
+# User model
+telegram_config: Dict = Column(JSON, nullable=True)
+
+# Example stored value
+{
+    "enabled": true,
+    "bot_token": "123456789:ABC...",
+    "channel_id": "@my_signals",
+    "send_entry_signals": true,
+    "send_exit_signals": true,
+    "quiet_hours_enabled": true,
+    "quiet_hours_start": "22:00",
+    "quiet_hours_end": "08:00"
+}
+```
+
+### 7.8 API Endpoints
+
+**Location:** `backend/app/api/telegram.py`
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/telegram/config` | GET | Get current Telegram config |
+| `/telegram/config` | PUT | Update Telegram config |
+| `/telegram/test` | POST | Send test message |
+
+### 7.9 Frontend Component
+
+**Location:** `frontend/src/components/TelegramSettings.tsx`
+
+Features:
+- Connection setup (bot token, channel ID)
+- Message type toggle switches
+- Quiet hours configuration
+- Advanced display options
+- Test message button
+
+---
+
+# Issue Status Review (December 2025)
+
+This section tracks the current status of previously identified issues.
+
+## Fixed Issues
+
+### 1. Off-by-One Pyramid Bug ✅ FIXED
+
+**Previous Issue:** The pyramid check used `pyramid_count < max_pyramids - 1` which blocked the last pyramid.
+
+**Current Status:** Fixed in `signal_router.py:333`
+```python
+if existing_group.pyramid_count < dca_config.max_pyramids:
+```
+
+### 2. Race Condition Prevention ✅ IMPROVED
+
+**Previous Issue:** No database constraint and `for_update` not used for critical lookups.
+
+**Current Status:**
+- Partial unique index added to `position_groups` table (lines 48-54 in `position_group.py`)
+- `for_update=True` now used in signal_router.py for both exit (line 195) and entry (line 232) signals
+
+```python
+# position_group.py:48-54
+__table_args__ = (
+    Index(
+        'uix_active_position_group',
+        'user_id', 'symbol', 'exchange', 'timeframe', 'side',
+        unique=True,
+        postgresql_where="status NOT IN ('closed', 'failed')"
+    ),
+    ...
+)
+```
+
+### 3. Failed Authentication Logging ✅ FIXED
+
+**Previous Issue:** Failed webhook authentication attempts were not logged.
+
+**Current Status:** All authentication failures now logged with IP address in `signature_validation.py`:
+- Line 35: Invalid JSON payload
+- Line 43: Missing secret
+- Line 51: User not found
+- Line 60: Invalid secret
+
+### 4. Slippage Protection ✅ IMPLEMENTED
+
+**Previous Issue:** `max_slippage_percent` was defined in webhook payload but not implemented.
+
+**Current Status:** Fully implemented in `order_management.py:492-521`:
+- Calculates actual slippage after order execution
+- Supports "warn" (log only) and "reject" (raise SlippageExceededError) actions
+- Integrated into exit signal flow via `position_closer.py`
+- Configuration in `RiskEngineConfig` (grid_config.py:257-263)
+
+### 5. TP Calculation from Actual Fill Price ✅ FIXED
+
+**Previous Issue:** TP was calculated from planned entry price, not actual fill price.
+
+**Current Status:** Fixed in `order_management.py:124-165`:
+- `adjust_for_fill_price` parameter added (default: `True`)
+- When enabled, recalculates TP based on `avg_fill_price` instead of planned price
+- Logs when adjustment is made
+
+```python
+# order_management.py:148-162
+if adjust_for_fill_price and dca_order.avg_fill_price and ...:
+    # Recalculate TP based on actual fill price
+    adjusted_tp_price = dca_order.avg_fill_price * (1 + tp_percent/100)
+```
+
+---
+
+## Remaining Issues
+
+### 1. reduce/reverse Intent Types ❌ NOT IMPLEMENTED
+
+**Status:** Still falls through to entry/pyramid handling
+
+**Location:** `signal_router.py:170-215`
+
+The `execution_intent.type` only handles "exit" explicitly. Values like "reduce" and "reverse" fall through to the `else` block and are treated as regular entry signals.
+
+```python
+intent_type = signal.execution_intent.type.lower() if signal.execution_intent else "signal"
+if intent_type == "exit":
+    # Exit handling
+else:  # "signal", "reduce", "reverse" all handled the same
+    # Entry/pyramid handling
+```
+
+### 2. WAITING Status Never Used
+
+**Status:** Still defined but never set in normal flow
+
+**Location:** `position_group.py:29`
+
+The `WAITING` status is defined in the enum but positions are created with `LIVE` status. This may be intentional design.
+
+### 3. Hybrid TP Mode Partial Implementation
+
+**Status:** Per-leg TP orders work, but aggregate fallback monitoring may need verification
+
+The hybrid mode creates per-leg TP orders but also needs to monitor for aggregate TP if individual legs don't hit. This interaction should be tested.
+
+---
+
+## Summary Table
+
+| Issue | Status | Location |
+|-------|--------|----------|
+| Off-by-one pyramid bug | ✅ Fixed | signal_router.py:333 |
+| Race condition prevention | ✅ Improved | position_group.py:48-54, signal_router.py:195,232 |
+| Failed auth logging | ✅ Fixed | signature_validation.py:35,43,51,60 |
+| Slippage protection | ✅ Implemented | order_management.py:492-521 |
+| TP from actual fill price | ✅ Fixed | order_management.py:124-165 |
+| reduce/reverse intents | ❌ Not implemented | signal_router.py:170-215 |
+| WAITING status unused | ⚠️ By design? | position_group.py:29 |
+| Hybrid TP mode | ⚠️ Needs testing | position_manager.py |
