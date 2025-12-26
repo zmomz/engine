@@ -105,8 +105,17 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    order_id = Column(Integer, autoincrement=True, unique=True)  # Binance-style numeric ID
+    # Binance-style numeric ID - use timestamp-based ID generation
+    order_id = Column(Integer, unique=True, index=True)
     client_order_id = Column(String(36), default=lambda: str(uuid.uuid4()))
+
+    @staticmethod
+    def generate_order_id():
+        """Generate a unique Binance-style order ID based on timestamp."""
+        import time
+        import random
+        # Use timestamp in milliseconds + random component for uniqueness
+        return int(time.time() * 1000) + random.randint(0, 999)
     api_key_id = Column(String(36), ForeignKey("api_keys.id"), nullable=False)
 
     symbol = Column(String(20), nullable=False)

@@ -209,19 +209,31 @@ class OrderFillMonitorService:
                             if ex not in orders_by_exchange:
                                 orders_by_exchange[ex] = []
                             orders_by_exchange[ex].append(order)
-                            
+
+                        # Log all exchanges found
+                        logger.info(f"OrderFillMonitor: Exchanges found: {list(orders_by_exchange.keys())}")
+
                         # Process each exchange - reuse connector for all orders on same exchange
                         for raw_exchange_name, orders_to_check in orders_by_exchange.items():
                              exchange_name = raw_exchange_name.lower()
+                             logger.info(f"OrderFillMonitor: Processing {len(orders_to_check)} orders for exchange '{exchange_name}'")
                              # Decrypt keys for this exchange - done once per exchange
                              try:
-                                 exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
+                                 # Mock exchange uses default credentials, no need for stored keys
+                                 if exchange_name == "mock":
+                                     logger.info(f"OrderFillMonitor: Using default mock exchange credentials")
+                                     exchange_keys_data = {
+                                         "api_key": "mock_api_key_12345",
+                                         "api_secret": "mock_api_secret_67890"
+                                     }
+                                 else:
+                                     exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
 
-                                 if not exchange_keys_data:
-                                     logger.warning(f"No API keys found for exchange {exchange_name} (from {raw_exchange_name}) for user {user.id}, skipping orders for this exchange.")
-                                     continue
+                                     if not exchange_keys_data:
+                                         logger.warning(f"No API keys found for exchange {exchange_name} (from {raw_exchange_name}) for user {user.id}, skipping orders for this exchange.")
+                                         continue
 
-                                 api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
+                                     api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
 
                                  # Create connector ONCE per exchange per monitoring cycle
                                  logger.debug(f"Setting up connector for {exchange_name} (will be reused for {len(orders_to_check)} orders)")

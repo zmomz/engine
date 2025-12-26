@@ -1,5 +1,6 @@
 import logging
 import traceback
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -16,6 +17,7 @@ from app.models.user import User # New import
 from app.exceptions import APIError # New import
 from app.services.exchange_config_service import ExchangeConfigService, ExchangeConfigError
 from app.rate_limiter import limiter
+from app.core.cache import get_cache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -87,10 +89,81 @@ async def get_current_user_active_positions(
 ):
     """
     Retrieves all active position groups for the current authenticated user.
+    Calculates unrealized PnL with current market prices.
     """
     repo = PositionGroupRepository(db)
     # Use the more inclusive getter that matches dashboard logic (includes live, partially_filled, closing)
     positions = await repo.get_active_position_groups_for_user(current_user.id)
+
+    if not positions or not current_user.encrypted_api_keys:
+        return [PositionGroupSchema.from_orm(pos) for pos in positions]
+
+    # Group positions by exchange for efficient price fetching
+    groups_by_exchange = {}
+    for pos in positions:
+        ex = pos.exchange or current_user.exchange or "binance"
+        if ex not in groups_by_exchange:
+            groups_by_exchange[ex] = []
+        groups_by_exchange[ex].append(pos)
+
+    cache = await get_cache()
+
+    # Calculate unrealized PnL with current prices for each exchange
+    for exchange_name, exchange_positions in groups_by_exchange.items():
+        if not ExchangeConfigService.has_valid_config(current_user, exchange_name):
+            logger.warning(f"No valid API keys for exchange '{exchange_name}' to update PnL for {len(exchange_positions)} positions.")
+            continue
+
+        connector = None
+        try:
+            connector = ExchangeConfigService.get_connector(current_user, exchange_name)
+
+            # Try to get cached tickers first
+            all_tickers = await cache.get_tickers(exchange_name)
+            if not all_tickers:
+                try:
+                    all_tickers = await connector.get_all_tickers()
+                    logger.debug(f"Fetched {len(all_tickers)} tickers from {exchange_name}")
+                    await cache.set_tickers(exchange_name, all_tickers)
+                except Exception as e:
+                    logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
+                    all_tickers = {}
+
+            async def get_price(symbol):
+                if symbol in all_tickers:
+                    return float(all_tickers[symbol]['last'])
+                if symbol.replace('/', '') in all_tickers:
+                    return float(all_tickers[symbol.replace('/', '')]['last'])
+                return await connector.get_current_price(symbol)
+
+            # Update unrealized PnL for each position
+            for pos in exchange_positions:
+                try:
+                    current_price = await get_price(pos.symbol)
+                    qty = float(pos.total_filled_quantity)
+                    avg_entry = float(pos.weighted_avg_entry)
+                    total_invested = float(pos.total_invested_usd)
+
+                    if qty > 0 and avg_entry > 0:
+                        if pos.side.lower() == "long":
+                            pnl = (current_price - avg_entry) * qty
+                        else:
+                            pnl = (avg_entry - current_price) * qty
+
+                        pos.unrealized_pnl_usd = Decimal(str(pnl))
+                        if total_invested > 0:
+                            pos.unrealized_pnl_percent = Decimal(str((pnl / total_invested) * 100))
+                        else:
+                            pos.unrealized_pnl_percent = Decimal("0")
+                except Exception as e:
+                    logger.error(f"Error calculating PnL for position {pos.id} ({pos.symbol}): {e}")
+
+        except Exception as e:
+            logger.error(f"Error fetching prices from {exchange_name}: {e}")
+        finally:
+            if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
+                await connector.exchange.close()
+
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 
@@ -131,6 +204,7 @@ async def get_all_positions(
 ):
     """
     Retrieves all active position groups for a given user.
+    Calculates unrealized PnL with current market prices.
     """
     if current_user.id != user_id and not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this user's positions.")
@@ -138,6 +212,74 @@ async def get_all_positions(
     repo = PositionGroupRepository(db)
     # Use the more inclusive getter that matches dashboard logic
     positions = await repo.get_active_position_groups_for_user(user_id)
+
+    if not positions or not current_user.encrypted_api_keys:
+        return [PositionGroupSchema.from_orm(pos) for pos in positions]
+
+    # Group positions by exchange for efficient price fetching
+    groups_by_exchange = {}
+    for pos in positions:
+        ex = pos.exchange or current_user.exchange or "binance"
+        if ex not in groups_by_exchange:
+            groups_by_exchange[ex] = []
+        groups_by_exchange[ex].append(pos)
+
+    cache = await get_cache()
+
+    # Calculate unrealized PnL with current prices for each exchange
+    for exchange_name, exchange_positions in groups_by_exchange.items():
+        if not ExchangeConfigService.has_valid_config(current_user, exchange_name):
+            continue
+
+        connector = None
+        try:
+            connector = ExchangeConfigService.get_connector(current_user, exchange_name)
+
+            # Try to get cached tickers first
+            all_tickers = await cache.get_tickers(exchange_name)
+            if not all_tickers:
+                try:
+                    all_tickers = await connector.get_all_tickers()
+                    await cache.set_tickers(exchange_name, all_tickers)
+                except Exception as e:
+                    logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
+                    all_tickers = {}
+
+            async def get_price(symbol):
+                if symbol in all_tickers:
+                    return float(all_tickers[symbol]['last'])
+                if symbol.replace('/', '') in all_tickers:
+                    return float(all_tickers[symbol.replace('/', '')]['last'])
+                return await connector.get_current_price(symbol)
+
+            # Update unrealized PnL for each position
+            for pos in exchange_positions:
+                try:
+                    current_price = await get_price(pos.symbol)
+                    qty = float(pos.total_filled_quantity)
+                    avg_entry = float(pos.weighted_avg_entry)
+                    total_invested = float(pos.total_invested_usd)
+
+                    if qty > 0 and avg_entry > 0:
+                        if pos.side.lower() == "long":
+                            pnl = (current_price - avg_entry) * qty
+                        else:
+                            pnl = (avg_entry - current_price) * qty
+
+                        pos.unrealized_pnl_usd = Decimal(str(pnl))
+                        if total_invested > 0:
+                            pos.unrealized_pnl_percent = Decimal(str((pnl / total_invested) * 100))
+                        else:
+                            pos.unrealized_pnl_percent = Decimal("0")
+                except Exception as e:
+                    logger.error(f"Error calculating PnL for position {pos.id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error fetching prices from {exchange_name}: {e}")
+        finally:
+            if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
+                await connector.exchange.close()
+
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 @router.get("/{user_id}/{group_id}", response_model=PositionGroupSchema)
