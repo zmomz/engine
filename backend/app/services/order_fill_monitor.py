@@ -2,10 +2,15 @@
 FIXED Service for monitoring order fills and updating their status in the database.
 Key fix: Properly handles the Bybit testnet workaround by continuing with position updates
 even when check_order_status triggers the workaround.
+
+Performance optimizations:
+- Parallel processing of orders using asyncio.gather with semaphore
+- Batch price fetching using get_all_tickers instead of per-order price calls
+- Eager loading of pyramid relationships to avoid N+1 queries
 """
 import asyncio
 import logging
-from typing import List
+from typing import List, Dict, Any
 import json
 import ccxt
 from decimal import Decimal
@@ -28,6 +33,9 @@ from app.core.security import EncryptionService
 from app.services.telegram_signal_helper import broadcast_dca_fill, broadcast_tp_hit
 
 logger = logging.getLogger(__name__)
+
+# Semaphore to limit concurrent order processing (prevent overwhelming exchange APIs)
+MAX_CONCURRENT_ORDERS = 10
 
 class OrderFillMonitorService:
     def __init__(
@@ -162,10 +170,201 @@ class OrderFillMonitorService:
         except Exception as e:
             logger.warning(f"Failed to check DCA beyond threshold for order {order.id}: {e}")
 
+    async def _process_single_order(
+        self,
+        order: DCAOrder,
+        order_service: OrderService,
+        position_manager: PositionManagerService,
+        connector: ExchangeInterface,
+        session: AsyncSession,
+        user,
+        prices_cache: Dict[str, Decimal],
+        semaphore: asyncio.Semaphore
+    ) -> None:
+        """
+        Process a single order. Called in parallel with other orders.
+        Uses semaphore to limit concurrency.
+        """
+        async with semaphore:
+            try:
+                # Get price from cache (batch fetched earlier)
+                current_price = prices_cache.get(order.symbol)
+
+                # If already filled, we are here to check the TP order
+                if order.status == OrderStatus.FILLED.value:
+                    updated_order = await order_service.check_tp_status(order)
+                    if updated_order.tp_hit:
+                        logger.info(f"TP hit for order {order.id}. Updating position stats.")
+                        await session.flush()
+                        await position_manager.update_position_stats(updated_order.group_id, session=session)
+
+                        # Broadcast per-leg TP hit notification - use eager-loaded pyramid
+                        if updated_order.group and updated_order.pyramid:
+                            pyramid = updated_order.pyramid
+                            entry_price = updated_order.price
+                            exit_price = updated_order.tp_price
+                            if entry_price and exit_price:
+                                pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+                                pnl_usd = (exit_price - entry_price) * updated_order.filled_quantity
+                                await broadcast_tp_hit(
+                                    position_group=updated_order.group,
+                                    pyramid=pyramid,
+                                    tp_type="per_leg",
+                                    tp_price=exit_price,
+                                    pnl_percent=pnl_percent,
+                                    session=session,
+                                    pnl_usd=pnl_usd,
+                                    closed_quantity=updated_order.filled_quantity,
+                                    leg_index=updated_order.leg_index
+                                )
+
+                        await self._trigger_risk_evaluation_on_fill(user, session)
+                    return
+
+                # --- TRIGGER LOGIC ---
+                if order.status == OrderStatus.TRIGGER_PENDING.value:
+                    if current_price is None:
+                        current_price = Decimal(str(await connector.get_current_price(order.symbol)))
+
+                    should_trigger = False
+
+                    await self._check_dca_beyond_threshold(order, current_price, order_service, session)
+                    await session.refresh(order)
+                    if order.status == OrderStatus.CANCELLED.value:
+                        return
+
+                    logger.debug(f"Checking Trigger for Order {order.id} ({order.side}): Target {order.price}, Current {current_price}")
+
+                    if order.side == "buy":
+                        if current_price <= order.price:
+                            should_trigger = True
+                    else:
+                        if current_price >= order.price:
+                            should_trigger = True
+
+                    if should_trigger:
+                        logger.info(f"Trigger condition met for Order {order.id}. Submitting Market Order.")
+                        await order_service.submit_order(order)
+                        await session.refresh(order)
+                        logger.info(f"Triggered Order {order.id} status is now {order.status}")
+
+                        if order.status == OrderStatus.FILLED.value:
+                            await position_manager.update_position_stats(order.group_id, session=session)
+                            await order_service.place_tp_order(order)
+
+                            # Use eager-loaded pyramid
+                            if order.group and order.pyramid:
+                                await broadcast_dca_fill(
+                                    position_group=order.group,
+                                    order=order,
+                                    pyramid=order.pyramid,
+                                    session=session
+                                )
+
+                            await self._trigger_risk_evaluation_on_fill(user, session)
+                    return
+
+                # Check if OPEN DCA order should be cancelled due to price beyond threshold
+                if order.status == OrderStatus.OPEN.value:
+                    try:
+                        if current_price is None:
+                            current_price = Decimal(str(await connector.get_current_price(order.symbol)))
+                        await self._check_dca_beyond_threshold(order, current_price, order_service, session)
+                        await session.refresh(order)
+                        if order.status == OrderStatus.CANCELLED.value:
+                            return
+                    except Exception as price_err:
+                        logger.debug(f"Could not fetch price for DCA threshold check: {price_err}")
+
+                # Check order status on exchange
+                logger.info(f"Checking order {order.id} status on exchange...")
+                updated_order = await order_service.check_order_status(order)
+                await session.refresh(updated_order)
+
+                logger.info(f"Order {order.id} status after check: {updated_order.status}")
+
+                if updated_order.status in [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.FAILED]:
+                    logger.info(f"Order {order.id} status updated to {updated_order.status}")
+
+                # Handle filled orders
+                if updated_order.status == OrderStatus.FILLED.value:
+                    await session.flush()
+
+                    logger.info(f"Order {order.id} FILLED - updating position stats and placing TP order")
+                    await position_manager.update_position_stats(updated_order.group_id, session=session)
+                    await order_service.place_tp_order(updated_order)
+                    logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
+
+                    # Use eager-loaded pyramid
+                    if updated_order.group and updated_order.pyramid:
+                        await broadcast_dca_fill(
+                            position_group=updated_order.group,
+                            order=updated_order,
+                            pyramid=updated_order.pyramid,
+                            session=session
+                        )
+
+                    await self._trigger_risk_evaluation_on_fill(user, session)
+
+                # Handle partially filled orders
+                elif updated_order.status == OrderStatus.PARTIALLY_FILLED.value:
+                    await session.flush()
+
+                    if updated_order.filled_quantity and updated_order.filled_quantity > 0 and not updated_order.tp_order_id:
+                        logger.info(
+                            f"Order {order.id} PARTIALLY_FILLED ({updated_order.filled_quantity}/{updated_order.quantity}) "
+                            f"- updating position stats and placing partial TP order"
+                        )
+                        await position_manager.update_position_stats(updated_order.group_id, session=session)
+                        await order_service.place_tp_order_for_partial_fill(updated_order)
+                        logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
+
+                        # Use eager-loaded pyramid
+                        if updated_order.group and updated_order.pyramid:
+                            await broadcast_dca_fill(
+                                position_group=updated_order.group,
+                                order=updated_order,
+                                pyramid=updated_order.pyramid,
+                                session=session
+                            )
+
+                        await self._trigger_risk_evaluation_on_fill(user, session)
+
+            except Exception as e:
+                logger.error(f"Error processing order {order.id}: {e}")
+                import traceback
+                traceback.print_exc()
+
+    async def _fetch_all_prices(
+        self,
+        connector: ExchangeInterface,
+        symbols: List[str]
+    ) -> Dict[str, Decimal]:
+        """
+        Batch fetch all prices for given symbols using get_all_tickers.
+        Returns a dict mapping symbol to current price.
+        """
+        prices = {}
+        try:
+            all_tickers = await connector.get_all_tickers()
+            for symbol in symbols:
+                if symbol in all_tickers:
+                    prices[symbol] = Decimal(str(all_tickers[symbol].get('last', 0)))
+                elif symbol.replace('/', '') in all_tickers:
+                    prices[symbol] = Decimal(str(all_tickers[symbol.replace('/', '')].get('last', 0)))
+        except Exception as e:
+            logger.warning(f"Could not batch fetch tickers: {e}")
+        return prices
+
     async def _check_orders(self):
         """
         Fetches open orders from the DB and checks their status on the exchange.
         Uses batch query to avoid N+1 query issues.
+
+        Performance optimizations:
+        - Batch fetches all prices upfront using get_all_tickers
+        - Processes orders in parallel using asyncio.gather with semaphore
+        - Uses eager-loaded pyramid relationships
         """
         if not self.encryption_service:
             logger.error("EncryptionService not available. Skipping order checks.")
@@ -177,7 +376,6 @@ class OrderFillMonitorService:
                 active_users = await user_repo.get_all_active_users()
                 logger.debug(f"OrderFillMonitor: Found {len(active_users)} active users.")
 
-                # Filter users with API keys and get their IDs
                 users_with_keys = [u for u in active_users if u.encrypted_api_keys]
                 if not users_with_keys:
                     logger.debug("OrderFillMonitor: No users with API keys, skipping.")
@@ -189,254 +387,99 @@ class OrderFillMonitorService:
                 orders_by_user = await dca_order_repo.get_all_open_orders_for_all_users(user_ids)
                 logger.debug(f"OrderFillMonitor: Batch loaded orders for {len(orders_by_user)} users.")
 
+                # Create semaphore for limiting concurrent order processing
+                semaphore = asyncio.Semaphore(MAX_CONCURRENT_ORDERS)
+
                 for user in users_with_keys:
                     try:
-                        # Get pre-fetched orders for this user
                         all_orders = orders_by_user.get(str(user.id), [])
                         logger.debug(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
 
                         if not all_orders:
                             continue
-                            
+
                         # Group orders by exchange
-                        orders_by_exchange = {}
+                        orders_by_exchange: Dict[str, List[DCAOrder]] = {}
                         for order in all_orders:
-                            logger.debug(f"OrderFillMonitor: Processing order {order.id} with initial status {order.status}.")
                             if not order.group:
-                                logger.error(f"Order {order.id} has no position group attached. This should not happen. Skipping.")
+                                logger.error(f"Order {order.id} has no position group attached. Skipping.")
                                 continue
                             ex = order.group.exchange
                             if ex not in orders_by_exchange:
                                 orders_by_exchange[ex] = []
                             orders_by_exchange[ex].append(order)
 
-                        # Log all exchanges found
                         logger.info(f"OrderFillMonitor: Exchanges found: {list(orders_by_exchange.keys())}")
 
-                        # Process each exchange - reuse connector for all orders on same exchange
+                        # Process each exchange
                         for raw_exchange_name, orders_to_check in orders_by_exchange.items():
-                             exchange_name = raw_exchange_name.lower()
-                             logger.info(f"OrderFillMonitor: Processing {len(orders_to_check)} orders for exchange '{exchange_name}'")
-                             # Decrypt keys for this exchange - done once per exchange
-                             try:
-                                 # Mock exchange uses default credentials, no need for stored keys
-                                 if exchange_name == "mock":
-                                     logger.info(f"OrderFillMonitor: Using default mock exchange credentials")
-                                     exchange_keys_data = {
-                                         "api_key": "mock_api_key_12345",
-                                         "api_secret": "mock_api_secret_67890"
-                                     }
-                                 else:
-                                     exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
+                            exchange_name = raw_exchange_name.lower()
+                            logger.info(f"OrderFillMonitor: Processing {len(orders_to_check)} orders for exchange '{exchange_name}'")
 
-                                     if not exchange_keys_data:
-                                         logger.warning(f"No API keys found for exchange {exchange_name} (from {raw_exchange_name}) for user {user.id}, skipping orders for this exchange.")
-                                         continue
+                            try:
+                                # Setup connector
+                                if exchange_name == "mock":
+                                    exchange_keys_data = {
+                                        "api_key": "mock_api_key_12345",
+                                        "api_secret": "mock_api_secret_67890"
+                                    }
+                                else:
+                                    exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
+                                    if not exchange_keys_data:
+                                        logger.warning(f"No API keys for {exchange_name} for user {user.id}, skipping.")
+                                        continue
+                                    api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
 
-                                     api_key, secret_key = self.encryption_service.decrypt_keys(exchange_keys_data)
+                                connector = get_exchange_connector(exchange_name, exchange_config=exchange_keys_data)
+                            except Exception as e:
+                                logger.error(f"Failed to setup connector for {exchange_name}: {e}")
+                                continue
 
-                                 # Create connector ONCE per exchange per monitoring cycle
-                                 logger.debug(f"Setting up connector for {exchange_name} (will be reused for {len(orders_to_check)} orders)")
-                                 connector = get_exchange_connector(
-                                    exchange_name,
-                                    exchange_config=exchange_keys_data
-                                 )
-                             except Exception as e:
-                                 logger.error(f"Failed to setup connector for {exchange_name}: {e}")
-                                 continue
-
-                             try:
-                                 # Create services ONCE per exchange - reused for all orders
-                                 order_service = self.order_service_class(
+                            try:
+                                # Create services ONCE per exchange
+                                order_service = self.order_service_class(
                                     session=session,
                                     user=user,
                                     exchange_connector=connector
-                                 )
+                                )
 
-                                 position_manager = self.position_manager_service_class(
+                                position_manager = self.position_manager_service_class(
                                     session_factory=self.session_factory,
                                     user=user,
                                     position_group_repository_class=self.position_group_repository_class,
                                     grid_calculator_service=None,
                                     order_service_class=None
-                                 )
+                                )
 
-                                 for order in orders_to_check:
-                                    try:
-                                        # If already filled, we are here to check the TP order
-                                        if order.status == OrderStatus.FILLED.value:
-                                            updated_order = await order_service.check_tp_status(order)
-                                            if updated_order.tp_hit:
-                                                logger.info(f"TP hit for order {order.id}. Updating position stats.")
-                                                # Flush tp_hit update before recalculating stats
-                                                await session.flush()
-                                                await position_manager.update_position_stats(updated_order.group_id, session=session)
+                                # Batch fetch all prices for all symbols in this exchange
+                                symbols = list(set(order.symbol for order in orders_to_check))
+                                prices_cache = await self._fetch_all_prices(connector, symbols)
+                                logger.debug(f"Batch fetched prices for {len(prices_cache)} symbols")
 
-                                                # Broadcast per-leg TP hit notification
-                                                if updated_order.group and updated_order.pyramid_id:
-                                                    pyramid = await session.get(Pyramid, updated_order.pyramid_id)
-                                                    if pyramid:
-                                                        # Calculate PnL for this leg
-                                                        entry_price = updated_order.price
-                                                        exit_price = updated_order.tp_price
-                                                        if entry_price and exit_price:
-                                                            pnl_percent = ((exit_price - entry_price) / entry_price) * 100
-                                                            pnl_usd = (exit_price - entry_price) * updated_order.filled_quantity
-                                                            await broadcast_tp_hit(
-                                                                position_group=updated_order.group,
-                                                                pyramid=pyramid,
-                                                                tp_type="per_leg",
-                                                                tp_price=exit_price,
-                                                                pnl_percent=pnl_percent,
-                                                                session=session,
-                                                                pnl_usd=pnl_usd,
-                                                                closed_quantity=updated_order.filled_quantity,
-                                                                leg_index=updated_order.leg_index
-                                                            )
+                                # Process all orders in parallel with semaphore
+                                tasks = [
+                                    self._process_single_order(
+                                        order=order,
+                                        order_service=order_service,
+                                        position_manager=position_manager,
+                                        connector=connector,
+                                        session=session,
+                                        user=user,
+                                        prices_cache=prices_cache,
+                                        semaphore=semaphore
+                                    )
+                                    for order in orders_to_check
+                                ]
 
-                                                # Trigger risk evaluation on TP hit (position closed/reduced)
-                                                await self._trigger_risk_evaluation_on_fill(user, session)
-                                            continue
-                                        
-                                        # --- NEW TRIGGER LOGIC ---
-                                        if order.status == OrderStatus.TRIGGER_PENDING.value:
-                                            # Watch price
-                                            current_price = Decimal(str(await connector.get_current_price(order.symbol)))
-                                            should_trigger = False
+                                # Execute all order processing in parallel
+                                await asyncio.gather(*tasks, return_exceptions=True)
 
-                                            # Check if DCA should be cancelled due to price moving beyond threshold
-                                            await self._check_dca_beyond_threshold(order, current_price, order_service, session)
-                                            # Refresh order status in case it was cancelled
-                                            await session.refresh(order)
-                                            if order.status == OrderStatus.CANCELLED.value:
-                                                continue
+                            finally:
+                                await connector.close()
 
-                                            logger.debug(f"Checking Trigger for Order {order.id} ({order.side}): Target {order.price}, Current {current_price}")
-
-                                            if order.side == "buy":
-                                                if current_price <= order.price:
-                                                    should_trigger = True
-                                            else: # sell
-                                                if current_price >= order.price:
-                                                    should_trigger = True
-
-                                            if should_trigger:
-                                                logger.info(f"Trigger condition met for Order {order.id}. Submitting Market Order.")
-                                                # Submit now. OrderService handles placing market order.
-                                                await order_service.submit_order(order)
-                                                # After submit, status should be FILLED (market) or OPEN.
-                                                await session.refresh(order)
-                                                logger.info(f"Triggered Order {order.id} status is now {order.status}")
-
-                                                if order.status == OrderStatus.FILLED.value:
-                                                    await position_manager.update_position_stats(order.group_id, session=session)
-                                                    # So we need to call `place_tp_order` if filled.
-                                                    await order_service.place_tp_order(order)
-
-                                                    # Broadcast DCA fill notification for triggered market order
-                                                    if order.group and order.pyramid_id:
-                                                        pyramid = await session.get(Pyramid, order.pyramid_id)
-                                                        if pyramid:
-                                                            await broadcast_dca_fill(
-                                                                position_group=order.group,
-                                                                order=order,
-                                                                pyramid=pyramid,
-                                                                session=session
-                                                            )
-
-                                                    # Trigger risk evaluation on fill
-                                                    await self._trigger_risk_evaluation_on_fill(user, session)
-                                            continue
-                                        # -------------------------
-
-                                        # Check if OPEN DCA order should be cancelled due to price beyond threshold
-                                        if order.status == OrderStatus.OPEN.value:
-                                            try:
-                                                current_price = Decimal(str(await connector.get_current_price(order.symbol)))
-                                                await self._check_dca_beyond_threshold(order, current_price, order_service, session)
-                                                await session.refresh(order)
-                                                if order.status == OrderStatus.CANCELLED.value:
-                                                    continue
-                                            except Exception as price_err:
-                                                logger.debug(f"Could not fetch price for DCA threshold check: {price_err}")
-
-                                        # Attempt to get order status from the exchange
-                                        # This may trigger the Bybit workaround which marks order as FILLED
-                                        logger.info(f"Checking order {order.id} status on exchange...")
-                                        updated_order = await order_service.check_order_status(order)
-                                        
-                                        # Refresh order from DB to get latest status (in case workaround updated it)
-                                        await session.refresh(updated_order)
-                                        
-                                        logger.info(f"Order {order.id} status after check: {updated_order.status}")
-                                        
-                                        # Check if status changed to filled, cancelled, or failed
-                                        if updated_order.status == OrderStatus.FILLED or updated_order.status == OrderStatus.CANCELLED or updated_order.status == OrderStatus.FAILED:
-                                            logger.info(f"Order {order.id} status updated to {updated_order.status}")
-
-                                        # Handle filled orders
-                                        if updated_order.status == OrderStatus.FILLED.value:
-
-                                            # CRITICAL: Flush order status and filled details update before recalculating stats
-                                            await session.flush()
-
-                                            logger.info(f"Order {order.id} FILLED - updating position stats and placing TP order")
-                                            await position_manager.update_position_stats(updated_order.group_id, session=session)
-                                            await order_service.place_tp_order(updated_order)
-                                            logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
-
-                                            # Broadcast DCA fill notification
-                                            if updated_order.group and updated_order.pyramid_id:
-                                                pyramid = await session.get(Pyramid, updated_order.pyramid_id)
-                                                if pyramid:
-                                                    await broadcast_dca_fill(
-                                                        position_group=updated_order.group,
-                                                        order=updated_order,
-                                                        pyramid=pyramid,
-                                                        session=session
-                                                    )
-
-                                            # Trigger risk evaluation on fill
-                                            await self._trigger_risk_evaluation_on_fill(user, session)
-
-                                        # Handle partially filled orders - place TP for filled portion
-                                        elif updated_order.status == OrderStatus.PARTIALLY_FILLED.value:
-                                            await session.flush()
-
-                                            # Only place partial TP if we have filled quantity and no TP order yet
-                                            if updated_order.filled_quantity and updated_order.filled_quantity > 0 and not updated_order.tp_order_id:
-                                                logger.info(
-                                                    f"Order {order.id} PARTIALLY_FILLED ({updated_order.filled_quantity}/{updated_order.quantity}) "
-                                                    f"- updating position stats and placing partial TP order"
-                                                )
-                                                await position_manager.update_position_stats(updated_order.group_id, session=session)
-                                                await order_service.place_tp_order_for_partial_fill(updated_order)
-                                                logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
-
-                                                # Broadcast DCA fill notification for partial fill
-                                                if updated_order.group and updated_order.pyramid_id:
-                                                    pyramid = await session.get(Pyramid, updated_order.pyramid_id)
-                                                    if pyramid:
-                                                        await broadcast_dca_fill(
-                                                            position_group=updated_order.group,
-                                                            order=updated_order,
-                                                            pyramid=pyramid,
-                                                            session=session
-                                                        )
-
-                                                # Trigger risk evaluation on partial fill
-                                                await self._trigger_risk_evaluation_on_fill(user, session)
-                                                
-                                    except Exception as e:
-                                        logger.error(f"Error processing loop for order {order.id}: {e}")
-                                        import traceback
-                                        traceback.print_exc()
-                             finally:
-                                 await connector.close()
-                        
                         await session.commit()
                         logger.debug(f"OrderFillMonitor: Committed changes for user {user.id}")
-                        
+
                     except Exception as e:
                         logger.error(f"Error checking orders for user {user.username}: {e}")
                         import traceback

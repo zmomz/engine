@@ -17,6 +17,7 @@ from app.models.queued_signal import QueuedSignal
 from app.models.user import User
 from app.repositories.position_group import PositionGroupRepository
 from app.services.exchange_config_service import ExchangeConfigService
+from app.core.cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +97,16 @@ class AnalyticsService:
 
     async def _fetch_exchange_data_optimized(self, active_positions: List[PositionGroup]) -> Dict:
         """
-        Fetch exchange data (balances + prices) once per exchange
+        Fetch exchange data (balances + prices) once per exchange.
+        Uses Redis cache for tickers and balances to minimize exchange API calls.
         """
         exchange_data = {}
 
         if not self.user.encrypted_api_keys:
             return exchange_data
+
+        cache = await get_cache()
+        user_id_str = str(self.user.id)
 
         # Get all configured exchanges using the centralized service
         configured_exchanges = ExchangeConfigService.get_all_configured_exchanges(self.user)
@@ -123,15 +128,24 @@ class AnalyticsService:
             try:
                 connector = ExchangeConfigService.get_connector(self.user, exchange_name)
 
-                # Fetch balance
-                balances = await connector.fetch_balance()
+                # Try to get cached balance first
+                cached_balance = await cache.get_balance(user_id_str, exchange_name)
+                if cached_balance:
+                    balances = cached_balance
+                else:
+                    # Fetch balance from exchange
+                    balances = await connector.fetch_balance()
+                    await cache.set_balance(user_id_str, exchange_name, balances)
 
-                # Fetch all tickers once
-                all_tickers = {}
-                try:
-                    all_tickers = await connector.get_all_tickers()
-                except Exception as e:
-                    logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
+                # Try to get cached tickers first
+                all_tickers = await cache.get_tickers(exchange_name)
+                if not all_tickers:
+                    try:
+                        all_tickers = await connector.get_all_tickers()
+                        await cache.set_tickers(exchange_name, all_tickers)
+                    except Exception as e:
+                        logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
+                        all_tickers = {}
 
                 exchange_data[exchange_name] = {
                     "balances": balances,
@@ -140,9 +154,7 @@ class AnalyticsService:
 
             except Exception as e:
                 logger.error(f"Error fetching data from {exchange_name}: {e}")
-            finally:
-                if connector and hasattr(connector, 'exchange') and hasattr(connector.exchange, 'close'):
-                    await connector.exchange.close()
+            # Note: Don't close connector - it's cached for reuse by the factory
 
         return exchange_data
 

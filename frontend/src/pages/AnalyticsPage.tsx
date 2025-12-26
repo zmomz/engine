@@ -608,8 +608,8 @@ const AnalyticsPage: React.FC = () => {
             Equity Curve
           </Typography>
           {equityCurveData.length > 0 ? (
-            <Box sx={{ width: '100%', height: { xs: 250, sm: 300 } }}>
-              <ResponsiveContainer>
+            <Box sx={{ width: '100%', height: { xs: 250, sm: 300 }, minWidth: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={equityCurveData}>
                   <defs>
                     <linearGradient id="colorCumulative" x1="0" y1="0" x2="0" y2="1">
@@ -825,8 +825,8 @@ const AnalyticsPage: React.FC = () => {
             PnL by Day of Week
           </Typography>
           {dayOfWeekData.some(d => d.pnl !== 0) ? (
-            <Box sx={{ width: '100%', height: { xs: 200, sm: 250 } }}>
-              <ResponsiveContainer>
+            <Box sx={{ width: '100%', height: { xs: 200, sm: 250 }, minWidth: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dayOfWeekData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                   <XAxis

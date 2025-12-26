@@ -36,6 +36,7 @@ import { MetricCard } from '../components/MetricCard';
 import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
 import { Timeline, TimelineItem } from '../components/Timeline';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { OffsetPreviewDialog, OffsetPreviewData } from '../components/OffsetPreviewDialog';
 import { StatusIndicatorDot } from '../components/AnimatedStatusChip';
 
@@ -58,13 +59,20 @@ const RiskPage: React.FC = () => {
     onRunRiskEvaluation: () => runEvaluation(),
   });
 
+  // Refresh data when tab becomes visible again
+  useVisibilityRefresh(() => {
+    fetchStatus();
+    setLastUpdated(new Date());
+  });
+
   useEffect(() => {
     const fetchData = async () => {
       await fetchStatus();
       setLastUpdated(new Date());
     };
     fetchData();
-    const interval = setInterval(() => fetchData(), 5000);
+    // Poll every 1 second for real-time feel
+    const interval = setInterval(() => fetchData(), 1000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 

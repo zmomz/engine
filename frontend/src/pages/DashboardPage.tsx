@@ -25,6 +25,7 @@ import { StatusIndicatorDot } from '../components/AnimatedStatusChip';
 import { DataFreshnessIndicator } from '../components/DataFreshnessIndicator';
 import { AnimatedCurrency } from '../components/AnimatedValue';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { safeToFixed, safeNumber } from '../utils/formatters';
 
 const DashboardPage: React.FC = () => {
@@ -49,6 +50,13 @@ const DashboardPage: React.FC = () => {
     },
   });
 
+  // Refresh data when tab becomes visible again
+  useVisibilityRefresh(() => {
+    fetchDashboardData();
+    fetchRiskStatus();
+    setLastUpdated(new Date());
+  });
+
   useEffect(() => {
     const fetchData = async () => {
       await fetchDashboardData();
@@ -61,7 +69,7 @@ const DashboardPage: React.FC = () => {
     const riskInterval = setInterval(async () => {
       await fetchRiskStatus(true);
       setLastUpdated(new Date());
-    }, 5000);
+    }, 1000);
     return () => {
       stopDashboardPolling();
       clearInterval(riskInterval);
