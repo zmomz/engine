@@ -52,6 +52,10 @@ class PositionGroup(Base):
             unique=True,
             postgresql_where="status NOT IN ('closed', 'failed')"
         ),
+        # Performance indexes for common queries
+        Index('ix_position_groups_user_status', 'user_id', 'status'),
+        Index('ix_position_groups_exchange', 'exchange'),
+        Index('ix_position_groups_risk_timer', 'risk_timer_expires', postgresql_where="risk_timer_expires IS NOT NULL"),
     )
 
     # Identity

@@ -36,6 +36,50 @@ import {
   BackupRestoreCard,
   SettingsSectionCard,
 } from '../components/settings';
+import type { UserSettings } from '../store/configStore';
+import type {
+  DCAConfiguration,
+  DCAConfigurationCreate,
+  DCAConfigurationUpdate,
+  EntryOrderType,
+  TPMode,
+  DCALevelConfig,
+  TPSettings
+} from '../api/dcaConfig';
+
+// Type for settings update payload with optional API key fields
+interface SettingsUpdatePayload extends Partial<UserSettings> {
+  api_key?: string;
+  secret_key?: string;
+  key_target_exchange?: string;
+  testnet?: boolean;
+  account_type?: string;
+}
+
+// Type for backup data structure (matches backupDataSchema from BackupRestoreCard)
+interface BackupDCALevel {
+  percent_of_total: number;
+  deviation_percent: number;
+  tp_percent?: number;
+}
+
+interface BackupDCAConfig {
+  pair: string;
+  timeframe: string;
+  exchange: string;
+  entry_order_type?: string;
+  dca_levels?: BackupDCALevel[];
+  pyramid_specific_levels?: Record<string, BackupDCALevel[]>;
+  tp_mode?: string;
+  tp_settings?: Record<string, unknown>;
+  max_pyramids?: number;
+}
+
+interface BackupData {
+  exchange?: string;
+  risk_config?: Record<string, unknown>;
+  dca_configurations?: BackupDCAConfig[];
+}
 
 // Zod Schemas
 const telegramConfigSchema = z.object({
@@ -43,8 +87,8 @@ const telegramConfigSchema = z.object({
   enabled: z.boolean(),
   bot_token: z.string().optional(),
   channel_id: z.string().optional(),
-  channel_name: z.string().optional(),
-  engine_signature: z.string().optional(),
+  channel_name: z.string().default('AlgoMakers.Ai Signals'),
+  engine_signature: z.string().default(''),
 
   // Message Type Toggles
   send_entry_signals: z.boolean(),
@@ -310,7 +354,7 @@ const SettingsPage: React.FC = () => {
   };
 
   const onSubmit = async (data: FormValues) => {
-    const payload: any = {
+    const payload: SettingsUpdatePayload = {
       exchange: data.exchangeSettings.exchange,
       risk_config: data.riskEngineConfig,
       username: data.appSettings.username,
@@ -366,7 +410,7 @@ const SettingsPage: React.FC = () => {
     const currentValues = watch('exchangeSettings');
 
     if (currentValues.api_key && currentValues.secret_key) {
-      const payload: any = {
+      const payload: SettingsUpdatePayload = {
         key_target_exchange: currentValues.key_target_exchange,
         api_key: currentValues.api_key,
         secret_key: currentValues.secret_key,
@@ -387,10 +431,11 @@ const SettingsPage: React.FC = () => {
     }
   };
 
-  const handleRestore = async (parsed: any) => {
-    const payload: any = {
+  const handleRestore = async (parsed: BackupData) => {
+    // Cast risk_config to the expected type (validated by Zod schema in BackupRestoreCard)
+    const payload: SettingsUpdatePayload = {
       exchange: parsed.exchange,
-      risk_config: parsed.risk_config,
+      risk_config: parsed.risk_config as UserSettings['risk_config'],
     };
 
     await updateSettings(payload);
@@ -403,35 +448,62 @@ const SettingsPage: React.FC = () => {
       let updatedCount = 0;
 
       for (const dcaConfig of parsed.dca_configurations) {
+        // Convert backup timeframe (string like "15") to number for comparison
+        const timeframeNum = parseInt(dcaConfig.timeframe, 10);
         const existing = existingConfigs.find(
-          (c: any) =>
+          (c: DCAConfiguration) =>
             c.pair === dcaConfig.pair &&
             c.exchange === dcaConfig.exchange &&
-            c.timeframe === dcaConfig.timeframe
+            c.timeframe === timeframeNum
         );
 
+        // Convert backup DCA levels to API format
+        const convertLevels = (levels?: BackupDCALevel[]): DCALevelConfig[] | undefined => {
+          if (!levels) return undefined;
+          return levels.map(level => ({
+            gap_percent: level.deviation_percent,
+            weight_percent: level.percent_of_total,
+            tp_percent: level.tp_percent ?? 0,
+          }));
+        };
+
+        const convertPyramidLevels = (levels?: Record<string, BackupDCALevel[]>): Record<string, DCALevelConfig[]> | undefined => {
+          if (!levels) return undefined;
+          const result: Record<string, DCALevelConfig[]> = {};
+          for (const [key, value] of Object.entries(levels)) {
+            result[key] = value.map(level => ({
+              gap_percent: level.deviation_percent,
+              weight_percent: level.percent_of_total,
+              tp_percent: level.tp_percent ?? 0,
+            }));
+          }
+          return result;
+        };
+
         if (existing) {
-          await dcaConfigApi.update(existing.id, {
-            entry_order_type: dcaConfig.entry_order_type,
-            dca_levels: dcaConfig.dca_levels,
-            pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
-            tp_mode: dcaConfig.tp_mode,
-            tp_settings: dcaConfig.tp_settings,
+          const updateData: DCAConfigurationUpdate = {
+            entry_order_type: dcaConfig.entry_order_type as EntryOrderType | undefined,
+            dca_levels: convertLevels(dcaConfig.dca_levels),
+            pyramid_specific_levels: convertPyramidLevels(dcaConfig.pyramid_specific_levels),
+            tp_mode: dcaConfig.tp_mode as TPMode | undefined,
+            tp_settings: dcaConfig.tp_settings as TPSettings | undefined,
             max_pyramids: dcaConfig.max_pyramids,
-          });
+          };
+          await dcaConfigApi.update(existing.id, updateData);
           updatedCount++;
         } else {
-          await dcaConfigApi.create({
+          const createData: DCAConfigurationCreate = {
             pair: dcaConfig.pair,
-            timeframe: dcaConfig.timeframe,
+            timeframe: timeframeNum,
             exchange: dcaConfig.exchange,
-            entry_order_type: dcaConfig.entry_order_type,
-            dca_levels: dcaConfig.dca_levels,
-            pyramid_specific_levels: dcaConfig.pyramid_specific_levels,
-            tp_mode: dcaConfig.tp_mode,
-            tp_settings: dcaConfig.tp_settings,
+            entry_order_type: (dcaConfig.entry_order_type as EntryOrderType) ?? 'limit',
+            dca_levels: convertLevels(dcaConfig.dca_levels) ?? [],
+            pyramid_specific_levels: convertPyramidLevels(dcaConfig.pyramid_specific_levels),
+            tp_mode: (dcaConfig.tp_mode as TPMode) ?? 'per_leg',
+            tp_settings: (dcaConfig.tp_settings as TPSettings) ?? {},
             max_pyramids: dcaConfig.max_pyramids,
-          });
+          };
+          await dcaConfigApi.create(createData);
           createdCount++;
         }
       }

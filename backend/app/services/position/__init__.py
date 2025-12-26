@@ -1,19 +1,21 @@
 """
-Backward compatibility re-exports for position_manager.py.
+Position Manager components package.
 
-This file maintains backward compatibility with existing imports.
-The actual implementation has been split into:
-- app.services.position.position_creator (creation logic)
-- app.services.position.position_closer (exit logic)
-- app.services.position.position_manager (main orchestrator)
+This package contains the split components of the Position Manager:
+- position_creator: Position and pyramid creation logic
+- position_closer: Exit and close action handling
+- position_manager: Main orchestrator service
 """
-# Re-export everything from the new location
-from app.services.position import (
+from app.services.position.position_manager import (
     PositionManagerService,
     UserNotFoundException,
     DuplicatePositionException,
+)
+from app.services.position.position_creator import (
     create_position_group_from_signal,
     handle_pyramid_continuation,
+)
+from app.services.position.position_closer import (
     execute_handle_exit_signal,
     save_close_action,
 )
