@@ -71,7 +71,8 @@ class AnalyticsService:
         """Fetch all database metrics in parallel"""
         # Get all positions
         active_positions = await self.position_repo.get_active_position_groups_for_user(self.user.id)
-        closed_positions = await self.position_repo.get_closed_by_user(self.user.id)
+        # Analytics needs all closed positions for calculations
+        closed_positions = await self.position_repo.get_closed_by_user_all(self.user.id)
 
         # Get queued signals count
         queued_result = await self.session.execute(

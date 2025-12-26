@@ -8,6 +8,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Enable sending cookies with requests for httpOnly cookie auth
+  withCredentials: true,
 });
 
 api.interceptors.request.use(

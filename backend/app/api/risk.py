@@ -43,7 +43,8 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
 
     try:
         risk_engine_config = RiskEngineConfig.model_validate(user.risk_config)
-    except:
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Failed to validate risk config for user {user.id}: {e}. Using defaults.")
         risk_engine_config = RiskEngineConfig()
 
     async def session_factory():

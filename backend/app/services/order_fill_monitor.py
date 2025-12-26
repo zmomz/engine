@@ -165,6 +165,7 @@ class OrderFillMonitorService:
     async def _check_orders(self):
         """
         Fetches open orders from the DB and checks their status on the exchange.
+        Uses batch query to avoid N+1 query issues.
         """
         if not self.encryption_service:
             logger.error("EncryptionService not available. Skipping order checks.")
@@ -176,15 +177,22 @@ class OrderFillMonitorService:
                 active_users = await user_repo.get_all_active_users()
                 logger.debug(f"OrderFillMonitor: Found {len(active_users)} active users.")
 
-                for user in active_users:
-                    try:
-                        if not user.encrypted_api_keys:
-                            logger.debug(f"OrderFillMonitor: User {user.id} has no API keys, skipping.")
-                            continue
+                # Filter users with API keys and get their IDs
+                users_with_keys = [u for u in active_users if u.encrypted_api_keys]
+                if not users_with_keys:
+                    logger.debug("OrderFillMonitor: No users with API keys, skipping.")
+                    return
 
-                        dca_order_repo = self.dca_order_repository_class(session)
-                        # Fetch all open orders for user, eagerly loading the position group
-                        all_orders = await dca_order_repo.get_open_and_partially_filled_orders(user_id=user.id)
+                # Batch fetch all orders for all users in a single query (prevents N+1)
+                dca_order_repo = self.dca_order_repository_class(session)
+                user_ids = [str(u.id) for u in users_with_keys]
+                orders_by_user = await dca_order_repo.get_all_open_orders_for_all_users(user_ids)
+                logger.debug(f"OrderFillMonitor: Batch loaded orders for {len(orders_by_user)} users.")
+
+                for user in users_with_keys:
+                    try:
+                        # Get pre-fetched orders for this user
+                        all_orders = orders_by_user.get(str(user.id), [])
                         logger.debug(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
 
                         if not all_orders:

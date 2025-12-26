@@ -1,14 +1,38 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.db.database import get_db_session
 from app.schemas.user import UserCreate, UserInDB, UserRead
 from app.repositories.user import UserRepository
-from app.core.security import get_password_hash, create_access_token, verify_password
+from app.core.security import get_password_hash, create_access_token, verify_password, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.core.config import settings
 from app.rate_limiter import limiter
 
 router = APIRouter()
+
+# Cookie settings for security
+COOKIE_NAME = "access_token"
+COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
+
+
+def set_auth_cookie(response: Response, token: str):
+    """Set httpOnly cookie with the access token."""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=f"Bearer {token}",
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",  # HTTPS only in production
+        samesite="lax",
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response):
+    """Clear the auth cookie on logout."""
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
@@ -30,10 +54,12 @@ async def register_user(
     user = await user_repo.create(user_in, hashed_password)
     return user
 
+
 @router.post("/login")
 @limiter.limit("10/minute")
 async def login_for_access_token(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -46,4 +72,16 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token = create_access_token(data={"sub": user.username})
+
+    # Set httpOnly cookie
+    set_auth_cookie(response, access_token)
+
+    # Also return token in body for backward compatibility during migration
     return {"access_token": access_token, "token_type": "bearer", "user": UserRead.from_orm(user)}
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear the auth cookie."""
+    clear_auth_cookie(response)
+    return {"message": "Successfully logged out"}

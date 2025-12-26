@@ -5,10 +5,62 @@ import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import SettingsSectionCard from './SettingsSectionCard';
 import useNotificationStore from '../../store/notificationStore';
+import { z } from 'zod';
+
+// Schema for validating backup file structure
+const dcaLevelSchema = z.object({
+  percent_of_total: z.number().min(0).max(100),
+  deviation_percent: z.number().min(0),
+  tp_percent: z.number().min(0).optional(),
+});
+
+const dcaConfigSchema = z.object({
+  pair: z.string().min(1),
+  timeframe: z.string().min(1),
+  exchange: z.string().min(1),
+  entry_order_type: z.string().optional(),
+  dca_levels: z.array(dcaLevelSchema).optional(),
+  pyramid_specific_levels: z.record(z.array(dcaLevelSchema)).optional(),
+  tp_mode: z.string().optional(),
+  tp_settings: z.record(z.unknown()).optional(),
+  max_pyramids: z.number().min(1).max(100).optional(),
+});
+
+const riskConfigSchema = z.object({
+  max_open_positions_global: z.number().min(0).optional(),
+  max_open_positions_per_symbol: z.number().min(0).optional(),
+  max_total_exposure_usd: z.number().min(0).optional(),
+  max_realized_loss_usd: z.number().optional(),
+  loss_threshold_percent: z.number().optional(),
+  required_pyramids_for_timer: z.number().min(0).optional(),
+  post_pyramids_wait_minutes: z.number().min(0).optional(),
+  max_winners_to_combine: z.number().min(0).optional(),
+  priority_rules: z.object({
+    priority_rules_enabled: z.object({
+      same_pair_timeframe: z.boolean(),
+      deepest_loss_percent: z.boolean(),
+      highest_replacement: z.boolean(),
+      fifo_fallback: z.boolean(),
+    }).optional(),
+    priority_order: z.array(z.string()).optional(),
+  }).optional(),
+}).optional();
+
+const backupDataSchema = z.object({
+  exchange: z.string().optional(),
+  risk_config: riskConfigSchema,
+  dca_configurations: z.array(dcaConfigSchema).optional(),
+});
+
+// Type for settings prop (matches UserSettings from authStore)
+interface SettingsType {
+  exchange?: string;
+  risk_config?: Record<string, unknown>;
+}
 
 interface BackupRestoreCardProps {
-  settings: any;
-  onRestore: (data: any) => Promise<void>;
+  settings: SettingsType | null;
+  onRestore: (data: z.infer<typeof backupDataSchema>) => Promise<void>;
 }
 
 const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
@@ -57,16 +109,44 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Validate file size (max 1MB)
+    const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+    if (file.size > MAX_FILE_SIZE) {
+      useNotificationStore.getState().showNotification('File too large. Maximum size is 1MB.', 'error');
+      event.target.value = '';
+      return;
+    }
+
     setIsRestoring(true);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const parsed = JSON.parse(e.target?.result as string);
-        await onRestore(parsed);
+        const content = e.target?.result as string;
+
+        // Parse JSON
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(content);
+        } catch {
+          throw new Error('Invalid JSON format');
+        }
+
+        // Validate against schema
+        const validationResult = backupDataSchema.safeParse(parsed);
+        if (!validationResult.success) {
+          const errors = validationResult.error.errors
+            .map((err) => `${err.path.join('.')}: ${err.message}`)
+            .slice(0, 3) // Show max 3 errors
+            .join('; ');
+          throw new Error(`Invalid backup format: ${errors}`);
+        }
+
+        await onRestore(validationResult.data);
       } catch (err) {
         console.error('Restore failed', err);
-        useNotificationStore.getState().showNotification('Failed to parse configuration file.', 'error');
+        const message = err instanceof Error ? err.message : 'Failed to parse configuration file.';
+        useNotificationStore.getState().showNotification(message, 'error');
       } finally {
         setIsRestoring(false);
       }

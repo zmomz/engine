@@ -304,20 +304,21 @@ async def get_stats(
     db: AsyncSession = Depends(get_db_session)
 ):
     repo = PositionGroupRepository(db)
-    closed_groups = await repo.get_closed_by_user(current_user.id)
-    
+    # Stats endpoint needs all closed positions for win/loss calculation
+    closed_groups = await repo.get_closed_by_user_all(current_user.id)
+
     total_trades = len(closed_groups)
     wins = 0
     losses = 0
-    
+
     for group in closed_groups:
         if group.realized_pnl_usd > 0:
             wins += 1
         else:
             losses += 1
-            
+
     win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
-    
+
     return {
         "total_trades": total_trades,
         "total_winning_trades": wins,

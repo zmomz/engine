@@ -200,9 +200,49 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         total_pnl = result.scalar()
         return total_pnl if total_pnl is not None else Decimal("0")
 
-    async def get_closed_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
+    async def get_closed_by_user(
+        self,
+        user_id: uuid.UUID,
+        limit: int = 100,
+        offset: int = 0
+    ) -> tuple[list[PositionGroup], int]:
+        """
+        Retrieves closed position groups for a given user with pagination.
+
+        Args:
+            user_id: The user's ID
+            limit: Maximum number of records to return (default 100, max 500)
+            offset: Number of records to skip (default 0)
+
+        Returns:
+            Tuple of (list of PositionGroups, total count)
+        """
+        # Clamp limit to prevent excessive queries
+        limit = min(max(1, limit), 500)
+        offset = max(0, offset)
+
+        # Get total count
+        count_result = await self.session.execute(
+            select(func.count())
+            .select_from(self.model)
+            .where(self.model.user_id == user_id, self.model.status == "closed")
+        )
+        total_count = count_result.scalar() or 0
+
+        # Get paginated results
+        result = await self.session.execute(
+            select(self.model)
+            .where(self.model.user_id == user_id, self.model.status == "closed")
+            .order_by(self.model.closed_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return result.scalars().all(), total_count
+
+    async def get_closed_by_user_all(self, user_id: uuid.UUID) -> list[PositionGroup]:
         """
         Retrieves all closed position groups for a given user, ordered by closed_at descending.
+        DEPRECATED: Use get_closed_by_user with pagination for better performance.
         """
         result = await self.session.execute(
             select(self.model)
