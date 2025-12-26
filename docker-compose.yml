@@ -13,9 +13,11 @@ services:
       - PYTHONPATH=/app/backend
       - HOME=/tmp
       - REDIS_URL=redis://redis:6379/0
+      - MOCK_EXCHANGE_URL=http://mock-exchange:9000
     depends_on:
       - db
       - redis
+      - mock-exchange
     command: sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     ports:
       - "8000:8000"
@@ -57,6 +59,23 @@ services:
     depends_on:
       - app
 
+  mock-exchange:
+    build:
+      context: ./mock_exchange
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000"
+    volumes:
+      - mock_exchange_data:/data
+    environment:
+      - MOCK_EXCHANGE_DB=/data/mock_exchange.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
+  mock_exchange_data:

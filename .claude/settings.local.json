@@ -30,7 +30,13 @@
       "Bash(timeout 15 docker compose logs:*)",
       "Bash(python:*)",
       "Bash(timeout 5 docker compose:*)",
-      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6bW9teiIsImV4cCI6MTc2Njc1MzQxNywiaWF0IjoxNzY2NzUxNjE3LCJqdGkiOiI1MWE4ZmY2NC04ZGRmLTRmY2YtOGZhMy0yMzYwYTE4ZTRkZWEifQ.yTbtoBM69ZmvhrGpsWvAQYrCt7Hwhk0Iz6PoGvu27J4\")"
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6bW9teiIsImV4cCI6MTc2Njc1MzQxNywiaWF0IjoxNzY2NzUxNjE3LCJqdGkiOiI1MWE4ZmY2NC04ZGRmLTRmY2YtOGZhMy0yMzYwYTE4ZTRkZWEifQ.yTbtoBM69ZmvhrGpsWvAQYrCt7Hwhk0Iz6PoGvu27J4\")",
+      "Bash(timeout 15 curl -s -X POST \"http://localhost:9000/admin/webhook/send?target_url=http://app:8000/api/v1/webhooks/f937c6cb-f9f9-4d25-be19-db9bf596d7e1/tradingview\" )",
+      "Bash(timeout 10 curl:*)",
+      "Bash(timeout 30 docker compose:*)",
+      "Bash(timeout 20 docker compose logs:*)",
+      "Bash(timeout 10 docker compose:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ6bW9teiIsImV4cCI6MTc2Njc3NTIxMCwiaWF0IjoxNzY2NzczNDEwLCJqdGkiOiIxNDY3NGYyYy1kMTFlLTQyOGYtOTdiMy0yNWVhZmMwZTEyNWIifQ.cWtK2yHOV11fGFvf4Pj_Ow0ZDw3xIgTOYYZL3JJNzcM\")"
     ]
   }
 }

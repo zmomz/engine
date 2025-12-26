@@ -1,6 +1,12 @@
-
+"""
+Mock Exchange Connector - Enhanced version compatible with the full mock exchange.
+Implements the same interface as Binance/Bybit connectors.
+"""
 import os
 import logging
+import hashlib
+import hmac
+import time
 from decimal import Decimal
 from typing import Dict, Optional, Any
 import uuid
@@ -10,175 +16,392 @@ from app.exceptions import ExchangeConnectionError, APIError
 
 logger = logging.getLogger(__name__)
 
+
 class MockConnector(ExchangeInterface):
-    def __init__(self):
+    """
+    Connector for the enhanced Mock Exchange.
+    Communicates with the mock exchange server via REST API,
+    mimicking Binance Futures API behavior.
+    """
+
+    def __init__(self, config: dict = None):
+        """
+        Initialize the mock connector.
+
+        Args:
+            config: Configuration dict containing:
+                - api_key: Mock exchange API key
+                - api_secret: Mock exchange API secret
+                - base_url: Mock exchange URL (optional)
+        """
         self.base_url = os.getenv("MOCK_EXCHANGE_URL", "http://mock-exchange:9000")
 
+        # Extract API credentials from config
+        if config:
+            self.api_key = config.get("api_key", "mock_api_key_12345")
+            self.api_secret = config.get("api_secret", "mock_api_secret_67890")
+        else:
+            self.api_key = "mock_api_key_12345"
+            self.api_secret = "mock_api_secret_67890"
+
+        self._precision_cache = None
+        self._precision_cache_time = 0
+        self._cache_ttl = 300  # 5 minutes
+
     async def _get_client(self):
+        """Create an async HTTP client."""
         try:
             import httpx
-            return httpx.AsyncClient(base_url=self.base_url)
+            return httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=30.0,
+                headers={"X-MBX-APIKEY": self.api_key}
+            )
         except ImportError:
             raise ImportError("httpx is required for MockConnector. Please install it.")
 
+    def _sign_request(self, params: dict) -> str:
+        """Create HMAC-SHA256 signature for signed endpoints."""
+        params["timestamp"] = int(time.time() * 1000)
+        query_string = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
+        signature = hmac.new(
+            self.api_secret.encode("utf-8"),
+            query_string.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        return signature
+
     async def get_precision_rules(self) -> Dict:
+        """
+        Fetch precision rules from the mock exchange.
+        Returns a dict mapping symbol to precision info.
+        """
+        # Check cache
+        current_time = time.time()
+        if self._precision_cache and (current_time - self._precision_cache_time) < self._cache_ttl:
+            return self._precision_cache
+
         async with await self._get_client() as client:
             try:
-                # We'll just fetch for one symbol to check connectivity, but return hardcoded for now 
-                # or fetch from the endpoint if extended.
-                # The mock exchange has /symbols/{symbol}/precision
-                # But we need ALL symbols. The mock exchange might not support listing all.
-                # For safety and speed in this test phase, we'll keep the hardcoded list but maybe verify connectivity.
-                
-                # Verify connectivity
-                resp = await client.get("/health")
-                resp.raise_for_status()
+                response = await client.get("/fapi/v1/exchangeInfo")
+                response.raise_for_status()
+                data = response.json()
 
-                return {
-                    "BTCUSDT": {
-                        "tick_size": 0.01,
-                        "step_size": 0.001,
-                        "min_qty": 0.001,
-                        "min_notional": 10.0,
-                    },
-                    "ETHUSDT": {
-                        "tick_size": 0.01,
-                        "step_size": 0.001,
-                        "min_qty": 0.001,
-                        "min_notional": 10.0,
-                    },
-                    "LTCUSDT": {
-                        "tick_size": 0.01,
-                        "step_size": 0.001,
-                        "min_qty": 0.001,
-                        "min_notional": 10.0,
-                    },
-                    "SOLUSDT": {
-                        "tick_size": 0.01,
-                        "step_size": 0.001,
-                        "min_qty": 0.001,
-                        "min_notional": 10.0,
+                precision_rules = {}
+                for symbol_info in data.get("symbols", []):
+                    symbol = symbol_info["symbol"]
+                    filters = {f["filterType"]: f for f in symbol_info.get("filters", [])}
+
+                    precision_rules[symbol] = {
+                        "tick_size": float(filters.get("PRICE_FILTER", {}).get("tickSize", "0.01")),
+                        "step_size": float(filters.get("LOT_SIZE", {}).get("stepSize", "0.001")),
+                        "min_qty": float(filters.get("LOT_SIZE", {}).get("minQty", "0.001")),
+                        "max_qty": float(filters.get("LOT_SIZE", {}).get("maxQty", "9000")),
+                        "min_notional": float(filters.get("MIN_NOTIONAL", {}).get("notional", "10")),
                     }
-                }
+
+                self._precision_cache = precision_rules
+                self._precision_cache_time = current_time
+                return precision_rules
+
             except Exception as e:
-                logger.error(f"MockConnector: Failed to connect to {self.base_url}: {e}")
+                logger.error(f"MockConnector: Failed to fetch precision rules: {e}")
                 raise ExchangeConnectionError(f"Failed to connect to mock exchange: {e}")
 
-    async def place_order(self, symbol: str, side: str, order_type: str, quantity: Decimal, price: Optional[Decimal] = None) -> Dict:
+    async def place_order(
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        quantity: Decimal,
+        price: Optional[Decimal] = None
+    ) -> Dict:
+        """
+        Place an order on the mock exchange.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            side: 'buy' or 'sell'
+            order_type: 'limit' or 'market'
+            quantity: Order quantity
+            price: Order price (required for limit orders)
+
+        Returns:
+            Order response dict with id, status, etc.
+        """
         async with await self._get_client() as client:
             try:
                 payload = {
                     "symbol": symbol,
-                    "side": side,
-                    "type": order_type,
+                    "side": side.upper(),
+                    "type": order_type.upper(),
                     "quantity": float(quantity),
-                    "price": float(price) if price else 0.0
+                    "price": float(price) if price else 0.0,
+                    "timeInForce": "GTC" if order_type.upper() == "LIMIT" else None,
                 }
-                response = await client.post("/orders", json=payload)
+
+                response = await client.post("/fapi/v1/order", json=payload)
+
+                if response.status_code >= 400:
+                    error_data = response.json()
+                    raise APIError(f"Order rejected: {error_data.get('detail', error_data)}")
+
                 response.raise_for_status()
                 data = response.json()
-                
+
                 return {
-                    "id": data["id"],
+                    "id": str(data["orderId"]),
+                    "client_order_id": data.get("clientOrderId"),
                     "symbol": data["symbol"],
-                    "side": data["side"],
-                    "type": data["type"],
-                    "quantity": float(data["quantity"]),
+                    "side": data["side"].lower(),
+                    "type": data["type"].lower(),
+                    "quantity": float(data["origQty"]),
                     "price": float(data["price"]),
-                    "status": data["status"],
-                    "filled": 0.0,
-                    "remaining": float(data["quantity"]),
+                    "avg_price": float(data.get("avgPrice", 0)),
+                    "status": data["status"].lower(),
+                    "filled": float(data.get("executedQty", 0)),
+                    "remaining": float(data["origQty"]) - float(data.get("executedQty", 0)),
                 }
+
+            except APIError:
+                raise
             except Exception as e:
                 raise APIError(f"MockConnector place_order failed: {e}")
 
     async def get_order_status(self, order_id: str, symbol: str = None) -> Dict:
+        """
+        Get status of an order.
+
+        Args:
+            order_id: The order ID to check
+            symbol: Trading pair (required for Binance-style API)
+
+        Returns:
+            Order status dict
+        """
         async with await self._get_client() as client:
             try:
-                response = await client.get(f"/orders/{order_id}")
-                if response.status_code == 404:
-                    # Map 404 to closed/canceled or specific error?
-                    # The app expects a status string.
-                    return {"status": "canceled"}
-                
+                params = {"orderId": order_id}
+                if symbol:
+                    params["symbol"] = symbol
+
+                response = await client.get("/fapi/v1/order", params=params)
+
+                if response.status_code == 400:
+                    error_data = response.json()
+                    if error_data.get("detail", {}).get("code") == -2013:
+                        # Order not found
+                        return {"status": "canceled", "id": order_id}
+                    raise APIError(f"Order query failed: {error_data}")
+
                 response.raise_for_status()
                 data = response.json()
-                
+
                 return {
-                    "id": data["id"],
-                    "status": data["status"],
-                    "filled": float(data.get("quantity", 0)) if data["status"] == "filled" else 0.0, # Simplified
-                    "price": float(data.get("price", 0)),
+                    "id": str(data["orderId"]),
+                    "status": data["status"].lower(),
+                    "filled": float(data.get("executedQty", 0)),
+                    "price": float(data.get("avgPrice", 0)) or float(data.get("price", 0)),
+                    "average": float(data.get("avgPrice", 0)) or float(data.get("price", 0)),  # OrderService expects 'average' key
+                    "quantity": float(data["origQty"]),
                 }
+
+            except APIError:
+                raise
             except Exception as e:
                 raise APIError(f"MockConnector get_order_status failed: {e}")
 
     async def cancel_order(self, order_id: str, symbol: str = None) -> Dict:
+        """
+        Cancel an open order.
+
+        Args:
+            order_id: The order ID to cancel
+            symbol: Trading pair (required for Binance-style API)
+
+        Returns:
+            Cancellation result dict
+        """
         async with await self._get_client() as client:
             try:
-                response = await client.delete(f"/orders/{order_id}")
-                if response.status_code == 404:
-                     return {"id": order_id, "status": "canceled"}
-                
+                params = {"orderId": order_id}
+                if symbol:
+                    params["symbol"] = symbol
+
+                response = await client.delete("/fapi/v1/order", params=params)
+
+                if response.status_code == 400:
+                    error_data = response.json()
+                    # Order not found or already canceled
+                    return {"id": order_id, "status": "canceled"}
+
                 response.raise_for_status()
                 return {"id": order_id, "status": "canceled"}
+
             except Exception as e:
-                raise APIError(f"MockConnector cancel_order failed: {e}")
+                logger.warning(f"Cancel order {order_id} failed: {e}")
+                return {"id": order_id, "status": "canceled"}
 
     async def get_current_price(self, symbol: str) -> Decimal:
+        """
+        Get current price for a symbol.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+
+        Returns:
+            Current price as Decimal
+        """
         async with await self._get_client() as client:
             try:
-                response = await client.get(f"/symbols/{symbol}/price")
+                response = await client.get("/fapi/v1/ticker/price", params={"symbol": symbol})
                 response.raise_for_status()
                 data = response.json()
-                return Decimal(str(data["price"]))
+                return Decimal(data["price"])
+
             except Exception as e:
                 raise APIError(f"MockConnector get_current_price failed: {e}")
 
     async def get_all_tickers(self) -> Dict:
         """
-        Fetches all tickers from the mock exchange.
-        """
-        # Return hardcoded tickers for now to satisfy interface
-        return {
-            "BTC/USDT": {"last": 50000.0},
-            "ETH/USDT": {"last": 3000.0},
-            "SOL/USDT": {"last": 100.0},
-        }
+        Get all ticker prices.
 
-    async def fetch_balance(self) -> Dict:
+        Returns:
+            Dict mapping symbol to ticker info
+        """
         async with await self._get_client() as client:
             try:
-                response = await client.get("/balance")
+                response = await client.get("/fapi/v1/ticker/price")
                 response.raise_for_status()
                 data = response.json()
-                # Convert floats to Decimals and return flat structure (totals only)
-                # Matches BinanceConnector/BybitConnector behavior
+
                 return {
-                    k: Decimal(str(v["total"]))
-                    for k, v in data.items()
+                    item["symbol"].replace("USDT", "/USDT"): {"last": float(item["price"])}
+                    for item in data
                 }
+
+            except Exception as e:
+                raise APIError(f"MockConnector get_all_tickers failed: {e}")
+
+    async def fetch_balance(self) -> Dict:
+        """
+        Fetch total account balance.
+
+        Returns:
+            Dict mapping asset to total balance
+        """
+        async with await self._get_client() as client:
+            try:
+                response = await client.get("/fapi/v2/balance")
+                response.raise_for_status()
+                data = response.json()
+
+                return {
+                    item["asset"]: Decimal(item["balance"])
+                    for item in data
+                }
+
             except Exception as e:
                 raise APIError(f"MockConnector fetch_balance failed: {e}")
 
     async def fetch_free_balance(self) -> Dict:
         """
-        Fetches the available free balance for all assets.
+        Fetch available (free) balance.
+
+        Returns:
+            Dict mapping asset to available balance
         """
         async with await self._get_client() as client:
             try:
-                response = await client.get("/balance")
+                response = await client.get("/fapi/v2/balance")
                 response.raise_for_status()
                 data = response.json()
+
                 return {
-                    k: Decimal(str(v["free"]))
-                    for k, v in data.items()
+                    item["asset"]: Decimal(item["availableBalance"])
+                    for item in data
                 }
+
             except Exception as e:
                 raise APIError(f"MockConnector fetch_free_balance failed: {e}")
 
+    async def get_open_orders(self, symbol: str = None) -> list:
+        """
+        Get all open orders.
+
+        Args:
+            symbol: Optional symbol filter
+
+        Returns:
+            List of open orders
+        """
+        async with await self._get_client() as client:
+            try:
+                params = {}
+                if symbol:
+                    params["symbol"] = symbol
+
+                response = await client.get("/fapi/v1/openOrders", params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                return [
+                    {
+                        "id": str(order["orderId"]),
+                        "symbol": order["symbol"],
+                        "side": order["side"].lower(),
+                        "type": order["type"].lower(),
+                        "price": float(order["price"]),
+                        "quantity": float(order["origQty"]),
+                        "filled": float(order.get("executedQty", 0)),
+                        "status": order["status"].lower(),
+                    }
+                    for order in data
+                ]
+
+            except Exception as e:
+                raise APIError(f"MockConnector get_open_orders failed: {e}")
+
+    async def get_positions(self, symbol: str = None) -> list:
+        """
+        Get open positions.
+
+        Args:
+            symbol: Optional symbol filter
+
+        Returns:
+            List of positions
+        """
+        async with await self._get_client() as client:
+            try:
+                params = {}
+                if symbol:
+                    params["symbol"] = symbol
+
+                response = await client.get("/fapi/v2/positionRisk", params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                return [
+                    {
+                        "symbol": pos["symbol"],
+                        "side": "long" if float(pos["positionAmt"]) > 0 else "short",
+                        "quantity": abs(float(pos["positionAmt"])),
+                        "entry_price": float(pos["entryPrice"]),
+                        "mark_price": float(pos["markPrice"]),
+                        "unrealized_pnl": float(pos["unRealizedProfit"]),
+                        "leverage": int(pos["leverage"]),
+                    }
+                    for pos in data
+                    if float(pos["positionAmt"]) != 0
+                ]
+
+            except Exception as e:
+                raise APIError(f"MockConnector get_positions failed: {e}")
+
     async def close(self):
         """
-        No-op for MockConnector as it manages client context per request.
+        Cleanup resources.
+        No-op for MockConnector as it creates clients per request.
         """
         pass

@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock Exchange - Trading Engine Test Console</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-green: #238636;
+            --accent-red: #da3633;
+            --accent-blue: #58a6ff;
+            --accent-yellow: #d29922;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        header h1 {
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-badge {
+            background: var(--accent-green);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        .panel {
+            display: none;
+        }
+
+        .panel.active {
+            display: block;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .card h2 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card h2 button {
+            font-size: 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .price-input {
+            display: flex;
+            gap: 8px;
+        }
+
+        input, select, textarea {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        input[type="number"] {
+            width: 120px;
+        }
+
+        button {
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button.success {
+            background: var(--accent-green);
+        }
+
+        button.danger {
+            background: var(--accent-red);
+        }
+
+        button.warning {
+            background: var(--accent-yellow);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        .positive {
+            color: var(--accent-green);
+        }
+
+        .negative {
+            color: var(--accent-red);
+        }
+
+        .badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .badge.new { background: var(--accent-blue); color: white; }
+        .badge.filled { background: var(--accent-green); color: white; }
+        .badge.canceled { background: var(--text-secondary); color: white; }
+        .badge.buy { background: var(--accent-green); color: white; }
+        .badge.sell { background: var(--accent-red); color: white; }
+
+        .logs {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-time {
+            color: var(--text-secondary);
+        }
+
+        .log-success {
+            color: var(--accent-green);
+        }
+
+        .log-error {
+            color: var(--accent-red);
+        }
+
+        .webhook-form textarea {
+            width: 100%;
+            height: 200px;
+            font-family: monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .quick-actions button {
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .refresh-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+        }
+
+        #toast.success {
+            border-color: var(--accent-green);
+        }
+
+        #toast.error {
+            border-color: var(--accent-red);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                Mock Exchange
+                <span class="status-badge" id="status-badge">Connecting...</span>
+            </h1>
+            <div>
+                <button class="refresh-btn" onclick="refreshAll()">Refresh All</button>
+                <button class="danger" onclick="resetExchange()">Reset Exchange</button>
+            </div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-balance">$0.00</div>
+                <div class="stat-label">USDT Balance</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-positions">0</div>
+                <div class="stat-label">Open Positions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-orders">0</div>
+                <div class="stat-label">Pending Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-pnl">$0.00</div>
+                <div class="stat-label">Unrealized PnL</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-panel="prices">Prices</button>
+            <button class="tab" data-panel="orders">Orders</button>
+            <button class="tab" data-panel="positions">Positions</button>
+            <button class="tab" data-panel="webhook">TradingView Webhook</button>
+            <button class="tab" data-panel="settings">Settings</button>
+        </div>
+
+        <!-- Prices Panel -->
+        <div class="panel active" id="prices">
+            <div class="card">
+                <h2>
+                    Symbol Prices
+                    <button class="refresh-btn" onclick="loadSymbols()">Refresh</button>
+                </h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Current Price</th>
+                            <th>New Price</th>
+                            <th>Quick Adjust</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="symbols-table">
+                        <tr><td colspan="5">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Orders Panel -->
+        <div class="panel" id="orders">
+            <div class="quick-actions">
+                <button onclick="loadOrders()">Refresh Orders</button>
+                <button onclick="loadOrders('NEW')">Show Pending Only</button>
+                <button onclick="loadOrders('FILLED')">Show Filled Only</button>
+                <button onclick="loadOrders()">Show All</button>
+            </div>
+            <div class="card">
+                <h2>Order Book</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Type</th>
+                            <th>Price</th>
+                            <th>Qty</th>
+                            <th>Filled</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orders-table">
+                        <tr><td colspan="9">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Positions Panel -->
+        <div class="panel" id="positions">
+            <div class="card">
+                <h2>
+                    Open Positions
+                    <button class="refresh-btn" onclick="loadPositions()">Refresh</button>
+                </h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Size</th>
+                            <th>Entry Price</th>
+                            <th>Current Price</th>
+                            <th>Unrealized PnL</th>
+                            <th>Realized PnL</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-table">
+                        <tr><td colspan="7">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Webhook Panel -->
+        <div class="panel" id="webhook">
+            <div class="grid">
+                <div class="card">
+                    <h2>Send TradingView Webhook</h2>
+                    <div class="form-group">
+                        <label>Target URL</label>
+                        <input type="text" id="webhook-url" value="http://app:8000/api/v1/webhooks/{user_id}/tradingview" style="width: 100%;">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>User ID</label>
+                            <input type="text" id="webhook-user-id" value="f937c6cb-f9f9-4d25-be19-db9bf596d7e1" style="width: 100%;">
+                        </div>
+                        <div class="form-group">
+                            <label>Secret</label>
+                            <input type="text" id="webhook-secret" value="ecd78c38d5ec54b4cd892735d0423671" style="width: 100%;">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Exchange</label>
+                            <select id="webhook-exchange">
+                                <option value="mock">mock</option>
+                                <option value="binance">binance</option>
+                                <option value="bybit">bybit</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Symbol</label>
+                            <select id="webhook-symbol">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                                <option value="SOLUSDT">SOLUSDT</option>
+                                <option value="ADAUSDT">ADAUSDT</option>
+                                <option value="XRPUSDT">XRPUSDT</option>
+                                <option value="DOGEUSDT">DOGEUSDT</option>
+                                <option value="LINKUSDT">LINKUSDT</option>
+                                <option value="TRXUSDT">TRXUSDT</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Timeframe</label>
+                            <select id="webhook-timeframe">
+                                <option value="15">15m</option>
+                                <option value="60" selected>1h</option>
+                                <option value="240">4h</option>
+                                <option value="1440">1D</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Side</label>
+                            <select id="webhook-side">
+                                <option value="long">Long</option>
+                                <option value="short">Short</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Action</label>
+                            <select id="webhook-action">
+                                <option value="buy">Buy (Entry)</option>
+                                <option value="sell">Sell (Exit)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Intent Type</label>
+                            <select id="webhook-intent">
+                                <option value="signal">Signal (New/Pyramid)</option>
+                                <option value="exit">Exit</option>
+                                <option value="reduce">Reduce</option>
+                                <option value="reverse">Reverse</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Entry Price</label>
+                            <input type="number" id="webhook-entry-price" value="95000" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Order Size</label>
+                            <input type="number" id="webhook-order-size" value="0.01" step="0.001">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <button class="success" onclick="sendWebhook()" style="width: 100%;">Send Webhook</button>
+                    </div>
+                    <div class="quick-actions">
+                        <button onclick="fillWebhookFromSymbol()">Auto-fill from Price</button>
+                        <button onclick="sendExitWebhook()">Send Exit Signal</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>
+                        Webhook Logs
+                        <button class="refresh-btn" onclick="loadWebhookLogs()">Refresh</button>
+                    </h2>
+                    <div class="logs" id="webhook-logs">
+                        <div class="log-entry">No logs yet...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="panel" id="settings">
+            <div class="grid">
+                <div class="card">
+                    <h2>API Keys</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>API Key</th>
+                                <th>Secret</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="api-keys-table">
+                            <tr><td colspan="4">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                    <div style="margin-top: 16px;">
+                        <button onclick="createApiKey()">Create New API Key</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Add/Edit Symbol</h2>
+                    <div class="form-group">
+                        <label>Symbol</label>
+                        <input type="text" id="new-symbol" placeholder="e.g., BNBUSDT">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Base Asset</label>
+                            <input type="text" id="new-base" placeholder="e.g., BNB">
+                        </div>
+                        <div class="form-group">
+                            <label>Quote Asset</label>
+                            <input type="text" id="new-quote" value="USDT">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Initial Price</label>
+                            <input type="number" id="new-price" value="100" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Tick Size</label>
+                            <input type="number" id="new-tick" value="0.01" step="0.0001">
+                        </div>
+                    </div>
+                    <button onclick="addSymbol()">Add Symbol</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let symbolPrices = {};
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.panel).classList.add('active');
+            });
+        });
+
+        // Toast notifications
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = type;
+            toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 3000);
+        }
+
+        // API calls
+        async function api(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'API Error');
+                }
+                return await response.json();
+            } catch (e) {
+                console.error('API Error:', e);
+                throw e;
+            }
+        }
+
+        // Load symbols
+        async function loadSymbols() {
+            try {
+                const symbols = await api('/admin/symbols');
+                const tbody = document.getElementById('symbols-table');
+
+                tbody.innerHTML = symbols.map(s => {
+                    symbolPrices[s.symbol] = s.currentPrice;
+                    return `
+                        <tr>
+                            <td><strong>${s.symbol}</strong></td>
+                            <td>$${s.currentPrice.toFixed(4)}</td>
+                            <td>
+                                <input type="number" id="price-${s.symbol}" value="${s.currentPrice}" step="${s.tickSize}" style="width: 120px;">
+                            </td>
+                            <td>
+                                <button onclick="adjustPrice('${s.symbol}', 0.01)">+1%</button>
+                                <button onclick="adjustPrice('${s.symbol}', -0.01)">-1%</button>
+                                <button onclick="adjustPrice('${s.symbol}', 0.05)">+5%</button>
+                                <button onclick="adjustPrice('${s.symbol}', -0.05)">-5%</button>
+                            </td>
+                            <td>
+                                <button class="success" onclick="setPrice('${s.symbol}')">Set Price</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                showToast('Failed to load symbols: ' + e.message, 'error');
+            }
+        }
+
+        // Set price
+        async function setPrice(symbol) {
+            const price = parseFloat(document.getElementById(`price-${symbol}`).value);
+            try {
+                const result = await api(`/admin/symbols/${symbol}/price`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ price })
+                });
+                showToast(`${symbol} price set to $${price}. Filled ${result.filledOrders.length} orders.`, 'success');
+                symbolPrices[symbol] = price;
+                loadSymbols();
+                loadOrders();
+                loadPositions();
+                updateStats();
+            } catch (e) {
+                showToast('Failed to set price: ' + e.message, 'error');
+            }
+        }
+
+        // Adjust price by percentage
+        function adjustPrice(symbol, percent) {
+            const input = document.getElementById(`price-${symbol}`);
+            const current = parseFloat(input.value);
+            input.value = (current * (1 + percent)).toFixed(4);
+        }
+
+        // Load orders
+        async function loadOrders(status = null) {
+            try {
+                let url = '/admin/orders';
+                if (status) url += `?status=${status}`;
+                const orders = await api(url);
+                const tbody = document.getElementById('orders-table');
+
+                if (orders.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9">No orders found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = orders.map(o => `
+                    <tr>
+                        <td>${o.orderId}</td>
+                        <td>${o.symbol}</td>
+                        <td><span class="badge ${o.side.toLowerCase()}">${o.side}</span></td>
+                        <td>${o.type}</td>
+                        <td>$${o.price.toFixed(4)}</td>
+                        <td>${o.quantity}</td>
+                        <td>${o.executedQty}</td>
+                        <td><span class="badge ${o.status.toLowerCase()}">${o.status}</span></td>
+                        <td>
+                            ${o.status === 'NEW' || o.status === 'PARTIALLY_FILLED' ? `
+                                <button onclick="fillOrder('${o.id}')">Fill</button>
+                                <button class="danger" onclick="cancelOrder('${o.id}')">Cancel</button>
+                            ` : ''}
+                        </td>
+                    </tr>
+                `).join('');
+
+                document.getElementById('stat-orders').textContent = orders.filter(o => o.status === 'NEW' || o.status === 'PARTIALLY_FILLED').length;
+            } catch (e) {
+                showToast('Failed to load orders: ' + e.message, 'error');
+            }
+        }
+
+        // Fill order manually
+        async function fillOrder(orderId) {
+            try {
+                await api(`/admin/orders/${orderId}/fill`, { method: 'POST' });
+                showToast('Order filled!', 'success');
+                loadOrders();
+                loadPositions();
+                updateStats();
+            } catch (e) {
+                showToast('Failed to fill order: ' + e.message, 'error');
+            }
+        }
+
+        // Cancel order (placeholder - would need API endpoint)
+        async function cancelOrder(orderId) {
+            showToast('Cancel via exchange API', 'info');
+        }
+
+        // Load positions
+        async function loadPositions() {
+            try {
+                const positions = await api('/admin/positions');
+                const tbody = document.getElementById('positions-table');
+
+                const openPositions = positions.filter(p => p.quantity !== 0);
+
+                if (openPositions.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7">No open positions</td></tr>';
+                    document.getElementById('stat-positions').textContent = '0';
+                    document.getElementById('stat-pnl').textContent = '$0.00';
+                    return;
+                }
+
+                let totalPnl = 0;
+                tbody.innerHTML = openPositions.map(p => {
+                    const currentPrice = symbolPrices[p.symbol] || p.entryPrice;
+                    totalPnl += p.unrealizedPnl;
+                    const pnlClass = p.unrealizedPnl >= 0 ? 'positive' : 'negative';
+                    return `
+                        <tr>
+                            <td><strong>${p.symbol}</strong></td>
+                            <td><span class="badge ${p.quantity > 0 ? 'buy' : 'sell'}">${p.quantity > 0 ? 'LONG' : 'SHORT'}</span></td>
+                            <td>${Math.abs(p.quantity)}</td>
+                            <td>$${p.entryPrice.toFixed(4)}</td>
+                            <td>$${currentPrice.toFixed(4)}</td>
+                            <td class="${pnlClass}">$${p.unrealizedPnl.toFixed(2)}</td>
+                            <td>$${p.realizedPnl.toFixed(2)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                document.getElementById('stat-positions').textContent = openPositions.length;
+                document.getElementById('stat-pnl').textContent = `$${totalPnl.toFixed(2)}`;
+                document.getElementById('stat-pnl').className = `stat-value ${totalPnl >= 0 ? 'positive' : 'negative'}`;
+            } catch (e) {
+                showToast('Failed to load positions: ' + e.message, 'error');
+            }
+        }
+
+        // Load balances
+        async function loadBalances() {
+            try {
+                const balances = await api('/admin/balances');
+                const usdt = balances.find(b => b.asset === 'USDT');
+                if (usdt) {
+                    document.getElementById('stat-balance').textContent = `$${usdt.total.toFixed(2)}`;
+                }
+            } catch (e) {
+                console.error('Failed to load balances:', e);
+            }
+        }
+
+        // Update stats
+        async function updateStats() {
+            await loadBalances();
+        }
+
+        // Send webhook
+        async function sendWebhook() {
+            const payload = {
+                user_id: document.getElementById('webhook-user-id').value,
+                secret: document.getElementById('webhook-secret').value,
+                source: 'tradingview',
+                tv: {
+                    exchange: document.getElementById('webhook-exchange').value,
+                    symbol: document.getElementById('webhook-symbol').value,
+                    timeframe: parseInt(document.getElementById('webhook-timeframe').value),
+                    action: document.getElementById('webhook-action').value,
+                    market_position: document.getElementById('webhook-side').value,
+                    market_position_size: parseFloat(document.getElementById('webhook-order-size').value),
+                    prev_market_position: 'flat',
+                    prev_market_position_size: 0,
+                    entry_price: parseFloat(document.getElementById('webhook-entry-price').value),
+                    close_price: parseFloat(document.getElementById('webhook-entry-price').value),
+                    order_size: parseFloat(document.getElementById('webhook-order-size').value)
+                },
+                strategy_info: {
+                    trade_id: `test_${Date.now()}`,
+                    alert_name: 'Manual Test Signal',
+                    alert_message: 'Sent from Mock Exchange UI'
+                },
+                execution_intent: {
+                    type: document.getElementById('webhook-intent').value,
+                    side: document.getElementById('webhook-action').value,
+                    position_size_type: 'contracts',
+                    precision_mode: 'auto'
+                },
+                risk: {
+                    stop_loss: null,
+                    take_profit: null,
+                    max_slippage_percent: 0.5
+                }
+            };
+
+            try {
+                const result = await api('/admin/webhook/send?target_url=' + encodeURIComponent(document.getElementById('webhook-url').value), {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                if (result.success) {
+                    showToast('Webhook sent successfully!', 'success');
+                } else {
+                    showToast('Webhook failed: ' + (result.error || result.response), 'error');
+                }
+                loadWebhookLogs();
+            } catch (e) {
+                showToast('Failed to send webhook: ' + e.message, 'error');
+            }
+        }
+
+        // Send exit webhook
+        function sendExitWebhook() {
+            document.getElementById('webhook-action').value = 'sell';
+            document.getElementById('webhook-intent').value = 'exit';
+            sendWebhook();
+        }
+
+        // Fill webhook from current price
+        function fillWebhookFromSymbol() {
+            const symbol = document.getElementById('webhook-symbol').value;
+            const price = symbolPrices[symbol];
+            if (price) {
+                document.getElementById('webhook-entry-price').value = price;
+            }
+        }
+
+        // Load webhook logs
+        async function loadWebhookLogs() {
+            try {
+                const logs = await api('/admin/webhook/logs?limit=20');
+                const logsDiv = document.getElementById('webhook-logs');
+
+                if (logs.length === 0) {
+                    logsDiv.innerHTML = '<div class="log-entry">No webhook logs yet...</div>';
+                    return;
+                }
+
+                logsDiv.innerHTML = logs.map(log => {
+                    const statusClass = log.responseStatus >= 200 && log.responseStatus < 300 ? 'log-success' : 'log-error';
+                    const time = new Date(log.createdAt).toLocaleTimeString();
+                    return `
+                        <div class="log-entry">
+                            <span class="log-time">[${time}]</span>
+                            <span class="${statusClass}">${log.responseStatus || 'ERR'}</span>
+                            ${log.payload?.tv?.symbol || 'Unknown'} ${log.payload?.tv?.action || ''}
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Failed to load webhook logs:', e);
+            }
+        }
+
+        // Load API keys
+        async function loadApiKeys() {
+            try {
+                const keys = await api('/admin/api-keys');
+                const tbody = document.getElementById('api-keys-table');
+
+                tbody.innerHTML = keys.map(k => `
+                    <tr>
+                        <td>${k.label}</td>
+                        <td><code>${k.apiKey}</code></td>
+                        <td><code>${k.apiSecret.substring(0, 8)}...</code></td>
+                        <td><span class="badge ${k.isActive ? 'filled' : 'canceled'}">${k.isActive ? 'Active' : 'Inactive'}</span></td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Failed to load API keys:', e);
+            }
+        }
+
+        // Create new API key
+        async function createApiKey() {
+            const label = prompt('Enter a label for the new API key:', 'Test Key');
+            if (!label) return;
+
+            try {
+                const result = await api('/admin/api-keys', {
+                    method: 'POST',
+                    body: JSON.stringify({ label, initial_balance: 100000 })
+                });
+                showToast(`API key created: ${result.apiKey}`, 'success');
+                loadApiKeys();
+            } catch (e) {
+                showToast('Failed to create API key: ' + e.message, 'error');
+            }
+        }
+
+        // Reset exchange
+        async function resetExchange() {
+            if (!confirm('This will delete all orders, positions, and trades. Continue?')) return;
+
+            try {
+                await api('/admin/reset', { method: 'DELETE' });
+                showToast('Exchange reset complete!', 'success');
+                refreshAll();
+            } catch (e) {
+                showToast('Failed to reset: ' + e.message, 'error');
+            }
+        }
+
+        // Refresh all data
+        async function refreshAll() {
+            await Promise.all([
+                loadSymbols(),
+                loadOrders(),
+                loadPositions(),
+                loadBalances(),
+                loadApiKeys()
+            ]);
+        }
+
+        // Check connection
+        async function checkConnection() {
+            try {
+                await api('/health');
+                document.getElementById('status-badge').textContent = 'Connected';
+                document.getElementById('status-badge').style.background = '#238636';
+            } catch (e) {
+                document.getElementById('status-badge').textContent = 'Disconnected';
+                document.getElementById('status-badge').style.background = '#da3633';
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkConnection();
+            await refreshAll();
+
+            // Auto-refresh every 5 seconds
+            setInterval(async () => {
+                await loadPositions();
+                await loadOrders();
+            }, 5000);
+        });
+    </script>
+</body>
+</html>

@@ -46,7 +46,7 @@ class CacheService:
     # TTL constants in seconds
     TTL_PRECISION_RULES = 172800  # 2 days (48 hours)
     TTL_BALANCE = 300  # 5 minutes
-    TTL_TICKERS = 60  # 1 minute
+    TTL_TICKERS = 5  # 5 seconds - needs to be fresh for position PnL
     TTL_DASHBOARD = 60  # 1 minute
     TTL_DCA_CONFIG = 300  # 5 minutes
     TTL_USER = 300  # 5 minutes

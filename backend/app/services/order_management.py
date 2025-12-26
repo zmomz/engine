@@ -342,8 +342,9 @@ class OrderService:
 
         # Check if any relevant fields have changed before updating
         changed = False
+        logger.info(f"Order {dca_order.id}: Current DB status='{dca_order.status}', Exchange status='{new_status.value}', filled_qty={filled_quantity_from_exchange}")
         if dca_order.status != new_status.value: # Compare with .value
-            logger.info(f"Order {dca_order.id}: Status changed from {dca_order.status} to {new_status.value}")
+            logger.info(f"Order {dca_order.id}: Status CHANGING from '{dca_order.status}' to '{new_status.value}'")
             dca_order.status = new_status.value
             changed = True
         
@@ -366,7 +367,11 @@ class OrderService:
                 changed = True
 
         if changed:
+            logger.info(f"Order {dca_order.id}: Saving changes to database (status={dca_order.status})")
             await self.dca_order_repository.update(dca_order)
+            logger.info(f"Order {dca_order.id}: Repository update completed")
+        else:
+            logger.info(f"Order {dca_order.id}: No changes detected, skipping update")
 
         return dca_order
 
