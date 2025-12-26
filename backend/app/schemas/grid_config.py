@@ -27,6 +27,12 @@ class DCAGridConfig(BaseModel):
 
     # settings for specific TP modes
     tp_aggregate_percent: Decimal = Field(Decimal("0"), description="Aggregate take-profit percentage (used in 'aggregate', 'hybrid', or 'pyramid_aggregate' mode).")
+
+    # Per-pyramid TP percentages for pyramid_aggregate mode
+    pyramid_tp_percents: Dict[str, Decimal] = Field(
+        default_factory=dict,
+        description="Per-pyramid TP percentages. Key is pyramid index (0, 1, 2...), value is TP %. Falls back to tp_aggregate_percent if not specified."
+    )
     
     max_pyramids: int = Field(5, description="Maximum number of pyramids allowed for this position group.")
 
@@ -77,6 +83,16 @@ class DCAGridConfig(BaseModel):
         if key in self.pyramid_specific_levels and self.pyramid_specific_levels[key]:
             return self.pyramid_specific_levels[key]
         return self.levels
+
+    def get_tp_percent_for_pyramid(self, pyramid_index: int) -> Decimal:
+        """
+        Returns the TP percentage for a specific pyramid index.
+        Falls back to tp_aggregate_percent if no pyramid-specific TP is configured.
+        """
+        key = str(pyramid_index)
+        if key in self.pyramid_tp_percents:
+            return self.pyramid_tp_percents[key]
+        return self.tp_aggregate_percent
 
 class DCAConfigurationSchema(BaseModel):
     id: Optional[str] = None

@@ -162,6 +162,15 @@ const DCAConfigCard: React.FC<DCAConfigCardProps> = ({ config, onEdit, onDelete 
             </Box>
           )}
 
+          {/* Per-Pyramid TP Overrides */}
+          {config.tp_mode === 'pyramid_aggregate' && config.tp_settings?.pyramid_tp_percents && Object.keys(config.tp_settings.pyramid_tp_percents).length > 0 && (
+            <Box sx={{ mt: 0.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                Pyramid TPs: {Object.entries(config.tp_settings.pyramid_tp_percents).map(([idx, tp]) => `P${idx}: ${tp}%`).join(', ')}
+              </Typography>
+            </Box>
+          )}
+
           {/* Pyramid Overrides */}
           {config.pyramid_specific_levels && Object.keys(config.pyramid_specific_levels).length > 0 && (
             <Box sx={{ mt: 1 }}>

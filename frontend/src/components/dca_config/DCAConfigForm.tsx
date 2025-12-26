@@ -53,7 +53,8 @@ const formSchema = z.object({
     pyramid_specific_levels: z.record(z.string(), z.array(dcaLevelSchema)).optional(),
     tp_mode: z.enum(["per_leg", "aggregate", "hybrid", "pyramid_aggregate"]),
     tp_settings: z.object({
-        tp_aggregate_percent: z.coerce.number().optional()
+        tp_aggregate_percent: z.coerce.number().optional(),
+        pyramid_tp_percents: z.record(z.string(), z.coerce.number()).optional()
     }),
     max_pyramids: z.coerce.number().min(1)
 });
@@ -139,7 +140,7 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
             dca_levels: [],
             pyramid_specific_levels: {},
             tp_mode: 'per_leg',
-            tp_settings: { tp_aggregate_percent: 0 },
+            tp_settings: { tp_aggregate_percent: 0, pyramid_tp_percents: {} },
             max_pyramids: 5
         }
     });
@@ -149,6 +150,7 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
     const tpMode = watch("tp_mode");
     const maxPyramids = watch("max_pyramids") || 5;
     const pyramidSpecifics = watch("pyramid_specific_levels") || {};
+    const pyramidTpPercents = watch("tp_settings.pyramid_tp_percents") || {};
 
     useEffect(() => {
         if (open) {
@@ -162,7 +164,8 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                     pyramid_specific_levels: initialData.pyramid_specific_levels || {},
                     tp_mode: initialData.tp_mode,
                     tp_settings: {
-                        tp_aggregate_percent: initialData.tp_settings?.tp_aggregate_percent || 0
+                        tp_aggregate_percent: initialData.tp_settings?.tp_aggregate_percent || 0,
+                        pyramid_tp_percents: initialData.tp_settings?.pyramid_tp_percents || {}
                     },
                     max_pyramids: initialData.max_pyramids
                 });
@@ -175,13 +178,23 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                     dca_levels: [],
                     pyramid_specific_levels: {},
                     tp_mode: 'per_leg',
-                    tp_settings: { tp_aggregate_percent: 0 },
+                    tp_settings: { tp_aggregate_percent: 0, pyramid_tp_percents: {} },
                     max_pyramids: 5
                 });
             }
             setTabIndex(0);
         }
     }, [open, initialData, reset]);
+
+    const handlePyramidTpChange = (pyramidIdx: string, value: number | null) => {
+        const current = { ...(watch("tp_settings.pyramid_tp_percents") || {}) };
+        if (value === null || value === 0) {
+            delete current[pyramidIdx];
+        } else {
+            current[pyramidIdx] = value;
+        }
+        setValue("tp_settings.pyramid_tp_percents", current);
+    };
 
     const handleFormSubmit = async (data: FormValues) => {
         // Map flat settings back to tp_settings dict if needed, handled by schema/form structure
@@ -344,8 +357,29 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                 {tabIndex === 0 ? (
                                     <Box>
                                         <Alert severity="info" sx={{ mb: 2, py: 0.5, '& .MuiAlert-message': { fontSize: { xs: '0.7rem', sm: '0.875rem' } } }}>
-                                            Default levels for initial position and pyramids without overrides.
+                                            Default levels for initial position (P0) and pyramids without overrides.
                                         </Alert>
+
+                                        {/* P0 TP % override for pyramid_aggregate mode */}
+                                        {tpMode === 'pyramid_aggregate' && (
+                                            <Box sx={{ mb: 2 }}>
+                                                <TextField
+                                                    type="number"
+                                                    label="P0 TP % (Initial Entry)"
+                                                    size="small"
+                                                    value={pyramidTpPercents["0"] || ''}
+                                                    onChange={(e) => handlePyramidTpChange(
+                                                        "0",
+                                                        e.target.value ? parseFloat(e.target.value) : null
+                                                    )}
+                                                    placeholder={`Default: ${watch("tp_settings.tp_aggregate_percent") || 0}%`}
+                                                    inputProps={{ step: "0.01" }}
+                                                    sx={{ width: { xs: '100%', sm: 200 } }}
+                                                    helperText="Leave empty to use default Agg TP %"
+                                                />
+                                            </Box>
+                                        )}
+
                                         {errors.dca_levels && (
                                             <Alert severity="error" sx={{ mb: 2, py: 0.5 }}>{(errors.dca_levels as any).root?.message || "Invalid levels"}</Alert>
                                         )}
@@ -356,6 +390,27 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                         <Alert severity="info" sx={{ mb: 2, py: 0.5, '& .MuiAlert-message': { fontSize: { xs: '0.7rem', sm: '0.875rem' } } }}>
                                             Pyramid {tabIndex} config (only if enabled).
                                         </Alert>
+
+                                        {/* Per-Pyramid TP % for pyramid_aggregate mode */}
+                                        {tpMode === 'pyramid_aggregate' && (
+                                            <Box sx={{ mb: 2 }}>
+                                                <TextField
+                                                    type="number"
+                                                    label={`P${tabIndex} TP %`}
+                                                    size="small"
+                                                    value={pyramidTpPercents[tabIndex.toString()] || ''}
+                                                    onChange={(e) => handlePyramidTpChange(
+                                                        tabIndex.toString(),
+                                                        e.target.value ? parseFloat(e.target.value) : null
+                                                    )}
+                                                    placeholder={`Default: ${watch("tp_settings.tp_aggregate_percent") || 0}%`}
+                                                    inputProps={{ step: "0.01" }}
+                                                    sx={{ width: { xs: '100%', sm: 200 } }}
+                                                    helperText="Leave empty to use default Agg TP %"
+                                                />
+                                            </Box>
+                                        )}
+
                                         <FormControlLabel
                                             control={
                                                 <Checkbox
@@ -364,7 +419,7 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                                     size="small"
                                                 />
                                             }
-                                            label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Enable P{tabIndex} settings</Box>}
+                                            label={<Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>Enable P{tabIndex} DCA levels</Box>}
                                         />
 
                                         {pyramidSpecifics && pyramidSpecifics[tabIndex.toString()] && (
