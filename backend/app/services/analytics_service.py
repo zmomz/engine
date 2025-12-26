@@ -16,7 +16,7 @@ from app.models.position_group import PositionGroup
 from app.models.queued_signal import QueuedSignal
 from app.models.user import User
 from app.repositories.position_group import PositionGroupRepository
-from app.services.exchange_abstraction.factory import get_exchange_connector
+from app.services.exchange_config_service import ExchangeConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,8 @@ class AnalyticsService:
         if not self.user.encrypted_api_keys:
             return exchange_data
 
-        api_keys_map = self.user.encrypted_api_keys if isinstance(self.user.encrypted_api_keys, dict) else {}
+        # Get all configured exchanges using the centralized service
+        configured_exchanges = ExchangeConfigService.get_all_configured_exchanges(self.user)
 
         # Group positions by exchange
         exchanges_needed = set()
@@ -111,32 +112,16 @@ class AnalyticsService:
             exchanges_needed.add(pos.exchange or self.user.exchange or "binance")
 
         # Add all configured exchanges for balance fetching
-        exchanges_needed.update(api_keys_map.keys())
+        exchanges_needed.update(configured_exchanges.keys())
 
         for exchange_name in exchanges_needed:
-            lookup_key = exchange_name.lower()
-            if lookup_key not in api_keys_map:
-                continue
-
-            encrypted_data_raw = api_keys_map[lookup_key]
-            exchange_config = {}
-
-            if isinstance(encrypted_data_raw, str):
-                exchange_config = {"encrypted_data": encrypted_data_raw}
-            elif isinstance(encrypted_data_raw, dict):
-                exchange_config = encrypted_data_raw
-            else:
-                continue
-
-            if "encrypted_data" not in exchange_config:
+            # Check if user has valid config for this exchange
+            if not ExchangeConfigService.has_valid_config(self.user, exchange_name):
                 continue
 
             connector = None
             try:
-                connector = get_exchange_connector(
-                    exchange_type=exchange_name,
-                    exchange_config=exchange_config
-                )
+                connector = ExchangeConfigService.get_connector(self.user, exchange_name)
 
                 # Fetch balance
                 balances = await connector.fetch_balance()

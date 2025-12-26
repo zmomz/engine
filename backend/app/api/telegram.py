@@ -136,9 +136,10 @@ async def send_test_message(
     try:
         message_id = await broadcaster._send_message(test_message)
     except Exception as e:
+        logger.error(f"Failed to send Telegram test message: {e}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail=str(e)
+            detail="Failed to send test message. Please check your bot token and channel ID."
         )
 
     if message_id:

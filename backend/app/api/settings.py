@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies.users import get_current_active_user
@@ -9,11 +9,14 @@ from app.repositories.user import UserRepository
 from app.schemas.user import UserUpdate, UserRead
 from app.services.exchange_abstraction.factory import get_supported_exchanges
 from app.core.security import EncryptionService
+from app.rate_limiter import limiter
 
 router = APIRouter()
 
 @router.get("/exchanges", response_model=List[str])
+@limiter.limit("30/minute")
 async def get_exchanges(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
 ):
     """
@@ -22,7 +25,9 @@ async def get_exchanges(
     return get_supported_exchanges()
 
 @router.get("", response_model=UserRead)
+@limiter.limit("30/minute")
 async def get_settings(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
 ):
     """
@@ -31,7 +36,9 @@ async def get_settings(
     return current_user
 
 @router.put("", response_model=UserRead)
+@limiter.limit("10/minute")
 async def update_settings(
+    request: Request,
     user_update: UserUpdate,
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user),
@@ -88,7 +95,9 @@ async def update_settings(
     return updated_user
 
 @router.delete("/keys/{exchange}", response_model=UserRead)
+@limiter.limit("10/minute")
 async def delete_exchange_key(
+    request: Request,
     exchange: str,
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user),
