@@ -1,8 +1,8 @@
 import logging
 import traceback
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 import uuid
 
 from app.db.database import get_db_session, AsyncSessionLocal
@@ -64,21 +64,34 @@ async def get_order_service(
         exchange_connector=exchange_connector
     )
 
-@router.get("/{user_id}/history", response_model=List[PositionGroupSchema])
+@router.get("/{user_id}/history")
 async def get_position_history(
     user_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Retrieves all historical (closed) position groups for a given user.
+    Retrieves historical (closed) position groups for a given user with pagination.
+
+    Returns:
+        - items: List of position groups
+        - total: Total count of closed positions
+        - limit: Number of items per page
+        - offset: Current offset
     """
     if current_user.id != user_id and not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this user's history.")
-        
+
     repo = PositionGroupRepository(db)
-    positions = await repo.get_closed_by_user(user_id)
-    return [PositionGroupSchema.from_orm(pos) for pos in positions]
+    positions, total = await repo.get_closed_by_user(user_id, limit=limit, offset=offset)
+    return {
+        "items": [PositionGroupSchema.from_orm(pos) for pos in positions],
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
 
 @router.get("/active", response_model=List[PositionGroupSchema])
 async def get_current_user_active_positions(
@@ -94,17 +107,30 @@ async def get_current_user_active_positions(
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 
 
-@router.get("/history", response_model=List[PositionGroupSchema])
+@router.get("/history")
 async def get_current_user_position_history(
+    limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_session)
 ):
     """
-    Retrieves all historical (closed) position groups for the current authenticated user.
+    Retrieves historical (closed) position groups for the current authenticated user with pagination.
+
+    Returns:
+        - items: List of position groups
+        - total: Total count of closed positions
+        - limit: Number of items per page
+        - offset: Current offset
     """
     repo = PositionGroupRepository(db)
-    positions = await repo.get_closed_by_user(current_user.id)
-    return [PositionGroupSchema.from_orm(pos) for pos in positions]
+    positions, total = await repo.get_closed_by_user(current_user.id, limit=limit, offset=offset)
+    return {
+        "items": [PositionGroupSchema.from_orm(pos) for pos in positions],
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
 
 @router.get("/{user_id}", response_model=List[PositionGroupSchema])
 async def get_all_positions(

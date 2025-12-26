@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import api from '../services/api';
 
-interface QueuedSignal {
+export interface QueuedSignal {
   id: string;
   user_id: string;
   exchange: string;

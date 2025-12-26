@@ -65,3 +65,42 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
             )
         )
         return result.scalars().all()
+
+    async def get_all_open_orders_for_all_users(self, user_ids: List[str]) -> dict[str, List[DCAOrder]]:
+        """
+        Batch fetch all open/partially filled orders for multiple users in a single query.
+        Returns a dictionary mapping user_id to list of orders.
+
+        This prevents N+1 query issues when checking orders for multiple users.
+        """
+        if not user_ids:
+            return {}
+
+        result = await self.session.execute(
+            select(self.model)
+            .options(joinedload(self.model.group))
+            .join(PositionGroup, self.model.group_id == PositionGroup.id)
+            .where(
+                or_(
+                    self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value, OrderStatus.TRIGGER_PENDING.value]),
+                    and_(
+                        self.model.status == OrderStatus.FILLED.value,
+                        self.model.tp_order_id.isnot(None),
+                        self.model.tp_hit == False
+                    )
+                ),
+                PositionGroup.user_id.in_(user_ids)
+            )
+        )
+        orders = result.scalars().all()
+
+        # Group orders by user_id
+        orders_by_user: dict[str, List[DCAOrder]] = {}
+        for order in orders:
+            if order.group:
+                uid = str(order.group.user_id)
+                if uid not in orders_by_user:
+                    orders_by_user[uid] = []
+                orders_by_user[uid].append(order)
+
+        return orders_by_user

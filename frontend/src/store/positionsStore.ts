@@ -46,13 +46,22 @@ export interface PositionGroup {
   pyramids: Pyramid[];
 }
 
+// Paginated response type from the API
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 interface PositionsState {
   positions: PositionGroup[];
   positionHistory: PositionGroup[];
+  positionHistoryTotal: number;
   loading: boolean;
   error: string | null;
   fetchPositions: (isBackground?: boolean) => Promise<void>;
-  fetchPositionHistory: (isBackground?: boolean) => Promise<void>;
+  fetchPositionHistory: (isBackground?: boolean, limit?: number, offset?: number) => Promise<void>;
   closePosition: (groupId: string) => Promise<void>;
   setPositions: (positions: PositionGroup[]) => void;
 }
@@ -60,6 +69,7 @@ interface PositionsState {
 const usePositionsStore = create<PositionsState>((set, get) => ({
   positions: [],
   positionHistory: [],
+  positionHistoryTotal: 0,
   loading: false,
   error: null,
 
@@ -77,12 +87,18 @@ const usePositionsStore = create<PositionsState>((set, get) => ({
     }
   },
 
-  fetchPositionHistory: async (isBackground = false) => {
+  fetchPositionHistory: async (isBackground = false, limit = 100, offset = 0) => {
     if (!isBackground) set({ loading: true, error: null });
     try {
-      // Get user ID from the API (the backend will use current user)
-      const response = await api.get<PositionGroup[]>('/positions/history');
-      set({ positionHistory: response.data, loading: false });
+      // API returns paginated response with items, total, limit, offset
+      const response = await api.get<PaginatedResponse<PositionGroup>>('/positions/history', {
+        params: { limit, offset }
+      });
+      set({
+        positionHistory: response.data.items,
+        positionHistoryTotal: response.data.total,
+        loading: false
+      });
     } catch (err: any) {
       console.error("Failed to fetch position history", err);
       if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch position history', loading: false });
