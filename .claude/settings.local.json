@@ -42,7 +42,9 @@
       "Bash(docker stop:*)",
       "Bash(docker rm:*)",
       "Bash(docker restart:*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "Bash(timeout 10 bash -c 'sleep 5 && curl -s http://127.0.0.1:9000/health')",
+      "Bash(findstr:*)"
     ]
   }
 }
