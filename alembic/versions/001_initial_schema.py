@@ -72,19 +72,67 @@ def upgrade() -> None:
         name='riskactiontype', create_type=False
     )
 
-    # Create enum types in database
-    op.execute("CREATE TYPE position_side_enum AS ENUM ('long', 'short')")
-    op.execute("CREATE TYPE signal_side_enum AS ENUM ('long', 'short')")
-    op.execute("CREATE TYPE order_side_enum AS ENUM ('buy', 'sell')")
-    op.execute("CREATE TYPE group_status_enum AS ENUM ('waiting', 'live', 'partially_filled', 'active', 'closing', 'closed', 'failed')")
-    op.execute("CREATE TYPE queue_status_enum AS ENUM ('queued', 'promoted', 'cancelled')")
-    op.execute("CREATE TYPE pyramid_status_enum AS ENUM ('pending', 'submitted', 'filled', 'cancelled')")
-    op.execute("CREATE TYPE order_status_enum AS ENUM ('pending', 'trigger_pending', 'open', 'partially_filled', 'filled', 'cancelled', 'failed')")
-    op.execute("CREATE TYPE order_type_enum AS ENUM ('limit', 'market')")
-    op.execute("CREATE TYPE entry_order_type_enum AS ENUM ('limit', 'market')")
-    op.execute("CREATE TYPE tp_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid')")
-    op.execute("CREATE TYPE take_profit_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid', 'pyramid_aggregate')")
-    op.execute("CREATE TYPE riskactiontype AS ENUM ('offset_loss', 'manual_block', 'manual_skip', 'manual_close', 'engine_close', 'tp_hit')")
+    # Create enum types in database (using DO block for IF NOT EXISTS support)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE position_side_enum AS ENUM ('long', 'short');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE signal_side_enum AS ENUM ('long', 'short');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE order_side_enum AS ENUM ('buy', 'sell');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE group_status_enum AS ENUM ('waiting', 'live', 'partially_filled', 'active', 'closing', 'closed', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE queue_status_enum AS ENUM ('queued', 'promoted', 'cancelled');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE pyramid_status_enum AS ENUM ('pending', 'submitted', 'filled', 'cancelled');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE order_status_enum AS ENUM ('pending', 'trigger_pending', 'open', 'partially_filled', 'filled', 'cancelled', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE order_type_enum AS ENUM ('limit', 'market');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE entry_order_type_enum AS ENUM ('limit', 'market');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE tp_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE take_profit_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid', 'pyramid_aggregate');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE riskactiontype AS ENUM ('offset_loss', 'manual_block', 'manual_skip', 'manual_close', 'engine_close', 'tp_hit');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    """)
 
     # ===========================================
     # TABLE: users
