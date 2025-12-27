@@ -231,8 +231,10 @@ class SignalRouterService:
                     await pos_manager.handle_exit_signal(
                         group_to_close.id,
                         max_slippage_percent=risk_config.max_slippage_percent,
-                        slippage_action=risk_config.slippage_action
+                        slippage_action=risk_config.slippage_action,
+                        session=db_session  # Pass the existing session to avoid deadlock
                     )
+                    await db_session.commit()
                     response_message = f"Exit signal executed for {signal.tv.symbol}"
                     if cancelled_count > 0:
                         response_message += f" ({cancelled_count} queued signal(s) cancelled)"

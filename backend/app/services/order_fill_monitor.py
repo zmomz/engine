@@ -242,7 +242,12 @@ class OrderFillMonitorService:
 
                     logger.debug(f"Checking Trigger for Order {order.id} ({order.side}): Target {order.price}, Current {current_price}")
 
-                    if order.side == "buy":
+                    # Market entry orders (leg_index=0, order_type=market) should trigger immediately
+                    # regardless of price, as they're meant to execute at current market price
+                    if order.order_type == "market" and order.leg_index == 0:
+                        should_trigger = True
+                        logger.info(f"Market entry order {order.id} - triggering immediately at current price {current_price}")
+                    elif order.side == "buy":
                         if current_price <= order.price:
                             should_trigger = True
                     else:
