@@ -66,6 +66,9 @@ interface PositionsState {
   setPositions: (positions: PositionGroup[]) => void;
 }
 
+// Track in-flight requests to prevent duplicate calls
+let pendingPositionsRequest: Promise<void> | null = null;
+
 const usePositionsStore = create<PositionsState>((set, get) => ({
   positions: [],
   positionHistory: [],
@@ -76,15 +79,26 @@ const usePositionsStore = create<PositionsState>((set, get) => ({
   setPositions: (positions) => set({ positions }),
 
   fetchPositions: async (isBackground = false) => {
-    if (!isBackground) set({ loading: true, error: null });
-    try {
-      const response = await api.get<PositionGroup[]>('/positions/active');
-      set({ positions: response.data, loading: false });
-    } catch (err: any) {
-      console.error("Failed to fetch positions", err);
-      // Only set error if not background, or handle silently
-      if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch positions', loading: false });
+    // Deduplicate: if there's already a pending request, wait for it
+    if (pendingPositionsRequest) {
+      return pendingPositionsRequest;
     }
+
+    if (!isBackground) set({ loading: true, error: null });
+
+    pendingPositionsRequest = (async () => {
+      try {
+        const response = await api.get<PositionGroup[]>('/positions/active');
+        set({ positions: response.data, loading: false });
+      } catch (err: any) {
+        console.error("Failed to fetch positions", err);
+        if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch positions', loading: false });
+      } finally {
+        pendingPositionsRequest = null;
+      }
+    })();
+
+    return pendingPositionsRequest;
   },
 
   fetchPositionHistory: async (isBackground = false, limit = 100, offset = 0) => {

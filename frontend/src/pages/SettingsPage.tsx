@@ -533,8 +533,10 @@ const SettingsPage: React.FC = () => {
     );
   }
 
+  // Use the backend API URL for webhooks (not frontend origin)
+  const apiBaseUrl = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL || `${window.location.origin}/api/v1`;
   const webhookUrl = settings?.id
-    ? `${window.location.origin}/api/v1/webhooks/${settings.id}/tradingview`
+    ? `${apiBaseUrl}/webhooks/${settings.id}/tradingview`
     : 'Loading...';
 
   const configuredExchanges = settings?.configured_exchanges || [];
