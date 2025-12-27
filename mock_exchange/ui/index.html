@@ -955,8 +955,8 @@
                 tbody.innerHTML = keys.map(k => `
                     <tr>
                         <td>${k.label}</td>
-                        <td><code>${k.apiKey}</code></td>
-                        <td><code>${k.apiSecret.substring(0, 8)}...</code></td>
+                        <td><code style="user-select: all; cursor: pointer;" title="Click to select" onclick="navigator.clipboard.writeText('${k.apiKey}'); showToast('API Key copied!', 'success')">${k.apiKey}</code></td>
+                        <td><code style="user-select: all; cursor: pointer;" title="Click to select" onclick="navigator.clipboard.writeText('${k.apiSecret}'); showToast('Secret copied!', 'success')">${k.apiSecret}</code></td>
                         <td><span class="badge ${k.isActive ? 'filled' : 'canceled'}">${k.isActive ? 'Active' : 'Inactive'}</span></td>
                     </tr>
                 `).join('');
