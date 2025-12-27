@@ -4,6 +4,7 @@ from enum import Enum as PyEnum
 from typing import List, Optional
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Enum as SQLAlchemyEnum,
@@ -68,6 +69,15 @@ class DCAConfiguration(Base):
     
     max_pyramids = Column(Integer, default=5, nullable=False)
 
+    # Capital Override Settings
+    # When enabled, uses fixed capital instead of webhook signal's position size
+    use_custom_capital = Column(Boolean, default=False, nullable=False)
+    custom_capital_usd = Column(Numeric(precision=18, scale=8), default=200.0, nullable=False)
+
+    # Per-pyramid capital overrides: {"1": 300.0, "2": 400.0, ...}
+    # If a pyramid index is not in this dict, falls back to custom_capital_usd
+    pyramid_custom_capitals = Column(JSON, nullable=False, default=dict)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -91,6 +101,9 @@ class DCAConfiguration(Base):
             "tp_mode": self.tp_mode.value if isinstance(self.tp_mode, PyEnum) else self.tp_mode,
             "tp_settings": self.tp_settings,
             "max_pyramids": self.max_pyramids,
+            "use_custom_capital": self.use_custom_capital,
+            "custom_capital_usd": float(self.custom_capital_usd) if self.custom_capital_usd else 200.0,
+            "pyramid_custom_capitals": self.pyramid_custom_capitals or {},
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }

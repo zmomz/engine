@@ -18,7 +18,7 @@ class DCALevelConfig(BaseModel):
 
 class DCAGridConfig(BaseModel):
     levels: List[DCALevelConfig] = Field(..., description="Default list of DCA levels.")
-    
+
     # New: Specific overrides per pyramid index (1-based index as string, e.g., "1", "2")
     pyramid_specific_levels: Dict[str, List[DCALevelConfig]] = Field(default_factory=dict, description="Specific DCA levels for each pyramid step.")
 
@@ -33,7 +33,7 @@ class DCAGridConfig(BaseModel):
         default_factory=dict,
         description="Per-pyramid TP percentages. Key is pyramid index (0, 1, 2...), value is TP %. Falls back to tp_aggregate_percent if not specified."
     )
-    
+
     max_pyramids: int = Field(5, description="Maximum number of pyramids allowed for this position group.")
 
     # Entry configuration (Add this to schema for validation even if stored in specific config table)
@@ -43,6 +43,24 @@ class DCAGridConfig(BaseModel):
     cancel_dca_beyond_percent: Optional[Decimal] = Field(
         default=None,
         description="Auto-cancel pending DCA orders when price moves beyond this % from entry. None = disabled."
+    )
+
+    # Capital Override Settings
+    # When enabled, uses fixed capital instead of webhook signal's position size
+    use_custom_capital: bool = Field(
+        default=False,
+        description="When True, uses custom_capital_usd instead of webhook signal's position size."
+    )
+    custom_capital_usd: Decimal = Field(
+        default=Decimal("200.0"),
+        description="Default capital in USD to allocate when use_custom_capital is True."
+    )
+    # Per-pyramid capital overrides: {"0": 200.0, "1": 300.0, "2": 400.0, ...}
+    # Key is pyramid index (0 = initial entry, 1, 2, ... = pyramids)
+    # If a pyramid index is not in this dict, falls back to custom_capital_usd
+    pyramid_custom_capitals: Dict[str, Decimal] = Field(
+        default_factory=dict,
+        description="Per-pyramid capital amounts in USD. Falls back to custom_capital_usd if not specified for a pyramid."
     )
     
     @model_validator(mode='after')
@@ -94,6 +112,22 @@ class DCAGridConfig(BaseModel):
             return self.pyramid_tp_percents[key]
         return self.tp_aggregate_percent
 
+    def get_capital_for_pyramid(self, pyramid_index: int) -> Decimal:
+        """
+        Returns the capital amount in USD for a specific pyramid index.
+        Falls back to custom_capital_usd if no pyramid-specific capital is configured.
+
+        Args:
+            pyramid_index: The pyramid index (0 = initial entry, 1, 2, ... = pyramids)
+
+        Returns:
+            Capital amount in USD to allocate for this pyramid
+        """
+        key = str(pyramid_index)
+        if key in self.pyramid_custom_capitals:
+            return self.pyramid_custom_capitals[key]
+        return self.custom_capital_usd
+
 class DCAConfigurationSchema(BaseModel):
     id: Optional[str] = None
     pair: str
@@ -105,7 +139,11 @@ class DCAConfigurationSchema(BaseModel):
     tp_mode: Literal["per_leg", "aggregate", "hybrid", "pyramid_aggregate"]
     tp_settings: Dict[str, Any] = Field(default_factory=dict)
     max_pyramids: int = 5
-    
+    # Capital Override Settings
+    use_custom_capital: bool = False
+    custom_capital_usd: Decimal = Decimal("200.0")
+    pyramid_custom_capitals: Dict[str, Decimal] = Field(default_factory=dict)
+
     @model_validator(mode='before')
     @classmethod
     def parse_tp_settings(cls, values):
@@ -122,6 +160,10 @@ class DCAConfigurationUpdate(BaseModel):
     tp_mode: Optional[Literal["per_leg", "aggregate", "hybrid", "pyramid_aggregate"]] = None
     tp_settings: Optional[Dict[str, Any]] = None
     max_pyramids: Optional[int] = None
+    # Capital Override Settings
+    use_custom_capital: Optional[bool] = None
+    custom_capital_usd: Optional[Decimal] = None
+    pyramid_custom_capitals: Optional[Dict[str, Decimal]] = None
 
 
 class PrecisionFallbackRules(BaseModel):

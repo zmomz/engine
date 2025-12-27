@@ -44,7 +44,19 @@
       "Bash(docker restart:*)",
       "Bash(docker exec:*)",
       "Bash(timeout 10 bash -c 'sleep 5 && curl -s http://127.0.0.1:9000/health')",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(timeout 15 bash:*)",
+      "Bash(timeout 30 curl:*)",
+      "Bash(timeout 5 curl:*)",
+      "Bash(timeout 60 curl -s -X POST \"http://127.0.0.1:8000/api/v1/webhooks/f937c6cb-f9f9-4d25-be19-db9bf596d7e1/tradingview\" -H \"Content-Type: application/json\" -d '{\"\"user_id\"\":\"\"f937c6cb-f9f9-4d25-be19-db9bf596d7e1\"\",\"\"secret\"\":\"\"ecd78c38d5ec54b4cd892735d0423671\"\",\"\"source\"\":\"\"tradingview\"\",\"\"timestamp\"\":\"\"2025-12-27T12:00:00\"\",\"\"tv\"\":{\"\"exchange\"\":\"\"mock\"\",\"\"symbol\"\":\"\"BTC/USDT\"\",\"\"timeframe\"\":60,\"\"action\"\":\"\"buy\"\",\"\"market_position\"\":\"\"long\"\",\"\"market_position_size\"\":200,\"\"prev_market_position\"\":\"\"flat\"\",\"\"prev_market_position_size\"\":0,\"\"entry_price\"\":1,\"\"close_price\"\":1,\"\"order_size\"\":200},\"\"strategy_info\"\":{\"\"trade_id\"\":\"\"test001\"\",\"\"alert_name\"\":\"\"Test\"\",\"\"alert_message\"\":\"\"Test\"\"},\"\"execution_intent\"\":{\"\"type\"\":\"\"signal\"\",\"\"side\"\":\"\"buy\"\",\"\"position_size_type\"\":\"\"quote\"\",\"\"precision_mode\"\":\"\"auto\"\"},\"\"risk\"\":{\"\"max_slippage_percent\"\":1.0}}')",
+      "Bash(timeout 60 curl:*)",
+      "Bash(for PAIR in BTCUSDT ETHUSDT ADAUSDT XRPUSDT DOGEUSDT LINKUSDT TRXUSDT LTCUSDT AVAXUSDT)",
+      "Bash(do)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(for PAIR in BTCUSDT ETHUSDT SOLUSDT ADAUSDT XRPUSDT DOGEUSDT LINKUSDT TRXUSDT LTCUSDT AVAXUSDT)",
+      "Bash(timeout 15 curl:*)",
+      "Bash(for price in 0.99 0.97 0.94)"
     ]
   }
 }

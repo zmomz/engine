@@ -56,7 +56,7 @@ class QueuedSignal(Base):
     priority_explanation = Column(String, nullable=True)
 
     is_pyramid_continuation = Column(Boolean, default=False)
-    current_loss_percent = Column(Numeric(10, 4))
+    current_loss_percent = Column(Numeric(20, 4))
 
     status = Column(
         SQLAlchemyEnum(QueueStatus, name="queue_status_enum", values_callable=lambda x: [e.value for e in x]),

@@ -81,6 +81,10 @@ class MockConnector(ExchangeInterface):
         ).hexdigest()
         return signature
 
+    def _normalize_symbol(self, symbol: str) -> str:
+        """Normalize symbol to exchange format (remove slash)."""
+        return symbol.replace("/", "")
+
     async def get_precision_rules(self) -> Dict:
         """
         Fetch precision rules from the mock exchange.
@@ -99,16 +103,23 @@ class MockConnector(ExchangeInterface):
 
             precision_rules = {}
             for symbol_info in data.get("symbols", []):
-                symbol = symbol_info["symbol"]
+                symbol = symbol_info["symbol"]  # e.g., "BTCUSDT"
                 filters = {f["filterType"]: f for f in symbol_info.get("filters", [])}
 
-                precision_rules[symbol] = {
+                rules = {
                     "tick_size": float(filters.get("PRICE_FILTER", {}).get("tickSize", "0.01")),
                     "step_size": float(filters.get("LOT_SIZE", {}).get("stepSize", "0.001")),
                     "min_qty": float(filters.get("LOT_SIZE", {}).get("minQty", "0.001")),
                     "max_qty": float(filters.get("LOT_SIZE", {}).get("maxQty", "9000")),
                     "min_notional": float(filters.get("MIN_NOTIONAL", {}).get("notional", "10")),
                 }
+
+                # Store under both formats: BTCUSDT and BTC/USDT
+                precision_rules[symbol] = rules
+                # Also store with slash format for compatibility with signal symbols
+                if symbol.endswith("USDT"):
+                    unified_symbol = symbol[:-4] + "/" + symbol[-4:]  # BTCUSDT -> BTC/USDT
+                    precision_rules[unified_symbol] = rules
 
             self._precision_cache = precision_rules
             self._precision_cache_time = current_time
@@ -140,9 +151,10 @@ class MockConnector(ExchangeInterface):
             Order response dict with id, status, etc.
         """
         try:
+            normalized_symbol = self._normalize_symbol(symbol)
             client = await self._get_client()
             payload = {
-                "symbol": symbol,
+                "symbol": normalized_symbol,
                 "side": side.upper(),
                 "type": order_type.upper(),
                 "quantity": float(quantity),
@@ -193,7 +205,7 @@ class MockConnector(ExchangeInterface):
             client = await self._get_client()
             params = {"orderId": order_id}
             if symbol:
-                params["symbol"] = symbol
+                params["symbol"] = self._normalize_symbol(symbol)
 
             response = await client.get("/fapi/v1/order", params=params)
 
@@ -236,7 +248,7 @@ class MockConnector(ExchangeInterface):
             client = await self._get_client()
             params = {"orderId": order_id}
             if symbol:
-                params["symbol"] = symbol
+                params["symbol"] = self._normalize_symbol(symbol)
 
             response = await client.delete("/fapi/v1/order", params=params)
 
@@ -257,14 +269,15 @@ class MockConnector(ExchangeInterface):
         Get current price for a symbol.
 
         Args:
-            symbol: Trading pair (e.g., 'BTCUSDT')
+            symbol: Trading pair (e.g., 'BTCUSDT' or 'BTC/USDT')
 
         Returns:
             Current price as Decimal
         """
         try:
+            normalized_symbol = self._normalize_symbol(symbol)
             client = await self._get_client()
-            response = await client.get("/fapi/v1/ticker/price", params={"symbol": symbol})
+            response = await client.get("/fapi/v1/ticker/price", params={"symbol": normalized_symbol})
             response.raise_for_status()
             data = response.json()
             return Decimal(data["price"])

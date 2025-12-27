@@ -457,13 +457,24 @@ class QueueManagerService:
                     logger.info(f"Using specific DCA configuration for {best_signal.symbol} {best_signal.timeframe}")
                     # Map DB model to Pydantic Schema
                     from enum import Enum as PyEnum
+
+                    # Parse pyramid_custom_capitals from DB (convert string keys to Decimal values)
+                    pyramid_custom_capitals_raw = specific_config.pyramid_custom_capitals or {}
+                    pyramid_custom_capitals = {
+                        k: Decimal(str(v)) for k, v in pyramid_custom_capitals_raw.items()
+                    }
+
                     dca_config = DCAGridConfig(
                         levels=specific_config.dca_levels,
                         tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
                         tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
                         max_pyramids=specific_config.max_pyramids,
                         entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
-                        pyramid_specific_levels=specific_config.pyramid_specific_levels or {}
+                        pyramid_specific_levels=specific_config.pyramid_specific_levels or {},
+                        # Capital Override Settings
+                        use_custom_capital=specific_config.use_custom_capital or False,
+                        custom_capital_usd=Decimal(str(specific_config.custom_capital_usd)) if specific_config.custom_capital_usd else Decimal("200.0"),
+                        pyramid_custom_capitals=pyramid_custom_capitals
                     )
                 else:
                     logger.error(f"No DCA configuration found for {best_signal.symbol} {best_signal.timeframe} (Exchange: {best_signal.exchange})")
@@ -527,13 +538,29 @@ class QueueManagerService:
                     entry_price = best_signal.entry_price
                     position_size_type = execution_intent.get("position_size_type", "contracts")
 
-                    # Convert order_size to USD value for capital allocation
-                    if position_size_type == "quote":
-                        # Already in quote currency (e.g., USDT)
-                        allocated_capital = order_size
+                    # Determine the pyramid index for this signal
+                    # For new positions: pyramid_index = 0
+                    # For pyramids: pyramid_index = target_group.pyramid_count + 1
+                    target_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
+                    if target_group:
+                        pyramid_index = target_group.pyramid_count + 1
                     else:
-                        # contracts or base: multiply by entry price to get USD value
-                        allocated_capital = order_size * entry_price
+                        pyramid_index = 0
+
+                    # Check if custom capital override is enabled
+                    if dca_config.use_custom_capital:
+                        # Use custom capital from DCA config instead of webhook signal
+                        allocated_capital = dca_config.get_capital_for_pyramid(pyramid_index)
+                        logger.info(f"Using custom capital override for pyramid {pyramid_index}: {allocated_capital} USD")
+                    else:
+                        # Convert order_size to USD value for capital allocation (original behavior)
+                        if position_size_type == "quote":
+                            # Already in quote currency (e.g., USDT)
+                            allocated_capital = order_size
+                        else:
+                            # contracts or base: multiply by entry price to get USD value
+                            allocated_capital = order_size * entry_price
+                        logger.info(f"Capital Allocation from signal: order_size={order_size} ({position_size_type}), Entry={entry_price}, Allocated={allocated_capital} USD")
 
                     # Apply max_total_exposure_usd as safety cap
                     if risk_config.max_total_exposure_usd and risk_config.max_total_exposure_usd > 0:
@@ -541,12 +568,10 @@ class QueueManagerService:
                             logger.warning(f"Order size {allocated_capital} USD exceeds max exposure {risk_config.max_total_exposure_usd} USD. Capping.")
                             allocated_capital = Decimal(str(risk_config.max_total_exposure_usd))
 
-                    logger.info(f"Capital Allocation from signal: order_size={order_size} ({position_size_type}), Entry={entry_price}, Allocated={allocated_capital} USD")
-
                     # RE-EVALUATE PYRAMID STATUS ON EXECUTION
                     # Even if is_pyramid was False (due to disabled rule), we check again here
                     # because now that we have a slot, if it matches an active group, we MUST pyramid.
-                    target_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
+                    # Note: target_group was already computed above for capital calculation
 
                     # pyramid_count starts at 0 for initial entry
                     # max_pyramids is the maximum pyramid_count value allowed

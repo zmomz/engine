@@ -43,6 +43,7 @@ export interface PositionGroup {
   risk_blocked: boolean;
   created_at: string;
   closed_at: string | null;
+  auto_hedge_close_qty: number | null;
   pyramids: Pyramid[];
 }
 

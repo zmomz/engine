@@ -18,6 +18,8 @@ import {
     Box,
     FormControlLabel,
     Checkbox,
+    Switch,
+    InputAdornment,
     useTheme,
     useMediaQuery
 } from '@mui/material';
@@ -56,7 +58,11 @@ const formSchema = z.object({
         tp_aggregate_percent: z.coerce.number().optional(),
         pyramid_tp_percents: z.record(z.string(), z.coerce.number()).optional()
     }),
-    max_pyramids: z.coerce.number().min(1)
+    max_pyramids: z.coerce.number().min(1),
+    // Capital Override Settings
+    use_custom_capital: z.boolean(),
+    custom_capital_usd: z.coerce.number().min(0),
+    pyramid_custom_capitals: z.record(z.string(), z.coerce.number()).optional()
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -141,7 +147,11 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
             pyramid_specific_levels: {},
             tp_mode: 'per_leg',
             tp_settings: { tp_aggregate_percent: 0, pyramid_tp_percents: {} },
-            max_pyramids: 5
+            max_pyramids: 5,
+            // Capital Override Settings - default OFF, uses webhook signal
+            use_custom_capital: false,
+            custom_capital_usd: 200,
+            pyramid_custom_capitals: {}
         }
     });
 
@@ -151,6 +161,10 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
     const maxPyramids = watch("max_pyramids") || 5;
     const pyramidSpecifics = watch("pyramid_specific_levels") || {};
     const pyramidTpPercents = watch("tp_settings.pyramid_tp_percents") || {};
+    // Capital Override Settings
+    const useCustomCapital = watch("use_custom_capital");
+    const customCapitalUsd = watch("custom_capital_usd");
+    const pyramidCustomCapitals = watch("pyramid_custom_capitals") || {};
 
     useEffect(() => {
         if (open) {
@@ -167,7 +181,11 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                         tp_aggregate_percent: initialData.tp_settings?.tp_aggregate_percent || 0,
                         pyramid_tp_percents: initialData.tp_settings?.pyramid_tp_percents || {}
                     },
-                    max_pyramids: initialData.max_pyramids
+                    max_pyramids: initialData.max_pyramids,
+                    // Capital Override Settings
+                    use_custom_capital: initialData.use_custom_capital || false,
+                    custom_capital_usd: initialData.custom_capital_usd || 200,
+                    pyramid_custom_capitals: initialData.pyramid_custom_capitals || {}
                 });
             } else {
                 reset({
@@ -179,7 +197,11 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                     pyramid_specific_levels: {},
                     tp_mode: 'per_leg',
                     tp_settings: { tp_aggregate_percent: 0, pyramid_tp_percents: {} },
-                    max_pyramids: 5
+                    max_pyramids: 5,
+                    // Capital Override Settings - default OFF
+                    use_custom_capital: false,
+                    custom_capital_usd: 200,
+                    pyramid_custom_capitals: {}
                 });
             }
             setTabIndex(0);
@@ -194,6 +216,17 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
             current[pyramidIdx] = value;
         }
         setValue("tp_settings.pyramid_tp_percents", current);
+    };
+
+    // Handler for per-pyramid capital changes
+    const handlePyramidCapitalChange = (pyramidIdx: string, value: number | null) => {
+        const current = { ...(watch("pyramid_custom_capitals") || {}) };
+        if (value === null || value === 0) {
+            delete current[pyramidIdx];
+        } else {
+            current[pyramidIdx] = value;
+        }
+        setValue("pyramid_custom_capitals", current);
     };
 
     const handleFormSubmit = async (data: FormValues) => {
@@ -317,6 +350,60 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                             </Grid>
                         )}
 
+                        {/* Capital Override Settings */}
+                        <Grid size={{ xs: 12 }}>
+                            <Typography variant="subtitle2" sx={{ mt: 1, fontWeight: 600 }}>Capital Size</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 12 }}>
+                            <Controller
+                                name="use_custom_capital"
+                                control={control}
+                                render={({ field }) => (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={field.value}
+                                                onChange={(e) => field.onChange(e.target.checked)}
+                                                size="small"
+                                            />
+                                        }
+                                        label={
+                                            <Box component="span" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                                                Override webhook position size
+                                            </Box>
+                                        }
+                                    />
+                                )}
+                            />
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                {useCustomCapital
+                                    ? "Using custom capital from settings below"
+                                    : "Using position size from TradingView webhook signal"}
+                            </Typography>
+                        </Grid>
+
+                        {useCustomCapital && (
+                            <Grid size={{ xs: 6, sm: 4 }}>
+                                <Controller
+                                    name="custom_capital_usd"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <TextField
+                                            {...field}
+                                            type="number"
+                                            label="Default Capital"
+                                            size="small"
+                                            fullWidth
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                            }}
+                                            inputProps={{ step: "1", min: "0" }}
+                                            helperText="Default for all pyramids"
+                                        />
+                                    )}
+                                />
+                            </Grid>
+                        )}
 
                         {/* Levels Tabs */}
                         <Grid size={{ xs: 12 }}>
@@ -380,6 +467,29 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                             </Box>
                                         )}
 
+                                        {/* P0 Capital override - only shown when custom capital is enabled */}
+                                        {useCustomCapital && (
+                                            <Box sx={{ mb: 2 }}>
+                                                <TextField
+                                                    type="number"
+                                                    label="P0 Capital (Initial Entry)"
+                                                    size="small"
+                                                    value={pyramidCustomCapitals["0"] || ''}
+                                                    onChange={(e) => handlePyramidCapitalChange(
+                                                        "0",
+                                                        e.target.value ? parseFloat(e.target.value) : null
+                                                    )}
+                                                    placeholder={`Default: $${customCapitalUsd || 200}`}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                                    }}
+                                                    inputProps={{ step: "1", min: "0" }}
+                                                    sx={{ width: { xs: '100%', sm: 200 } }}
+                                                    helperText="Leave empty to use default capital"
+                                                />
+                                            </Box>
+                                        )}
+
                                         {errors.dca_levels && (
                                             <Alert severity="error" sx={{ mb: 2, py: 0.5 }}>{(errors.dca_levels as any).root?.message || "Invalid levels"}</Alert>
                                         )}
@@ -407,6 +517,29 @@ const DCAConfigForm: React.FC<DCAConfigFormProps> = ({ open, onClose, onSubmit, 
                                                     inputProps={{ step: "0.01" }}
                                                     sx={{ width: { xs: '100%', sm: 200 } }}
                                                     helperText="Leave empty to use default Agg TP %"
+                                                />
+                                            </Box>
+                                        )}
+
+                                        {/* Per-Pyramid Capital override - only shown when custom capital is enabled */}
+                                        {useCustomCapital && (
+                                            <Box sx={{ mb: 2 }}>
+                                                <TextField
+                                                    type="number"
+                                                    label={`P${tabIndex} Capital`}
+                                                    size="small"
+                                                    value={pyramidCustomCapitals[tabIndex.toString()] || ''}
+                                                    onChange={(e) => handlePyramidCapitalChange(
+                                                        tabIndex.toString(),
+                                                        e.target.value ? parseFloat(e.target.value) : null
+                                                    )}
+                                                    placeholder={`Default: $${customCapitalUsd || 200}`}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                                    }}
+                                                    inputProps={{ step: "1", min: "0" }}
+                                                    sx={{ width: { xs: '100%', sm: 200 } }}
+                                                    helperText="Leave empty to use default capital"
                                                 />
                                             </Box>
                                         )}

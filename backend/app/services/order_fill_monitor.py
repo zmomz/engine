@@ -190,6 +190,13 @@ class OrderFillMonitorService:
                 # Get price from cache (batch fetched earlier)
                 current_price = prices_cache.get(order.symbol)
 
+                # Check if position group is closed - if so, cancel this order
+                if order.group and order.group.status in ['closed', 'closing']:
+                    if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]:
+                        logger.info(f"Order {order.id} belongs to closed/closing position group - cancelling")
+                        await order_service.cancel_order(order)
+                    return
+
                 # If already filled, we are here to check the TP order
                 if order.status == OrderStatus.FILLED.value:
                     updated_order = await order_service.check_tp_status(order)

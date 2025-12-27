@@ -104,13 +104,24 @@ class SignalRouterService:
                 logger.info(f"Using specific DCA configuration for {signal.tv.symbol} {signal.tv.timeframe}")
                 # Map DB model to Pydantic Schema
                 from enum import Enum as PyEnum
+
+                # Parse pyramid_custom_capitals from DB (convert string keys to Decimal values)
+                pyramid_custom_capitals_raw = specific_config.pyramid_custom_capitals or {}
+                pyramid_custom_capitals = {
+                    k: Decimal(str(v)) for k, v in pyramid_custom_capitals_raw.items()
+                }
+
                 dca_config = DCAGridConfig(
                     levels=specific_config.dca_levels,
                     tp_mode=specific_config.tp_mode.value if isinstance(specific_config.tp_mode, PyEnum) else specific_config.tp_mode,
                     tp_aggregate_percent=Decimal(str(specific_config.tp_settings.get("tp_aggregate_percent", 0))),
                     max_pyramids=specific_config.max_pyramids,
                     entry_order_type=specific_config.entry_order_type.value if isinstance(specific_config.entry_order_type, PyEnum) else specific_config.entry_order_type,
-                    pyramid_specific_levels=specific_config.pyramid_specific_levels or {}
+                    pyramid_specific_levels=specific_config.pyramid_specific_levels or {},
+                    # Capital Override Settings
+                    use_custom_capital=specific_config.use_custom_capital or False,
+                    custom_capital_usd=Decimal(str(specific_config.custom_capital_usd)) if specific_config.custom_capital_usd else Decimal("200.0"),
+                    pyramid_custom_capitals=pyramid_custom_capitals
                 )
                 # Cache for future requests
                 await cache.set_dca_config(
@@ -260,15 +271,28 @@ class SignalRouterService:
                 entry_price = Decimal(str(signal.tv.entry_price))
                 position_size_type = signal.execution_intent.position_size_type
 
-                # Convert order_size to USD value for capital allocation
-                if position_size_type == "quote":
-                    # Already in quote currency (e.g., USDT)
-                    total_capital = order_size
+                # Determine the pyramid index for this signal
+                # For new positions: pyramid_index = 0
+                # For pyramids: pyramid_index = existing_group.pyramid_count + 1
+                if existing_group:
+                    pyramid_index = existing_group.pyramid_count + 1
                 else:
-                    # contracts or base: multiply by entry price to get USD value
-                    total_capital = order_size * entry_price
+                    pyramid_index = 0
 
-                logger.info(f"Signal order_size: {order_size} ({position_size_type}), Entry: {entry_price}, Total Capital USD: {total_capital}")
+                # Check if custom capital override is enabled
+                if dca_config.use_custom_capital:
+                    # Use custom capital from DCA config instead of webhook signal
+                    total_capital = dca_config.get_capital_for_pyramid(pyramid_index)
+                    logger.info(f"Using custom capital override for pyramid {pyramid_index}: {total_capital} USD")
+                else:
+                    # Convert order_size to USD value for capital allocation (original behavior)
+                    if position_size_type == "quote":
+                        # Already in quote currency (e.g., USDT)
+                        total_capital = order_size
+                    else:
+                        # contracts or base: multiply by entry price to get USD value
+                        total_capital = order_size * entry_price
+                    logger.info(f"Signal order_size: {order_size} ({position_size_type}), Entry: {entry_price}, Total Capital USD: {total_capital}")
 
                 # Apply Risk Config Limit (max exposure) as safety cap
                 if risk_config.max_total_exposure_usd:

@@ -349,10 +349,20 @@ class PositionManagerService:
                             session=session
                         )
 
-            # Auto-close check
+            # Auto-close check - when all filled legs have been TP'd (qty = 0)
             if current_qty <= 0 and len(filled_orders) > 0 and position_group.status not in [PositionGroupStatus.CLOSED, PositionGroupStatus.CLOSING]:
                 position_group.status = PositionGroupStatus.CLOSED
                 position_group.closed_at = datetime.utcnow()
+
+                # Cancel any remaining unfilled DCA orders
+                order_service = self.order_service_class(
+                    session=session,
+                    user=user,
+                    exchange_connector=exchange_connector
+                )
+                await order_service.cancel_open_orders_for_group(group_id)
+                logger.info(f"Position {group_id} auto-closed (all TPs hit), cancelled remaining unfilled orders")
+
             await position_group_repo.update(position_group)
 
             # --- 4. TP Execution Logic ---
@@ -407,10 +417,13 @@ class PositionManagerService:
                             record_in_db=True
                         )
 
-                        position_group.status = PositionGroupStatus.CLOSING
+                        # After aggregate TP market close, position is fully closed
+                        position_group.status = PositionGroupStatus.CLOSED
+                        position_group.closed_at = datetime.utcnow()
+                        position_group.total_filled_quantity = Decimal("0")
                         await position_group_repo.update(position_group)
 
-                        logger.info(f"Executed Aggregate TP Market Close for Group {group_id}")
+                        logger.info(f"Executed Aggregate TP Market Close for Group {group_id} - Position CLOSED")
 
                 # --- 5. Pyramid Aggregate TP Execution Logic ---
                 elif position_group.tp_mode == "pyramid_aggregate" and position_group.tp_aggregate_percent > 0:
@@ -562,5 +575,23 @@ class PositionManagerService:
                 for order in pyramid_filled_orders:
                     order.tp_hit = True
                     order.tp_executed_at = datetime.utcnow()
+
+                # Update pyramid status to FILLED (indicating TP executed and pyramid is closed)
+                pyramid.status = PyramidStatus.FILLED
+                logger.info(f"Pyramid {pyramid.pyramid_index} status updated to FILLED after aggregate TP execution")
+
+                # Check if all pyramids are now closed
+                all_pyramids_closed = all(
+                    p.status == PyramidStatus.FILLED or
+                    (p.id == pyramid.id)  # Current pyramid is being closed
+                    for p in pyramids
+                )
+
+                if all_pyramids_closed:
+                    # All pyramids have been TP'd, close the position
+                    position_group.status = PositionGroupStatus.CLOSED
+                    position_group.closed_at = datetime.utcnow()
+                    await position_group_repo.update(position_group)
+                    logger.info(f"All pyramids closed for Group {position_group.id} - Position CLOSED")
 
                 logger.info(f"Executed Pyramid Aggregate TP Market Close for Pyramid {pyramid.pyramid_index}, Qty: {total_qty}")

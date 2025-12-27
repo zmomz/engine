@@ -10,6 +10,7 @@ import {
   Button,
   Divider,
   LinearProgress,
+  Tooltip,
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
@@ -191,6 +192,20 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
                 {position.risk_blocked ? '⚠️ Blocked' : position.risk_eligible ? '✅ Eligible' : '○ N/A'}
               </Typography>
             </Box>
+            {position.auto_hedge_close_qty != null && position.auto_hedge_close_qty > 0 && (
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <Tooltip title="The quantity of this winning position that will be closed to recover the USD loss from another losing position, based on current profit per unit">
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Auto Hedge Close Qty ℹ️
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'warning.main', fontWeight: 500 }}>
+                      {safeToFixed(position.auto_hedge_close_qty, 4)}
+                    </Typography>
+                  </Box>
+                </Tooltip>
+              </Box>
+            )}
           </Box>
 
           {/* Risk Timer */}

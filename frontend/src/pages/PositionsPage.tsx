@@ -32,6 +32,7 @@ import PercentIcon from '@mui/icons-material/Percent';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import useConfirmStore from '../store/confirmStore';
 import usePositionsStore, { PositionGroup } from '../store/positionsStore';
 import { format } from 'date-fns';
@@ -247,7 +248,7 @@ const PositionsPage: React.FC = () => {
     {
       field: 'expand',
       headerName: '',
-      width: 45,
+      width: 55,
       sortable: false,
       filterable: false,
       align: 'center',
@@ -390,9 +391,38 @@ const PositionsPage: React.FC = () => {
       ),
     },
     {
+      field: 'auto_hedge_close_qty',
+      headerName: 'Hedge Qty',
+      width: 110,
+      align: 'right',
+      headerAlign: 'right',
+      description: 'The quantity of this winning position that will be closed to recover the USD loss from another losing position, based on current profit per unit',
+      renderHeader: () => (
+        <Tooltip title="The quantity of this winning position that will be closed to recover the USD loss from another losing position, based on current profit per unit">
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography sx={{ fontSize: '0.813rem' }}>Hedge Qty</Typography>
+            <InfoOutlinedIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+          </Box>
+        </Tooltip>
+      ),
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
+        const value = params.row.auto_hedge_close_qty;
+        if (value === null || value === undefined || value === 0) {
+          return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
+        }
+        return (
+          <Tooltip title={`Close ${safeToFixed(value, 6)} to offset loser`}>
+            <Typography sx={{ ...monoStyle, color: 'warning.main', fontWeight: 500 }}>
+              {safeToFixed(value, 4)}
+            </Typography>
+          </Tooltip>
+        );
+      },
+    },
+    {
       field: 'actions',
       headerName: '',
-      width: 80,
+      width: 95,
       sortable: false,
       align: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
@@ -842,7 +872,7 @@ const PositionsPage: React.FC = () => {
                           <CardContent sx={{ p: 2 }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                               <Typography variant="body2" fontWeight={600}>
-                                Pyramid #{idx + 1}
+                                Pyramid #{idx}
                               </Typography>
                               <Chip
                                 label={pyramid.status}

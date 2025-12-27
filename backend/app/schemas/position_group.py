@@ -70,7 +70,10 @@ class PositionGroupSchema(BaseModel):
     created_at: datetime
     updated_at: datetime
     closed_at: datetime | None = None
-    
+
+    # Auto-calculated field: quantity to close from this winning position to offset a loser
+    auto_hedge_close_qty: Decimal | None = None
+
     pyramids: List[PyramidSchema] = []
 
     model_config = ConfigDict(from_attributes=True)
