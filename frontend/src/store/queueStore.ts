@@ -33,6 +33,10 @@ interface QueueState {
   queueHistory: QueuedSignal[];
 }
 
+// Track in-flight requests to prevent duplicate calls
+let pendingQueueRequest: Promise<void> | null = null;
+let pendingHistoryRequest: Promise<void> | null = null;
+
 const useQueueStore = create<QueueState>((set) => ({
   queuedSignals: [],
   queueHistory: [],
@@ -42,26 +46,49 @@ const useQueueStore = create<QueueState>((set) => ({
   setQueuedSignals: (signals) => set({ queuedSignals: signals }),
 
   fetchQueuedSignals: async (isBackground = false) => {
-    if (!isBackground) set({ loading: true, error: null });
-    try {
-      const response = await api.get<QueuedSignal[]>('/queue/');
-      set({ queuedSignals: response.data, loading: false });
-    } catch (err: any) {
-      console.error("Failed to fetch queued signals", err);
-      // Only set error if not background, or handle silently
-      if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch queued signals', loading: false });
+    // Deduplicate: if there's already a pending request, wait for it
+    if (pendingQueueRequest) {
+      return pendingQueueRequest;
     }
+
+    if (!isBackground) set({ loading: true, error: null });
+
+    pendingQueueRequest = (async () => {
+      try {
+        const response = await api.get<QueuedSignal[]>('/queue/');
+        set({ queuedSignals: response.data, loading: false });
+      } catch (err: any) {
+        console.error("Failed to fetch queued signals", err);
+        if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch queued signals', loading: false });
+      } finally {
+        pendingQueueRequest = null;
+      }
+    })();
+
+    return pendingQueueRequest;
   },
 
   fetchQueueHistory: async (isBackground = false) => {
-    if (!isBackground) set({ loading: true, error: null });
-    try {
-      const response = await api.get<QueuedSignal[]>('/queue/history');
-      set({ queueHistory: response.data, loading: false });
-    } catch (err: any) {
-      console.error("Failed to fetch queue history", err);
-      if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch queue history', loading: false });
+    // Deduplicate: if there's already a pending request, wait for it
+    if (pendingHistoryRequest) {
+      return pendingHistoryRequest;
     }
+
+    if (!isBackground) set({ loading: true, error: null });
+
+    pendingHistoryRequest = (async () => {
+      try {
+        const response = await api.get<QueuedSignal[]>('/queue/history');
+        set({ queueHistory: response.data, loading: false });
+      } catch (err: any) {
+        console.error("Failed to fetch queue history", err);
+        if (!isBackground) set({ error: err.response?.data?.detail || 'Failed to fetch queue history', loading: false });
+      } finally {
+        pendingHistoryRequest = null;
+      }
+    })();
+
+    return pendingHistoryRequest;
   },
 
   promoteSignal: async (signalId: string) => {

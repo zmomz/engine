@@ -72,24 +72,39 @@ interface RiskStore {
   syncExchange: () => Promise<void>;
 }
 
+// Track in-flight request to prevent duplicate calls
+let pendingRiskRequest: Promise<void> | null = null;
+
 const useRiskStore = create<RiskStore>((set) => ({
   status: null,
   loading: false,
   error: null,
 
   fetchStatus: async (isBackground = false) => {
-    if (!isBackground) set({ loading: true, error: null });
-    try {
-      const response = await api.get('/risk/status');
-
-      if (response.data.status === 'not_configured' || response.data.status === 'error') {
-        set({ status: null, error: response.data.message, loading: false });
-      } else {
-        set({ status: response.data, loading: false });
-      }
-    } catch (error: any) {
-      if (!isBackground) set({ error: error.response?.data?.detail || 'Failed to fetch risk status', loading: false });
+    // Deduplicate: if there's already a pending request, wait for it
+    if (pendingRiskRequest) {
+      return pendingRiskRequest;
     }
+
+    if (!isBackground) set({ loading: true, error: null });
+
+    pendingRiskRequest = (async () => {
+      try {
+        const response = await api.get('/risk/status');
+
+        if (response.data.status === 'not_configured' || response.data.status === 'error') {
+          set({ status: null, error: response.data.message, loading: false });
+        } else {
+          set({ status: response.data, loading: false });
+        }
+      } catch (error: any) {
+        if (!isBackground) set({ error: error.response?.data?.detail || 'Failed to fetch risk status', loading: false });
+      } finally {
+        pendingRiskRequest = null;
+      }
+    })();
+
+    return pendingRiskRequest;
   },
 
   runEvaluation: async () => {

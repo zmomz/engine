@@ -81,25 +81,40 @@ interface DashboardStore {
   fetchDashboardData: (isBackground?: boolean) => Promise<void>;
 }
 
+// Track in-flight request to prevent duplicate calls
+let pendingRequest: Promise<void> | null = null;
+
 const useDashboardStore = create<DashboardStore>((set) => ({
   data: null,
   loading: false,
   error: null,
 
   fetchDashboardData: async (isBackground = false) => {
-    if (!isBackground) set({ loading: true, error: null });
-    try {
-      const response = await api.get('/dashboard/analytics');
-      set({ data: response.data, loading: false });
-    } catch (error: any) {
-      console.error('Failed to fetch dashboard data', error);
-      if (!isBackground) {
-        set({
-          error: error.response?.data?.detail || 'Failed to fetch dashboard data',
-          loading: false
-        });
-      }
+    // Deduplicate: if there's already a pending request, wait for it
+    if (pendingRequest) {
+      return pendingRequest;
     }
+
+    if (!isBackground) set({ loading: true, error: null });
+
+    pendingRequest = (async () => {
+      try {
+        const response = await api.get('/dashboard/analytics');
+        set({ data: response.data, loading: false });
+      } catch (error: any) {
+        console.error('Failed to fetch dashboard data', error);
+        if (!isBackground) {
+          set({
+            error: error.response?.data?.detail || 'Failed to fetch dashboard data',
+            loading: false
+          });
+        }
+      } finally {
+        pendingRequest = null;
+      }
+    })();
+
+    return pendingRequest;
   },
 }));
 
