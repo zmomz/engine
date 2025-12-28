@@ -196,7 +196,10 @@ async def position_manager_service(
     
     with patch('app.core.security.EncryptionService') as MockEncryptionService:
         MockEncryptionService.return_value.decrypt_keys.return_value = ("dummy_api_key", "dummy_secret_key")
-        with patch('app.services.position_manager.get_exchange_connector') as mock_get_connector:
+        # Patch get_exchange_connector in the modules that actually use it
+        with patch('app.services.position.position_manager.get_exchange_connector') as mock_get_connector, \
+             patch('app.services.position.position_creator.get_exchange_connector') as mock_get_connector2, \
+             patch('app.services.position.position_closer.get_exchange_connector') as mock_get_connector3:
             mock_connector = AsyncMock() # Ensure it's an AsyncMock
             mock_connector.get_precision_rules.return_value = {
                 "BTCUSDT": {"tick_size": 0.01, "step_size": 0.000001, "min_qty": 0.000001, "min_notional": 10.0}
@@ -204,10 +207,12 @@ async def position_manager_service(
             mock_connector.get_current_price.return_value = Decimal("100") # Mock return value for get_current_price
             mock_connector.close = AsyncMock() # Mock the close method
             mock_get_connector.return_value = mock_connector
+            mock_get_connector2.return_value = mock_connector
+            mock_get_connector3.return_value = mock_connector
 
             yield PositionManagerService(
-                session_factory=mock_session_factory, 
-                user=user, 
+                session_factory=mock_session_factory,
+                user=user,
                 position_group_repository_class=mock_position_group_repository_class,
                 grid_calculator_service=mock_grid_calculator_service,
                 order_service_class=mock_order_service_class
@@ -692,7 +697,7 @@ def test_get_exchange_connector_for_user_dict_format():
         order_service_class=MagicMock()
     )
 
-    with patch("app.services.position_manager.get_exchange_connector") as mock_connector:
+    with patch("app.services.position.position_manager.get_exchange_connector") as mock_connector:
         mock_connector.return_value = MagicMock()
         result = service._get_exchange_connector_for_user(user, "binance")
         mock_connector.assert_called_once()
@@ -711,7 +716,7 @@ def test_get_exchange_connector_for_user_string_format():
         order_service_class=MagicMock()
     )
 
-    with patch("app.services.position_manager.get_exchange_connector") as mock_connector:
+    with patch("app.services.position.position_manager.get_exchange_connector") as mock_connector:
         mock_connector.return_value = MagicMock()
         result = service._get_exchange_connector_for_user(user, "binance")
         mock_connector.assert_called_once_with("binance", {"encrypted_data": "legacy_encrypted_string"})

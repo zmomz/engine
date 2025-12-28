@@ -37,14 +37,12 @@ async def test_force_close_position_multi_exchange_success(authorized_client, te
     # 3. Mocks
     mock_connector = AsyncMock()
     mock_connector.get_current_price.return_value = Decimal("2900")
-    
-    with patch("app.api.positions.get_exchange_connector", return_value=mock_connector), \
-         patch("app.api.positions.EncryptionService") as mock_encrypt_cls, \
+
+    with patch("app.api.positions.ExchangeConfigService") as mock_config_service, \
          patch("app.api.positions.OrderService") as mock_order_service_cls, \
          patch("app.api.positions.PositionManagerService") as mock_pm_service_cls:
-        
-        mock_encrypt = mock_encrypt_cls.return_value
-        mock_encrypt.decrypt_keys.return_value = ("k", "s")
+
+        mock_config_service.get_connector.return_value = mock_connector
 
         mock_order_service = mock_order_service_cls.return_value
         async def mock_exec_close(group_id):
@@ -90,17 +88,14 @@ async def test_force_close_position_connector_error(authorized_client, test_user
     db_session.add(test_user)
     await db_session.commit()
 
-    with (
-        patch("app.api.positions.get_exchange_connector", side_effect=Exception("Connection Error")),
-        patch("app.api.positions.EncryptionService") as mock_encrypt_cls
-    ):
-        mock_encrypt = mock_encrypt_cls.return_value
-        mock_encrypt.decrypt_keys.return_value = ("k", "s")
-        
+    with patch("app.api.positions.ExchangeConfigService") as mock_config_service:
+        mock_config_service.get_connector.side_effect = Exception("Connection Error")
+
         response = await authorized_client.post(f"/api/v1/positions/{pg.id}/close")
-        
+
         assert response.status_code == 500
-        assert "Connection Error" in response.json()["detail"]
+        # API catches and logs errors, returns generic message
+        assert "An unexpected error occurred" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_get_position_history_unauthorized(authorized_client, test_user):

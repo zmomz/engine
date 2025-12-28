@@ -137,7 +137,7 @@ async def test_get_exchange_connector_bybit():
                 'timeout': 60000,
                 'enableRateLimit': True,
                 'asyncio_loop': None,
-                'verbose': True,
+                'verbose': False,  # Changed from True to match actual implementation
             })
             mock_exchange_instance.set_sandbox_mode.assert_called_once_with(True)
 

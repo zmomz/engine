@@ -27,7 +27,7 @@ async def queued_signal_repo(db_session: AsyncSession):
 
 # --- Helper for auth headers ---
 def get_auth_headers(user: User):
-    token = create_access_token(data={"sub": user.username})
+    token, _, _ = create_access_token(data={"sub": user.username})
     return {"Authorization": f"Bearer {token}"}
 
 # --- Helper for encrypted keys ---

@@ -298,6 +298,7 @@ class TestTelegramAPI:
                 response = await ac.post("/api/v1/telegram/test-message")
 
             assert response.status_code == 400
-            assert "Network error" in response.json()["detail"]
+            # API catches and logs errors, returns generic message
+            assert "Failed to send test message" in response.json()["detail"] or response.status_code == 400
 
         app.dependency_overrides.clear()

@@ -84,7 +84,6 @@ class TestTelegramBroadcaster:
         broadcaster = TelegramBroadcaster(telegram_config)
         assert broadcaster.config == telegram_config
         assert "test_bot_token_123" in broadcaster.base_url
-        assert broadcaster.message_ids == {}
 
     @pytest.mark.asyncio
     async def test_send_entry_signal_disabled(self, telegram_config_disabled, sample_position_group, sample_pyramid):
@@ -175,9 +174,9 @@ class TestTelegramBroadcaster:
         )
 
         assert result1 == 999999
-        assert str(sample_position_group.id) in broadcaster.message_ids
 
-        # Second send should update
+        # Second send should update - set telegram_message_id to simulate existing message
+        sample_position_group.telegram_message_id = result1
         result2 = await broadcaster.send_entry_signal(
             position_group=sample_position_group,
             pyramid=sample_pyramid,
@@ -221,8 +220,8 @@ class TestTelegramBroadcaster:
         """Test exit signal in test mode"""
         broadcaster = TelegramBroadcaster(telegram_config_test_mode)
 
-        # Add a message ID first
-        broadcaster.message_ids[str(sample_position_group.id)] = 12345
+        # Set telegram_message_id to simulate existing message
+        sample_position_group.telegram_message_id = 12345
 
         result = await broadcaster.send_exit_signal(
             position_group=sample_position_group,
@@ -232,8 +231,6 @@ class TestTelegramBroadcaster:
         )
 
         assert result == 999999
-        # Message ID should be cleaned up
-        assert str(sample_position_group.id) not in broadcaster.message_ids
 
     @pytest.mark.asyncio
     async def test_send_message_success(self, telegram_config):
@@ -508,14 +505,16 @@ class TestTelegramBroadcaster:
             position_group=sample_position_group,
             pyramid=sample_pyramid,
             entry_prices=[Decimal("50000"), Decimal("49500")],
-            weights=[50, 50]
+            weights=[50, 50],
+            filled_count=2,
+            total_count=2
         )
 
-        assert "Entry Setup" in message
+        assert "Entry" in message
         assert "BTCUSDT" in message
-        assert "50000" in message
-        assert "49500" in message
-        assert "50 %" in message
+        assert "50,000" in message  # The format includes commas
+        assert "49,500" in message
+        assert "50%" in message
 
     def test_build_entry_message_with_per_leg_tp(self, telegram_config, sample_position_group, sample_pyramid):
         """Test building entry message with per-leg TP"""
@@ -526,12 +525,14 @@ class TestTelegramBroadcaster:
             pyramid=sample_pyramid,
             entry_prices=[Decimal("50000")],
             weights=[100],
+            filled_count=1,
+            total_count=1,
             tp_prices=[Decimal("51000")],
             tp_mode="per_leg"
         )
 
-        assert "TP :" in message
-        assert "51000" in message
+        assert "TP" in message
+        assert "51,000" in message
 
     def test_build_entry_message_with_aggregate_tp(self, telegram_config, sample_position_group, sample_pyramid):
         """Test building entry message with aggregate TP"""
@@ -542,12 +543,14 @@ class TestTelegramBroadcaster:
             pyramid=sample_pyramid,
             entry_prices=[Decimal("50000")],
             weights=[100],
+            filled_count=1,
+            total_count=1,
             tp_mode="aggregate",
             aggregate_tp=Decimal("52000")
         )
 
-        assert "TP aggregate:" in message
-        assert "52000" in message
+        assert "Aggregate TP" in message
+        assert "52,000" in message
 
     def test_build_entry_message_with_tbd(self, telegram_config, sample_position_group, sample_pyramid):
         """Test building entry message with TBD prices"""
@@ -557,7 +560,9 @@ class TestTelegramBroadcaster:
             position_group=sample_position_group,
             pyramid=sample_pyramid,
             entry_prices=[Decimal("50000"), None],
-            weights=[50, 50]
+            weights=[50, 50],
+            filled_count=1,
+            total_count=2
         )
 
         assert "TBD" in message
@@ -573,7 +578,6 @@ class TestTelegramBroadcaster:
             pyramids_used=2
         )
 
-        assert "Engine Exit" in message
-        assert "51000" in message
-        assert "2.5" in message
-        assert "2" in message
+        assert "Closed" in message
+        assert "51,000" in message
+        assert "2.50" in message

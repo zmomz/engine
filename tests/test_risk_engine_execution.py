@@ -143,7 +143,7 @@ async def test_evaluate_positions_no_losers(mock_deps):
     session_factory = MagicMock()
     session_factory.return_value.__aiter__.return_value = [mock_deps["session"]]
 
-    with patch("app.services.risk_engine.UserRepository", return_value=mock_deps["user_repo"]):
+    with patch("app.services.risk.risk_engine.UserRepository", return_value=mock_deps["user_repo"]):
         service = RiskEngineService(
             session_factory=session_factory,
             position_group_repository_class=MagicMock(return_value=mock_deps["position_group_repo"]),

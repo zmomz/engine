@@ -36,21 +36,18 @@ def mock_config():
 
 @pytest.fixture
 def risk_service(mock_config):
-    # Patch EncryptionService globally for risk_engine tests
-    with patch("app.services.risk_engine.EncryptionService") as MockEncryptionService:
-        mock_encryption_instance = MockEncryptionService.return_value
-        mock_encryption_instance.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
-        
-        service = RiskEngineService(
-            session_factory=AsyncMock(),
-            position_group_repository_class=MagicMock(),
-            risk_action_repository_class=MagicMock(),
-            dca_order_repository_class=MagicMock(),
-            order_service_class=MagicMock(),
-            risk_engine_config=mock_config,
-            polling_interval_seconds=1
-        )
-        yield service
+    # RiskEngineService doesn't use EncryptionService - it uses get_exchange_connector
+    # We can create the service directly as it's initialization doesn't require patching
+    service = RiskEngineService(
+        session_factory=AsyncMock(),
+        position_group_repository_class=MagicMock(),
+        risk_action_repository_class=MagicMock(),
+        dca_order_repository_class=MagicMock(),
+        order_service_class=MagicMock(),
+        risk_engine_config=mock_config,
+        polling_interval_seconds=1
+    )
+    yield service
 
 @pytest.fixture
 def mock_positions():
@@ -240,7 +237,7 @@ async def test_calculate_partial_close_quantities_exact_coverage(mock_user):
     precision_rules = {"ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10")}}
     
     # Mock the exchange connector within the calculate_partial_close_quantities function
-    with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
+    with patch('app.services.risk.risk_executor.get_exchange_connector') as mock_get_connector:
         # Create an AsyncMock instance that will be returned by get_exchange_connector
         mock_exchange_instance = AsyncMock()
         mock_exchange_instance.get_current_price.return_value = Decimal("2900.0") 
@@ -278,7 +275,7 @@ async def test_calculate_partial_close_quantities_insufficient_winner(mock_user)
     }
     
     # Mock the exchange connector within the calculate_partial_close_quantities function
-    with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
+    with patch('app.services.risk.risk_executor.get_exchange_connector') as mock_get_connector:
         # Create an AsyncMock instance that will be returned by get_exchange_connector
         mock_exchange_instance = AsyncMock()
         mock_exchange_instance.get_current_price.side_effect = [Decimal("1100.0"), Decimal("11000.0")]
@@ -307,7 +304,7 @@ async def test_calculate_partial_close_min_notional_skip(mock_user):
     required_usd = Decimal("0.5")
     precision_rules = {"DOGE/USD": {"step_size": Decimal("1"), "min_notional": Decimal("10")}}
     
-    with patch('app.services.risk_engine.get_exchange_connector') as mock_get_connector:
+    with patch('app.services.risk.risk_executor.get_exchange_connector') as mock_get_connector:
         # Create an AsyncMock instance that will be returned by get_exchange_connector
         mock_exchange_instance = AsyncMock()
         mock_exchange_instance.get_current_price.return_value = Decimal("0.11") # Profit 0.01 per unit

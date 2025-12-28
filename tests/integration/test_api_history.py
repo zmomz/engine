@@ -89,15 +89,18 @@ async def test_get_position_history(
 
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
+    # Response is paginated: {"items": [...], "total": N, "limit": X, "offset": Y}
+    items = data["items"]
+    assert len(items) == 2
+    assert data["total"] == 2
 
-    symbols_in_history = {p["symbol"] for p in data}
+    symbols_in_history = {p["symbol"] for p in items}
     assert "BTCUSDT" in symbols_in_history
     assert "ETHUSDT" in symbols_in_history
     assert "ADAUSDT" not in symbols_in_history
 
     # Verify content of a closed position
-    for pos in data:
+    for pos in items:
         if pos["symbol"] == "BTCUSDT":
             assert pos["status"] == PositionGroupStatus.CLOSED.value
             assert UUID(pos["user_id"]) == test_user.id

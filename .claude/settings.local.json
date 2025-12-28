@@ -84,7 +84,22 @@
       "Bash(# Drop BTC to fill remaining orders curl -s -X PUT \"\"http://127.0.0.1:9000/admin/symbols/BTCUSDT/price\"\" -H \"\"Content-Type: application/json\"\" -d ''{\"\"price\"\": 85000}'' echo \"\"BTC dropped to 85000 to fill remaining orders\"\" timeout 5 bash -c ''sleep 3'' # Check BTC position curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/positions/active\"\" | python -m json.tool)",
       "Bash(# Check remaining BTC orders and current price curl -s \"\"http://127.0.0.1:9000/admin/symbols\"\" | python -m json.tool)",
       "Bash(timeout 10 bash:*)",
-      "Bash(timeout 20 bash -c 'for i in {1..20}; do curl -s http://127.0.0.1:8000/health > /dev/null && echo \"\"App ready\"\" && exit 0; sleep 1; done; echo \"\"Timeout\"\"')"
+      "Bash(timeout 20 bash -c 'for i in {1..20}; do curl -s http://127.0.0.1:8000/health > /dev/null && echo \"\"App ready\"\" && exit 0; sleep 1; done; echo \"\"Timeout\"\"')",
+      "Bash(# Now check risk status again curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/risk/status\"\")",
+      "Bash(# Set all timers as expired for all positions docker compose exec db psql -U tv_user -d tv_engine_db -c \"\"UPDATE position_groups SET risk_timer_start = NOW\\(\\) - INTERVAL ''10 minutes'', risk_timer_expires = NOW\\(\\) - INTERVAL ''5 minutes'', risk_eligible = true WHERE exchange = ''mock'';\"\" # Check risk status curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/risk/status\"\")",
+      "Bash(# Get raw response curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/risk/status\"\")",
+      "Bash(1 echo \"\" echo \"Exit code: $?\")",
+      "Bash(Select-String -Pattern \"risk|offset\" -CaseSensitive:$false)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_mock_connector.py -v)",
+      "Bash(.venv/bin/python -m pytest tests/test_mock_connector.py -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_signal_router_coverage.py -v --tb=short)",
+      "Bash(timeout 120 docker compose exec app python -m pytest:*)",
+      "Bash(timeout 180 docker compose exec app python -m pytest:*)",
+      "Bash(timeout 60 docker compose exec app python -m pytest:*)",
+      "Bash(timeout 700 docker compose exec app python -m pytest:*)",
+      "Bash(timeout 300 docker compose exec app python -m pytest:*)",
+      "Bash(timeout 120 docker compose exec app python:*)",
+      "Bash(timeout 180 docker compose exec app python:*)"
     ]
   }
 }

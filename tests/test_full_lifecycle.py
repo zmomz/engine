@@ -82,7 +82,8 @@ async def test_full_lifecycle_tp_fill(db_session):
     mock_exchange.get_current_price.return_value = Decimal("50500") # Needed for update_position_stats
     
     with patch("app.services.order_fill_monitor.get_exchange_connector", return_value=mock_exchange), \
-         patch("app.services.position_manager.get_exchange_connector", return_value=mock_exchange), \
+         patch("app.services.position.position_manager.get_exchange_connector", return_value=mock_exchange), \
+         patch("app.services.position.position_creator.get_exchange_connector", return_value=mock_exchange), \
          patch("app.core.security.EncryptionService") as MockEnc:
          
         MockEnc.return_value.decrypt_keys.return_value = ("api", "secret")

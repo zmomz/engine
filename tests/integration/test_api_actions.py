@@ -42,11 +42,12 @@ async def test_force_close_position(
     await db_session.commit()
     await db_session.refresh(active_position)
 
-    # Mock exchange connector
+    # Mock exchange connector via ExchangeConfigService
     mock_connector = AsyncMock()
     mock_connector.get_current_price.return_value = Decimal("50000")
-    
-    with patch("app.api.positions.get_exchange_connector", return_value=mock_connector):
+
+    with patch("app.api.positions.ExchangeConfigService") as mock_config_service:
+        mock_config_service.get_connector.return_value = mock_connector
         # Attempt to force close the position
         response = await authorized_client.post(f"/api/v1/positions/{active_position.id}/close")
 

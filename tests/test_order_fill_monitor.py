@@ -72,37 +72,42 @@ async def test_check_orders_updates_status(mock_order_fill_monitor_service):
     group_id = uuid.uuid4()
     mock_group = MagicMock()
     mock_group.exchange = "binance"
-    
+    mock_group.status = "active"
+
     order1 = DCAOrder(id=uuid.uuid4(), group_id=group_id, status=OrderStatus.OPEN.value)
     order1.group = mock_group
-    
+    order1.pyramid = None
+
     order2 = DCAOrder(id=uuid.uuid4(), status=OrderStatus.PARTIALLY_FILLED.value)
     order2.group = mock_group
-    
+    order2.pyramid = None
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
+    mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
+
     repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
-    repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[order1, order2])
+    # Use get_all_open_orders_for_all_users which returns a dict mapping user_id to orders
+    repo_instance.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [order1, order2]})
 
     # Setup OrderService class mock and its instance mock
     mock_order_service_instance = AsyncMock(spec=OrderService)
     mock_order_fill_monitor_service.order_service_class.return_value = mock_order_service_instance
-    
+
     async def mock_check_status(order):
         # Simulate status change
         if order.id == order1.id:
-             order.status = OrderStatus.FILLED.value
+            order.status = OrderStatus.FILLED.value
         return order
-        
+
     mock_order_service_instance.check_order_status.side_effect = mock_check_status
     mock_order_service_instance.place_tp_order = AsyncMock()
-    mock_order_service_instance.check_tp_status = AsyncMock(return_value=order1) # Added mock for check_tp_status
+    mock_order_service_instance.check_tp_status = AsyncMock(return_value=order1)  # Added mock for check_tp_status
 
     # Also ensure update_position_stats is an AsyncMock
     mock_position_manager_instance = mock_order_fill_monitor_service.position_manager_service_class.return_value
     mock_position_manager_instance.update_position_stats = AsyncMock()
-
-    mock_user = MagicMock()
-    mock_user.id = uuid.uuid4()
-    mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
 
     # Mock encryption service on the instance
     mock_encryption_service = MagicMock()
@@ -113,9 +118,10 @@ async def test_check_orders_updates_status(mock_order_fill_monitor_service):
          patch("app.services.order_fill_monitor.get_exchange_connector", new_callable=AsyncMock) as mock_get_conn:
         mock_user_repo_instance = mock_user_repo_cls.return_value
         mock_user_repo_instance.get_all_active_users = AsyncMock(return_value=[mock_user])
-        
+
         # Configure connector mock
         mock_connector = AsyncMock()
+        mock_connector.close = AsyncMock()
         mock_get_conn.return_value = mock_connector
 
         await mock_order_fill_monitor_service._check_orders()
@@ -137,11 +143,13 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
     group_id = uuid.uuid4()
     mock_group = MagicMock()
     mock_group.exchange = "binance"
+    mock_group.status = "active"
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
     mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
     initial_quantity = Decimal("100")
-    
+
     # Create the order object
     mock_order = DCAOrder(
         id=uuid.uuid4(),
@@ -152,11 +160,12 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
         quantity=initial_quantity,
         filled_quantity=Decimal("0"),
         avg_fill_price=None,
-        side="buy", # Added side for OrderService logic
-        order_type="limit", # Added type
-        price=Decimal("50000") # Added price
+        side="buy",  # Added side for OrderService logic
+        order_type="limit",  # Added type
+        price=Decimal("50000")  # Added price
     )
     mock_order.group = mock_group
+    mock_order.pyramid = None
 
     # Mock encryption service
     mock_encryption_service = MagicMock()
@@ -168,7 +177,7 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
     mock_connector.get_order_status.return_value = {
         "id": "exchange_order_123",
         "status": "partially_filled",
-        "filled": 50.0, # Use float as CCXT often returns
+        "filled": 50.0,  # Use float as CCXT often returns
         "average": 60000.50,
         "amount": 100.0,
         "remaining": 50.0,
@@ -177,14 +186,16 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
         "side": "buy",
         "price": 50000.0
     }
-    
+    mock_connector.close = AsyncMock()
+
     # We need the real OrderService to run its logic, so we patch the REPO it uses
     mock_dca_repo_instance = MagicMock()
     # update is async
     mock_dca_repo_instance.update = AsyncMock()
-    
+
     # The monitor service uses dca_order_repository_class to get open orders
-    mock_order_fill_monitor_service.dca_order_repository_class.return_value.get_open_and_partially_filled_orders = AsyncMock(return_value=[mock_order])
+    # Use get_all_open_orders_for_all_users which returns a dict mapping user_id to orders
+    mock_order_fill_monitor_service.dca_order_repository_class.return_value.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [mock_order]})
 
     # Position manager mock
     mock_position_manager_instance = mock_order_fill_monitor_service.position_manager_service_class.return_value
@@ -256,8 +267,8 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
     assert mock_dca_repo_instance.update.call_count >= 1
 
     # 3. Verify Logging
-    # OrderService logs: "Status changed from ... to ..."
-    assert f"Order {mock_order.id}: Status changed from {OrderStatus.OPEN.value} to {OrderStatus.PARTIALLY_FILLED.value}" in caplog.text
+    # OrderService logs: "Status CHANGING from ... to ..."
+    assert f"Order {mock_order.id}: Status CHANGING from '{OrderStatus.OPEN.value}' to '{OrderStatus.PARTIALLY_FILLED.value}'" in caplog.text
     assert f"Order {mock_order.id}: Filled quantity changed from 0 to 50.0" in caplog.text
     assert f"Order {mock_order.id}: Average fill price changed from None to 60000.5" in caplog.text
 
@@ -269,6 +280,7 @@ async def test_check_orders_trigger_pending_buy_order(mock_order_fill_monitor_se
     mock_group = MagicMock()
     mock_group.exchange = "binance"
     mock_group.side = "long"
+    mock_group.status = "active"
     mock_group.weighted_avg_entry = Decimal("50000")
 
     # Create a trigger pending order
@@ -285,9 +297,11 @@ async def test_check_orders_trigger_pending_buy_order(mock_order_fill_monitor_se
         price=Decimal("49500")  # Trigger price
     )
     trigger_order.group = mock_group
+    trigger_order.pyramid = None
 
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
     mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
 
     # Mock encryption service
@@ -297,7 +311,8 @@ async def test_check_orders_trigger_pending_buy_order(mock_order_fill_monitor_se
 
     # Setup repo to return our trigger order
     repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
-    repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[trigger_order])
+    # Use get_all_open_orders_for_all_users which returns a dict mapping user_id to orders
+    repo_instance.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [trigger_order]})
 
     # Mock order service
     mock_order_service_instance = AsyncMock()
@@ -341,6 +356,7 @@ async def test_check_orders_trigger_pending_sell_order(mock_order_fill_monitor_s
     mock_group = MagicMock()
     mock_group.exchange = "binance"
     mock_group.side = "short"
+    mock_group.status = "active"
     mock_group.weighted_avg_entry = Decimal("50000")
 
     # Create a trigger pending sell order
@@ -357,9 +373,11 @@ async def test_check_orders_trigger_pending_sell_order(mock_order_fill_monitor_s
         price=Decimal("50500")  # Trigger price
     )
     trigger_order.group = mock_group
+    trigger_order.pyramid = None
 
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
     mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
 
     mock_encryption_service = MagicMock()
@@ -367,7 +385,8 @@ async def test_check_orders_trigger_pending_sell_order(mock_order_fill_monitor_s
     mock_order_fill_monitor_service.encryption_service = mock_encryption_service
 
     repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
-    repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[trigger_order])
+    # Use get_all_open_orders_for_all_users which returns a dict mapping user_id to orders
+    repo_instance.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [trigger_order]})
 
     mock_order_service_instance = AsyncMock()
     mock_order_fill_monitor_service.order_service_class.return_value = mock_order_service_instance
@@ -405,6 +424,7 @@ async def test_check_orders_filled_order_checks_tp(mock_order_fill_monitor_servi
     group_id = uuid.uuid4()
     mock_group = MagicMock()
     mock_group.exchange = "binance"
+    mock_group.status = "active"
 
     filled_order = DCAOrder(
         id=uuid.uuid4(),
@@ -419,9 +439,11 @@ async def test_check_orders_filled_order_checks_tp(mock_order_fill_monitor_servi
         tp_hit=False
     )
     filled_order.group = mock_group
+    filled_order.pyramid = None
 
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
     mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
 
     mock_encryption_service = MagicMock()
@@ -429,7 +451,8 @@ async def test_check_orders_filled_order_checks_tp(mock_order_fill_monitor_servi
     mock_order_fill_monitor_service.encryption_service = mock_encryption_service
 
     repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
-    repo_instance.get_open_and_partially_filled_orders = AsyncMock(return_value=[filled_order])
+    # Use get_all_open_orders_for_all_users which returns a dict mapping user_id to orders
+    repo_instance.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [filled_order]})
 
     mock_order_service_instance = AsyncMock()
     mock_order_fill_monitor_service.order_service_class.return_value = mock_order_service_instance
@@ -438,6 +461,8 @@ async def test_check_orders_filled_order_checks_tp(mock_order_fill_monitor_servi
     updated_order = MagicMock()
     updated_order.tp_hit = True
     updated_order.group_id = group_id
+    updated_order.group = mock_group
+    updated_order.pyramid = None
     mock_order_service_instance.check_tp_status = AsyncMock(return_value=updated_order)
 
     mock_position_manager_instance = AsyncMock()

@@ -50,12 +50,18 @@ async def test_get_account_summary_multi_exchange(authorized_client):
         mock_cache.set_balance = AsyncMock()
         mock_cache.set_tickers = AsyncMock()
 
-        with patch("app.api.dashboard.get_exchange_connector", side_effect=side_effect_get_connector), \
-             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls, \
+        with patch("app.api.dashboard.ExchangeConfigService") as mock_config_service, \
              patch("app.api.dashboard.get_cache", AsyncMock(return_value=mock_cache)):
 
-            mock_encrypt_service = mock_encrypt_service_cls.return_value
-            mock_encrypt_service.decrypt_keys.return_value = ("key", "secret")
+            mock_config_service.get_all_configured_exchanges.return_value = {
+                "binance": {"encrypted_data": "enc_binance"},
+                "bybit": {"encrypted_data": "enc_bybit"}
+            }
+
+            def get_connector_side_effect(user, exchange_name):
+                return side_effect_get_connector(exchange_name)
+
+            mock_config_service.get_connector.side_effect = get_connector_side_effect
 
             response = await authorized_client.get("/api/v1/dashboard/account-summary")
 
@@ -105,12 +111,18 @@ async def test_get_account_summary_partial_failure(authorized_client):
         mock_cache.set_balance = AsyncMock()
         mock_cache.set_tickers = AsyncMock()
 
-        with patch("app.api.dashboard.get_exchange_connector", side_effect=side_effect_get_connector), \
-             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls, \
+        with patch("app.api.dashboard.ExchangeConfigService") as mock_config_service, \
              patch("app.api.dashboard.get_cache", AsyncMock(return_value=mock_cache)):
 
-            mock_encrypt_service = mock_encrypt_service_cls.return_value
-            mock_encrypt_service.decrypt_keys.return_value = ("key", "secret")
+            mock_config_service.get_all_configured_exchanges.return_value = {
+                "binance": {"encrypted_data": "enc_binance"},
+                "bybit": {"encrypted_data": "enc_bybit"}
+            }
+
+            def get_connector_side_effect(user, exchange_name):
+                return side_effect_get_connector(exchange_name)
+
+            mock_config_service.get_connector.side_effect = get_connector_side_effect
 
             response = await authorized_client.get("/api/v1/dashboard/account-summary")
 
@@ -198,15 +210,22 @@ async def test_get_pnl_multi_exchange(authorized_client, test_user, db_session):
         mock_cache.set_dashboard = AsyncMock()
         mock_cache.set_tickers = AsyncMock()
 
-        with patch("app.api.dashboard.get_exchange_connector", side_effect=side_effect_get_connector), \
-             patch("app.api.dashboard.EncryptionService") as mock_encrypt_service_cls, \
+        with patch("app.api.dashboard.ExchangeConfigService") as mock_config_service, \
              patch("app.api.dashboard.get_cache", AsyncMock(return_value=mock_cache)):
 
-            mock_encrypt_service = mock_encrypt_service_cls.return_value
-            mock_encrypt_service.decrypt_keys.return_value = ("k", "s")
+            mock_config_service.get_all_configured_exchanges.return_value = {
+                "binance": {"encrypted_data": "enc_bin"},
+                "bybit": {"encrypted_data": "enc_by"}
+            }
+            mock_config_service.has_valid_config.return_value = True
+
+            def get_connector_side_effect(user, exchange_name):
+                return side_effect_get_connector(exchange_name)
+
+            mock_config_service.get_connector.side_effect = get_connector_side_effect
 
             response = await authorized_client.get("/api/v1/dashboard/pnl")
-            
+
             assert response.status_code == 200
             data = response.json()
             # Binance PnL: (55000 - 50000) * 1 = 5000
@@ -255,13 +274,12 @@ async def test_get_pnl_missing_keys_or_errors(authorized_client, test_user, db_s
     db_session.add(test_user)
     await db_session.commit()
 
-    with (
-        patch("app.api.dashboard.get_exchange_connector", side_effect=Exception("Connector failed")),
-        patch("app.api.dashboard.EncryptionService")
-    ):
-        
+    with patch("app.api.dashboard.ExchangeConfigService") as mock_config_service:
+        mock_config_service.has_valid_config.return_value = True
+        mock_config_service.get_connector.side_effect = Exception("Connector failed")
+
         response = await authorized_client.get("/api/v1/dashboard/pnl")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["unrealized_pnl"] == 0.0

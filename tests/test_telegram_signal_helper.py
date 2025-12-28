@@ -52,7 +52,7 @@ def sample_user_disabled():
 
 @pytest.fixture
 def sample_position_group(sample_user):
-    pg = MagicMock(spec=PositionGroup)
+    pg = MagicMock()  # Removed spec=PositionGroup to allow adding any attributes
     pg.id = uuid.uuid4()
     pg.user_id = sample_user.id
     pg.exchange = "binance"
@@ -62,6 +62,11 @@ def sample_position_group(sample_user):
     pg.status = PositionGroupStatus.LIVE
     pg.pyramid_count = 1
     pg.weighted_avg_entry = Decimal("50000")
+    pg.tp_mode = "per_leg"
+    pg.total_invested_usd = Decimal("1000")
+    pg.max_pyramids = 5
+    pg.created_at = None
+    pg.closed_at = None
     return pg
 
 
@@ -392,11 +397,25 @@ class TestBroadcastExitSignal:
         sample_position_group.side = "long"
         sample_position_group.weighted_avg_entry = Decimal("50000")
         sample_position_group.pyramid_count = 2
+        sample_position_group.filled_dca_legs = 2
+        sample_position_group.total_dca_legs = 5
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = sample_user
-        mock_session.execute.return_value = mock_result
+
+        # Create separate results for user query and DCA config query
+        call_count = [0]
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                # First call: User query
+                mock_result.scalar_one_or_none.return_value = sample_user
+            else:
+                # Second call: DCA config query - return None
+                mock_result.scalar_one_or_none.return_value = None
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
 
         with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
             mock_broadcaster = MagicMock()
@@ -418,11 +437,25 @@ class TestBroadcastExitSignal:
         sample_position_group.side = "short"
         sample_position_group.weighted_avg_entry = Decimal("50000")
         sample_position_group.pyramid_count = 1
+        sample_position_group.filled_dca_legs = 1
+        sample_position_group.total_dca_legs = 3
 
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = sample_user
-        mock_session.execute.return_value = mock_result
+
+        # Create separate results for user query and DCA config query
+        call_count = [0]
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                # First call: User query
+                mock_result.scalar_one_or_none.return_value = sample_user
+            else:
+                # Second call: DCA config query - return None
+                mock_result.scalar_one_or_none.return_value = None
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
 
         with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
             mock_broadcaster = MagicMock()

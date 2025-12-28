@@ -121,8 +121,8 @@ async def test_calculate_partial_close_quantities_success(mock_user):
     required_usd = Decimal("20.0")
     
     with (
-        patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
         exchange_connector.close = AsyncMock() # Ensure close is also an AsyncMock
@@ -151,8 +151,8 @@ async def test_calculate_partial_close_quantities_zero_profit_per_unit(mock_user
     required_usd = Decimal("20.0")
     
     with (
-        patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
         exchange_connector.close = AsyncMock() # Ensure close is also an AsyncMock
@@ -183,8 +183,8 @@ async def test_calculate_partial_close_quantities_below_min_notional(mock_user):
     # Notional = 0.05 * 100 = 5.0. Min notional = 10.0. Should skip.
     
     with (
-        patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
         exchange_connector.close = AsyncMock() # Ensure close is also an AsyncMock
@@ -199,7 +199,7 @@ async def test_calculate_partial_close_quantities_below_min_notional(mock_user):
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_checks(mock_config):
     # Patch EncryptionService globally for this test
-    with patch("app.services.risk_engine.EncryptionService") as MockEncryptionService:
+    with patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService:
         MockEncryptionService.return_value.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
         service = RiskEngineService(
             session_factory=AsyncMock(),
@@ -270,22 +270,33 @@ async def test_evaluate_user_positions_execution(mock_config):
     loser_pyramid_id = uuid.uuid4()
     winner_pyramid_id = uuid.uuid4()
 
-    loser = MagicMock(spec=PositionGroup)
+    loser = MagicMock()
     loser.id = uuid.uuid4()
     loser.symbol = "BTC/USD"
     loser.exchange = "binance"
     loser.unrealized_pnl_usd = Decimal("-100")
+    loser.unrealized_pnl_percent = Decimal("-2")
     loser.side = "long"
     loser.total_filled_quantity = Decimal("1.0")
+    loser.total_invested_usd = Decimal("50000")
+    loser.weighted_avg_entry = Decimal("50000")
     loser.user_id = user.id
+    loser.risk_skip_once = False
+    loser.status = "active"
 
-    winner = MagicMock(spec=PositionGroup)
+    winner = MagicMock()
     winner.id = uuid.uuid4()
     winner.symbol = "ETH/USD"
     winner.unrealized_pnl_usd = Decimal("200")
+    winner.unrealized_pnl_percent = Decimal("10")
     winner.side = "long"
     winner.user_id = user.id
     winner.exchange = "binance"
+    winner.total_filled_quantity = Decimal("1.0")
+    winner.total_invested_usd = Decimal("2000")
+    winner.weighted_avg_entry = Decimal("2000")
+    winner.total_hedged_qty = Decimal("0")
+    winner.total_hedged_value_usd = Decimal("0")
 
     # Create pyramid mocks
     loser_pyramid = MagicMock()
@@ -321,6 +332,7 @@ async def test_evaluate_user_positions_execution(mock_config):
     # Mocks
     mock_pos_repo = MagicMock()
     mock_pos_repo.get_all_active_by_user = AsyncMock(return_value=[loser, winner])
+    mock_pos_repo.update = AsyncMock()
 
     mock_risk_repo = MagicMock()
     mock_risk_repo.create = AsyncMock()
@@ -332,14 +344,17 @@ async def test_evaluate_user_positions_execution(mock_config):
 
     mock_exchange = AsyncMock()
     mock_exchange.get_precision_rules = AsyncMock(return_value={})
+    mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
     mock_exchange.close = AsyncMock()
 
-    # Patch dependencies
+    # Patch dependencies - use correct import paths
     with (
-        patch("app.services.risk_engine.select_loser_and_winners") as mock_select,
-        patch("app.services.risk_engine.EncryptionService") as MockEncryptionService,
-        patch("app.services.risk_engine.get_exchange_connector") as mock_get_connector,
-        patch("app.services.risk_engine.calculate_partial_close_quantities") as mock_calc_close
+        patch("app.services.risk.risk_engine.select_loser_and_winners") as mock_select,
+        patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService,
+        patch("app.services.risk.risk_engine.get_exchange_connector") as mock_get_connector,
+        patch("app.services.risk.risk_engine.calculate_partial_close_quantities") as mock_calc_close,
+        patch("app.services.risk.risk_engine.update_risk_timers", new_callable=AsyncMock),
+        patch("app.services.risk.risk_engine.broadcast_risk_event", new_callable=AsyncMock)
     ):
 
         mock_select.return_value = (loser, [winner], Decimal("100"))
@@ -390,7 +405,7 @@ async def test_evaluate_user_positions_execution(mock_config):
 @pytest.mark.asyncio
 async def test_start_and_stop_monitoring_task(mock_config):
     """Test starting and stopping the monitoring task."""
-    with patch("app.services.risk_engine.EncryptionService") as MockEncryptionService:
+    with patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService:
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
 
         mock_session_factory = MagicMock()
@@ -420,7 +435,7 @@ async def test_start_and_stop_monitoring_task(mock_config):
 @pytest.mark.asyncio
 async def test_monitoring_loop_error_handling(mock_config):
     """Test that monitoring loop handles errors gracefully."""
-    with patch("app.services.risk_engine.EncryptionService") as MockEncryptionService:
+    with patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService:
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
 
         mock_session_factory = MagicMock()
@@ -464,7 +479,7 @@ async def test_set_risk_blocked_success(mock_config, mock_user):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=mock_session_factory,
             position_group_repository_class=MagicMock(return_value=mock_pos_repo),
@@ -495,7 +510,7 @@ async def test_set_risk_blocked_not_found(mock_config, mock_user):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=mock_session_factory,
             position_group_repository_class=MagicMock(return_value=mock_pos_repo),
@@ -530,7 +545,7 @@ async def test_set_risk_blocked_unauthorized(mock_config, mock_user):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=mock_session_factory,
             position_group_repository_class=MagicMock(return_value=mock_pos_repo),
@@ -568,7 +583,7 @@ async def test_set_risk_skip_once_success(mock_config, mock_user):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=mock_session_factory,
             position_group_repository_class=MagicMock(return_value=mock_pos_repo),
@@ -624,9 +639,9 @@ async def test_get_current_status_with_loser_and_winners(mock_config, mock_user)
         yield mock_session
 
     with (
-        patch("app.services.risk_engine.EncryptionService"),
-        patch("app.services.risk_engine.select_loser_and_winners") as mock_select,
-        patch("app.services.risk_engine._filter_eligible_losers", return_value=[])
+        patch("app.services.exchange_abstraction.factory.EncryptionService"),
+        patch("app.services.risk.risk_engine.select_loser_and_winners") as mock_select,
+        patch("app.services.risk.risk_engine._check_pyramids_complete", return_value=True)
     ):
         mock_select.return_value = (loser, [winner], Decimal("100.0"))
 
@@ -671,7 +686,7 @@ async def test_get_current_status_no_loser(mock_config, mock_user):
         yield mock_session
 
     with (
-        patch("app.services.risk_engine.EncryptionService"),
+        patch("app.services.exchange_abstraction.factory.EncryptionService"),
         patch("app.services.risk_engine.select_loser_and_winners") as mock_select,
         patch("app.services.risk_engine._filter_eligible_losers", return_value=[])
     ):
@@ -701,7 +716,7 @@ async def test_run_single_evaluation_with_user(mock_config, mock_user):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=mock_session_factory,
             position_group_repository_class=MagicMock(),
@@ -726,7 +741,7 @@ async def test_run_single_evaluation_without_user(mock_config):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=mock_session_factory,
             position_group_repository_class=MagicMock(),
@@ -749,7 +764,7 @@ async def test_evaluate_on_fill_event_enabled(mock_config, mock_user):
     mock_config.evaluate_on_fill = True
     mock_session = AsyncMock()
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -770,7 +785,7 @@ async def test_evaluate_on_fill_event_disabled(mock_config, mock_user):
     mock_config.evaluate_on_fill = False
     mock_session = AsyncMock()
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -791,7 +806,7 @@ async def test_evaluate_on_fill_event_error_handling(mock_config, mock_user):
     mock_config.evaluate_on_fill = True
     mock_session = AsyncMock()
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -808,7 +823,7 @@ async def test_evaluate_on_fill_event_error_handling(mock_config, mock_user):
 
 def test_get_exchange_connector_for_user_multi_key(mock_config, mock_user):
     """Test _get_exchange_connector_for_user with multi-key format."""
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -818,7 +833,7 @@ def test_get_exchange_connector_for_user_multi_key(mock_config, mock_user):
             risk_engine_config=mock_config
         )
 
-        with patch("app.services.risk_engine.get_exchange_connector") as mock_connector:
+        with patch("app.services.risk.risk_engine.get_exchange_connector") as mock_connector:
             mock_connector.return_value = MagicMock()
             result = service._get_exchange_connector_for_user(mock_user, "binance")
             mock_connector.assert_called_once()
@@ -829,7 +844,7 @@ def test_get_exchange_connector_for_user_missing_exchange(mock_config):
     user = MagicMock()
     user.encrypted_api_keys = {"binance": {"encrypted_data": "key"}}  # Only binance
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -848,7 +863,7 @@ def test_get_exchange_connector_for_user_legacy_string_format(mock_config):
     user = MagicMock()
     user.encrypted_api_keys = "legacy_encrypted_string"
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -858,7 +873,7 @@ def test_get_exchange_connector_for_user_legacy_string_format(mock_config):
             risk_engine_config=mock_config
         )
 
-        with patch("app.services.risk_engine.get_exchange_connector") as mock_connector:
+        with patch("app.services.risk.risk_engine.get_exchange_connector") as mock_connector:
             mock_connector.return_value = MagicMock()
             result = service._get_exchange_connector_for_user(user, "binance")
             mock_connector.assert_called_once_with("binance", {"encrypted_data": "legacy_encrypted_string"})
@@ -869,7 +884,7 @@ def test_get_exchange_connector_for_user_invalid_format(mock_config):
     user = MagicMock()
     user.encrypted_api_keys = 12345  # Invalid format
 
-    with patch("app.services.risk_engine.EncryptionService"):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
         service = RiskEngineService(
             session_factory=MagicMock(),
             position_group_repository_class=MagicMock(),
@@ -899,8 +914,8 @@ async def test_evaluate_positions_iterates_users(mock_config):
     async def mock_session_factory():
         yield mock_session
 
-    with patch("app.services.risk_engine.EncryptionService"):
-        with patch("app.services.risk_engine.UserRepository", return_value=mock_user_repo):
+    with patch("app.services.exchange_abstraction.factory.EncryptionService"):
+        with patch("app.services.risk.risk_engine.UserRepository", return_value=mock_user_repo):
             service = RiskEngineService(
                 session_factory=mock_session_factory,
                 position_group_repository_class=MagicMock(),
@@ -924,7 +939,7 @@ async def test_evaluate_user_positions_no_loser(mock_config, mock_user):
     mock_pos_repo.get_all_active_by_user = AsyncMock(return_value=[])
 
     with (
-        patch("app.services.risk_engine.EncryptionService"),
+        patch("app.services.exchange_abstraction.factory.EncryptionService"),
         patch("app.services.risk_engine.select_loser_and_winners", return_value=(None, [], Decimal("0")))
     ):
         service = RiskEngineService(
@@ -1006,8 +1021,8 @@ async def test_calculate_partial_close_quantities_short_position(mock_user):
     required_usd = Decimal("20.0")
 
     with (
-        patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
@@ -1039,8 +1054,8 @@ async def test_calculate_partial_close_quantities_caps_at_available(mock_user):
     required_usd = Decimal("500.0")  # Requires more than available
 
     with (
-        patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
@@ -1064,8 +1079,8 @@ async def test_calculate_partial_close_quantities_price_fetch_error(mock_user):
     winner.exchange = "binance"
 
     with (
-        patch('app.services.risk_engine.get_exchange_connector', return_value=exchange_connector),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
         plan = await calculate_partial_close_quantities(mock_user, [winner], Decimal("20.0"))
@@ -1083,8 +1098,8 @@ async def test_calculate_partial_close_quantities_connector_init_error(mock_user
     winner.exchange = "binance"
 
     with (
-        patch('app.services.risk_engine.get_exchange_connector', side_effect=Exception("Connector init failed")),
-        patch('app.services.risk_engine.EncryptionService') as MockEncryptionService
+        patch('app.services.risk.risk_executor.get_exchange_connector', side_effect=Exception("Connector init failed")),
+        patch('app.services.exchange_abstraction.factory.EncryptionService') as MockEncryptionService
     ):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
         plan = await calculate_partial_close_quantities(mock_user, [winner], Decimal("20.0"))

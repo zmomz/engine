@@ -32,12 +32,17 @@ def mock_deps():
 
         # Setup DCA Config Repository mock
         mock_dca_config = MagicMock()
-        mock_dca_config.dca_levels = []
+        mock_dca_config.dca_levels = [
+            {"gap_percent": Decimal("0"), "weight_percent": Decimal("100"), "tp_percent": Decimal("1")}
+        ]
         mock_dca_config.tp_mode = "per_leg"
-        mock_dca_config.tp_settings = {"tp_aggregate_percent": 0}
+        mock_dca_config.tp_settings = {"tp_aggregate_percent": Decimal("0")}
         mock_dca_config.max_pyramids = 5
         mock_dca_config.entry_order_type = "market"
         mock_dca_config.pyramid_specific_levels = {}
+        mock_dca_config.use_custom_capital = False
+        mock_dca_config.custom_capital_usd = None
+        mock_dca_config.pyramid_custom_capitals = {}
         MockDCAConfigRepo.return_value.get_specific_config = AsyncMock(return_value=mock_dca_config)
 
         yield {
@@ -83,25 +88,28 @@ async def test_promote_signal_execution_new_position(sample_user, mock_async_ses
     # Mocks
     queue_repo = mock_deps["queue_repo"].return_value
     queue_repo.get_all_queued_signals = AsyncMock(return_value=[signal])
-    queue_repo.update = AsyncMock() # Crucial: Make update awaitable
-    
+    queue_repo.update = AsyncMock()  # Crucial: Make update awaitable
+
     pos_repo = mock_deps["pos_repo"].return_value
     pos_repo.get_active_position_groups_for_user = AsyncMock(return_value=[])
-    
-    # Make sure session.get returns the sample_user
+    pos_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_total_exposure_for_user = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_open_positions_count_for_user = AsyncMock(return_value=0)
+    pos_repo.get_open_positions_count_by_symbol = AsyncMock(return_value=0)
+
     # Make sure session.get returns the sample_user
     mock_async_session.__aenter__.return_value = mock_async_session
     mock_async_session.get = AsyncMock(return_value=sample_user)
-    
+
     pool = mock_deps["pool"].return_value
     pool.request_slot = AsyncMock(return_value=True)
-    
+
     # The connector mock returned by the fixture should already have AsyncMock methods
     connector_instance = mock_deps["connector"].return_value
-    connector_instance.get_current_price.return_value = Decimal("49000") # Loss for this specific test
+    connector_instance.get_current_price.return_value = Decimal("49000")  # Loss for this specific test
     # fetch_balance is already mocked in the fixture with a default return value
 
-    pos_manager_mock = mock_deps["pos_manager"] # Get the Mock class
+    pos_manager_mock = mock_deps["pos_manager"]  # Get the Mock class
     pos_manager_instance_mock = pos_manager_mock.return_value
     pos_manager_instance_mock.create_position_group_from_signal = AsyncMock()
 
@@ -110,9 +118,9 @@ async def test_promote_signal_execution_new_position(sample_user, mock_async_ses
         user=sample_user,
         queued_signal_repository_class=mock_deps["queue_repo"],
         position_group_repository_class=mock_deps["pos_repo"],
-        exchange_connector=connector_instance, # Pass the mock connector instance
+        exchange_connector=connector_instance,  # Pass the mock connector instance
         execution_pool_manager=pool,
-        position_manager_service=pos_manager_instance_mock # This is still passed, but not used due to internal creation
+        position_manager_service=pos_manager_instance_mock  # This is still passed, but not used due to internal creation
     )
 
     # Execute
@@ -147,29 +155,35 @@ async def test_promote_signal_execution_pyramid(sample_user, mock_async_session,
         symbol="BTCUSDT",
         timeframe=15,
         side="long",
-        pyramid_count=1
+        pyramid_count=1,
+        total_invested_usd=Decimal("100"),
+        max_pyramids=5
     )
     
     # Mocks
     queue_repo = mock_deps["queue_repo"].return_value
     queue_repo.get_all_queued_signals = AsyncMock(return_value=[signal])
-    queue_repo.update = AsyncMock() # Crucial
-    
+    queue_repo.update = AsyncMock()  # Crucial
+
     pos_repo = mock_deps["pos_repo"].return_value
     pos_repo.get_active_position_groups_for_user = AsyncMock(return_value=[group])
-    
+    pos_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_total_exposure_for_user = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_open_positions_count_for_user = AsyncMock(return_value=1)
+    pos_repo.get_open_positions_count_by_symbol = AsyncMock(return_value=1)
+
     # Make sure session.get returns the sample_user
     mock_async_session.__aenter__.return_value = mock_async_session
     mock_async_session.get = AsyncMock(return_value=sample_user)
-    
+
     pool = mock_deps["pool"].return_value
     pool.request_slot = AsyncMock(return_value=True)
-    
+
     connector_instance = mock_deps["connector"].return_value
-    connector_instance.get_current_price.return_value = Decimal("51000") 
+    connector_instance.get_current_price.return_value = Decimal("51000")
     # fetch_balance is already mocked in the fixture with a default return value
-    
-    pos_manager_mock = mock_deps["pos_manager"] # Get the Mock class
+
+    pos_manager_mock = mock_deps["pos_manager"]  # Get the Mock class
     pos_manager_instance_mock = pos_manager_mock.return_value
     pos_manager_instance_mock.handle_pyramid_continuation = AsyncMock()
 
@@ -178,7 +192,7 @@ async def test_promote_signal_execution_pyramid(sample_user, mock_async_session,
         user=sample_user,
         queued_signal_repository_class=mock_deps["queue_repo"],
         position_group_repository_class=mock_deps["pos_repo"],
-        exchange_connector=connector_instance, # Pass the mock connector instance
+        exchange_connector=connector_instance,  # Pass the mock connector instance
         execution_pool_manager=pool,
         position_manager_service=pos_manager_instance_mock
     )
@@ -209,21 +223,25 @@ async def test_promote_signal_price_fetch_failure(sample_user, mock_async_sessio
     
     queue_repo = mock_deps["queue_repo"].return_value
     queue_repo.get_all_queued_signals = AsyncMock(return_value=[signal])
-    queue_repo.update = AsyncMock() # Crucial
-    
+    queue_repo.update = AsyncMock()  # Crucial
+
     pos_repo = mock_deps["pos_repo"].return_value
     pos_repo.get_active_position_groups_for_user = AsyncMock(return_value=[])
-    
+    pos_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_total_exposure_for_user = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_open_positions_count_for_user = AsyncMock(return_value=0)
+    pos_repo.get_open_positions_count_by_symbol = AsyncMock(return_value=0)
+
     # Make sure session.get returns the sample_user
     mock_async_session.__aenter__.return_value = mock_async_session
     mock_async_session.get = AsyncMock(return_value=sample_user)
-    
+
     connector_instance = mock_deps["connector"].return_value
     connector_instance.get_current_price.side_effect = Exception("API Error")
     # fetch_balance is already mocked in the fixture with a default return value
-    
+
     pool = mock_deps["pool"].return_value
-    pool.request_slot = AsyncMock(return_value=False) # Don't promote, just check price fetch loop
+    pool.request_slot = AsyncMock(return_value=False)  # Don't promote, just check price fetch loop
 
     # Also patch PositionManagerService here, even if not directly called in this specific test's flow
     pos_manager_mock = mock_deps["pos_manager"]
@@ -235,7 +253,7 @@ async def test_promote_signal_price_fetch_failure(sample_user, mock_async_sessio
         user=sample_user,
         queued_signal_repository_class=mock_deps["queue_repo"],
         position_group_repository_class=mock_deps["pos_repo"],
-        exchange_connector=connector_instance, # Pass the mock connector instance
+        exchange_connector=connector_instance,  # Pass the mock connector instance
         execution_pool_manager=pool,
         position_manager_service=pos_manager_instance_mock
     )
@@ -265,23 +283,27 @@ async def test_promote_signal_execution_exception(sample_user, mock_async_sessio
     
     queue_repo = mock_deps["queue_repo"].return_value
     queue_repo.get_all_queued_signals = AsyncMock(return_value=[signal])
-    queue_repo.update = AsyncMock() # Crucial
-    
+    queue_repo.update = AsyncMock()  # Crucial
+
     pos_repo = mock_deps["pos_repo"].return_value
     pos_repo.get_active_position_groups_for_user = AsyncMock(return_value=[])
-    
+    pos_repo.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_total_exposure_for_user = AsyncMock(return_value=Decimal("0"))
+    pos_repo.get_open_positions_count_for_user = AsyncMock(return_value=0)
+    pos_repo.get_open_positions_count_by_symbol = AsyncMock(return_value=0)
+
     # Make sure session.get returns the sample_user
     mock_async_session.__aenter__.return_value = mock_async_session
     mock_async_session.get = AsyncMock(return_value=sample_user)
-    
+
     pool = mock_deps["pool"].return_value
     pool.request_slot = AsyncMock(return_value=True)
-    
-    pos_manager_mock = mock_deps["pos_manager"] # Get the Mock class
+
+    pos_manager_mock = mock_deps["pos_manager"]  # Get the Mock class
     pos_manager_instance_mock = pos_manager_mock.return_value
     pos_manager_instance_mock.create_position_group_from_signal = AsyncMock(side_effect=Exception("Execution Failed"))
-    
-    connector_instance = mock_deps["connector"].return_value # Get the mock instance from the fixture
+
+    connector_instance = mock_deps["connector"].return_value  # Get the mock instance from the fixture
     connector_instance.get_current_price.return_value = Decimal("49000")
     # fetch_balance is already mocked in the fixture with a default return value
 
@@ -290,7 +312,7 @@ async def test_promote_signal_execution_exception(sample_user, mock_async_sessio
         user=sample_user,
         queued_signal_repository_class=mock_deps["queue_repo"],
         position_group_repository_class=mock_deps["pos_repo"],
-        exchange_connector=connector_instance, # Pass the mock connector instance
+        exchange_connector=connector_instance,  # Pass the mock connector instance
         execution_pool_manager=pool,
         position_manager_service=pos_manager_instance_mock
     )
@@ -300,4 +322,4 @@ async def test_promote_signal_execution_exception(sample_user, mock_async_sessio
 
     # Should catch exception and log error
     pos_manager_instance_mock.create_position_group_from_signal.assert_called_once()
-    assert signal.status == QueueStatus.PROMOTED # Status was updated BEFORE execution attempt in the code
+    assert signal.status == QueueStatus.PROMOTED  # Status was updated BEFORE execution attempt in the code

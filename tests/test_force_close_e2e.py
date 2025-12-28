@@ -39,9 +39,11 @@ async def test_force_close_position_e2e(authorized_client, test_user, db_session
     mock_connector.cancel_order.return_value = {}
     mock_connector.get_current_price.return_value = "3100"
 
-    with patch("app.services.position_manager.get_exchange_connector", return_value=mock_connector), \
-         patch("app.api.positions.get_exchange_connector", return_value=mock_connector):
+    with patch("app.services.position.position_manager.get_exchange_connector", return_value=mock_connector), \
+         patch("app.services.position.position_closer.get_exchange_connector", return_value=mock_connector), \
+         patch("app.api.positions.ExchangeConfigService") as mock_config_service:
 
+        mock_config_service.get_connector.return_value = mock_connector
         response = await authorized_client.post(f"/api/v1/positions/{pg.id}/close")
 
         assert response.status_code == 200

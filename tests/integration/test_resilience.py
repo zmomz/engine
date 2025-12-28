@@ -59,7 +59,10 @@ async def test_exchange_api_timeout_on_order_submission(
         pyramid_specific_levels={},
         tp_mode=TakeProfitMode.PER_LEG,
         tp_settings={"tp_aggregate_percent": 0},
-        max_pyramids=5
+        max_pyramids=5,
+        use_custom_capital=True,
+        custom_capital_usd=Decimal("10000.0"),  # Sufficient capital for min qty requirements
+        pyramid_custom_capitals={}
     )
     db_session.add(dca_config)
     await db_session.commit()
@@ -85,17 +88,17 @@ async def test_exchange_api_timeout_on_order_submission(
     mock_exec_pool.request_slot = AsyncMock(return_value=False)
     
     # Patch dependencies
-    # Use parentheses for multiple context managers (Python 3.10+)
+    # Note: signal_router uses ExchangeConfigService, not get_exchange_connector directly
     with (
-        patch('app.services.position_manager.get_exchange_connector', return_value=mock_exchange_connector),
+        patch('app.services.position.position_creator.get_exchange_connector', return_value=mock_exchange_connector),
+        patch('app.services.position.position_manager.get_exchange_connector', return_value=mock_exchange_connector),
         patch('app.services.exchange_abstraction.factory.get_exchange_connector', return_value=mock_exchange_connector),
         patch('app.services.queue_manager.get_exchange_connector', return_value=mock_exchange_connector),
-        patch('app.services.signal_router.get_exchange_connector', return_value=mock_exchange_connector),
-        # We don't need to patch EncryptionService here as it's handled by the fixture override_get_db_session_for_integration_tests
-        # and we want it to work normally (or use the MockEncryptionService provided by fixture)
-        # If we needed to patch it, we would patch app.core.security.EncryptionService
+        patch('app.services.signal_router.ExchangeConfigService') as mock_config_service,
         patch('app.services.signal_router.ExecutionPoolManager', return_value=mock_exec_pool)
     ):
+        # Configure ExchangeConfigService mock
+        mock_config_service.get_connector.return_value = mock_exchange_connector
          
         # 1. Send a valid webhook payload to trigger signal processing
         webhook_payload_data = {
