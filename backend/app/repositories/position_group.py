@@ -138,10 +138,16 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
 
     async def get_all_active_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
         """
-        Retrieves all active position groups for a given user.
+        Retrieves all open position groups for a given user.
+        Includes positions in live, partially_filled, and active states.
+        Excludes positions that are closing, closed, failed, or waiting.
         """
+        open_statuses = ("live", "partially_filled", "active")
         result = await self.session.execute(
-            select(self.model).where(self.model.user_id == user_id, self.model.status == "active")
+            select(self.model).where(
+                self.model.user_id == user_id,
+                self.model.status.in_(open_statuses)
+            )
         )
         return result.scalars().all()
 

@@ -69,10 +69,22 @@ def _filter_eligible_losers(position_groups: List[PositionGroup], config: RiskEn
 
 
 def _select_top_winners(position_groups: List[PositionGroup], count: int, exclude_id: uuid.UUID = None) -> List[PositionGroup]:
-    """Helper to select top profitable positions."""
+    """Helper to select top profitable positions.
+
+    Any position with unrealized profit can be a winner for offset execution,
+    regardless of whether all DCAs have filled. Valid statuses include:
+    LIVE, PARTIALLY_FILLED, and ACTIVE. Positions in CLOSING, CLOSED, or FAILED
+    states are excluded.
+    """
+    # All "open" statuses that can participate as winners
+    valid_winner_statuses = (
+        PositionGroupStatus.LIVE.value,
+        PositionGroupStatus.PARTIALLY_FILLED.value,
+        PositionGroupStatus.ACTIVE.value,
+    )
     winning_positions = [
         pg for pg in position_groups
-        if pg.status == PositionGroupStatus.ACTIVE.value
+        if pg.status in valid_winner_statuses
         and pg.unrealized_pnl_usd > 0
         and (exclude_id is None or pg.id != exclude_id)
     ]

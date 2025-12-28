@@ -43,7 +43,9 @@ export interface PositionGroup {
   risk_blocked: boolean;
   created_at: string;
   closed_at: string | null;
-  auto_hedge_close_qty: number | null;
+  // Hedge tracking (cumulative for winner positions used in offset)
+  total_hedged_qty: number;
+  total_hedged_value_usd: number;
   pyramids: Pyramid[];
 }
 

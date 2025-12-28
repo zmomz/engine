@@ -391,31 +391,50 @@ const PositionsPage: React.FC = () => {
       ),
     },
     {
-      field: 'auto_hedge_close_qty',
-      headerName: 'Hedge Qty',
-      width: 110,
+      field: 'total_hedged_qty',
+      headerName: 'Hedged Qty',
+      width: 90,
       align: 'right',
       headerAlign: 'right',
-      description: 'The quantity of this winning position that will be closed to recover the USD loss from another losing position, based on current profit per unit',
+      description: 'Cumulative quantity closed from this position to offset losers',
       renderHeader: () => (
-        <Tooltip title="The quantity of this winning position that will be closed to recover the USD loss from another losing position, based on current profit per unit">
+        <Tooltip title="Cumulative quantity closed from this position to offset losers">
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography sx={{ fontSize: '0.813rem' }}>Hedge Qty</Typography>
+            <Typography sx={{ fontSize: '0.813rem' }}>Hedged</Typography>
             <InfoOutlinedIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
           </Box>
         </Tooltip>
       ),
       renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        const value = params.row.auto_hedge_close_qty;
-        if (value === null || value === undefined || value === 0) {
+        const value = params.row.total_hedged_qty;
+        if (!value || value === 0) {
           return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
         }
         return (
-          <Tooltip title={`Close ${safeToFixed(value, 6)} to offset loser`}>
-            <Typography sx={{ ...monoStyle, color: 'warning.main', fontWeight: 500 }}>
+          <Tooltip title={`Total hedged: ${safeToFixed(value, 6)}`}>
+            <Typography sx={{ ...monoStyle, color: 'info.main', fontWeight: 500 }}>
               {safeToFixed(value, 4)}
             </Typography>
           </Tooltip>
+        );
+      },
+    },
+    {
+      field: 'total_hedged_value_usd',
+      headerName: 'Hedge $',
+      width: 80,
+      align: 'right',
+      headerAlign: 'right',
+      description: 'Cumulative USD value of hedge closes',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
+        const value = params.row.total_hedged_value_usd;
+        if (!value || value === 0) {
+          return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
+        }
+        return (
+          <Typography sx={{ ...monoStyle, color: 'info.main', fontWeight: 500 }}>
+            {formatCompactCurrency(value)}
+          </Typography>
         );
       },
     },
@@ -548,6 +567,44 @@ const PositionsPage: React.FC = () => {
         return (
           <Typography sx={{ ...monoStyle, fontWeight: 600, color: getPnlColor(pnlPercent) }}>
             {formatCompactPercent(pnlPercent)}
+          </Typography>
+        );
+      },
+    },
+    {
+      field: 'total_hedged_qty',
+      headerName: 'Hedged',
+      width: 80,
+      align: 'right',
+      headerAlign: 'right',
+      description: 'Quantity used to offset losers',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
+        const value = params.row.total_hedged_qty;
+        if (!value || value === 0) {
+          return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
+        }
+        return (
+          <Typography sx={{ ...monoStyle, color: 'info.main' }}>
+            {safeToFixed(value, 4)}
+          </Typography>
+        );
+      },
+    },
+    {
+      field: 'total_hedged_value_usd',
+      headerName: 'Hedge $',
+      width: 75,
+      align: 'right',
+      headerAlign: 'right',
+      description: 'USD value of hedge closes',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => {
+        const value = params.row.total_hedged_value_usd;
+        if (!value || value === 0) {
+          return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
+        }
+        return (
+          <Typography sx={{ ...monoStyle, color: 'info.main' }}>
+            {formatCompactCurrency(value)}
           </Typography>
         );
       },

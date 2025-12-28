@@ -25,6 +25,7 @@ class QueueStatus(str, Enum):
     QUEUED = "queued"
     PROMOTED = "promoted"
     CANCELLED = "cancelled"
+    REJECTED = "rejected"
 
 
 class QueuedSignal(Base):
@@ -64,3 +65,4 @@ class QueuedSignal(Base):
         default=QueueStatus.QUEUED.value,
     )
     promoted_at = Column(DateTime)
+    rejection_reason = Column(String, nullable=True)

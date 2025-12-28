@@ -104,6 +104,11 @@ class PositionGroup(Base):
     risk_blocked = Column(Boolean, default=False)
     risk_skip_once = Column(Boolean, default=False)
 
+    # Hedge tracking (for winner positions used in offset)
+    # Tracks cumulative quantity and value closed to offset losers
+    total_hedged_qty = Column(Numeric(20, 10), default=Decimal("0"))
+    total_hedged_value_usd = Column(Numeric(20, 10), default=Decimal("0"))
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

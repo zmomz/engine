@@ -24,6 +24,9 @@ from app.services.order_management import OrderService
 from app.services.grid_calculator import GridCalculatorService
 from app.services.queue_priority import calculate_queue_priority, explain_priority
 from app.schemas.grid_config import PriorityRulesConfig
+from app.services.risk.risk_engine import RiskEngineService
+from app.repositories.risk_action import RiskActionRepository
+from app.repositories.dca_order import DCAOrderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -490,6 +493,59 @@ class QueueManagerService:
                 g.side == best_signal.side
                 for g in active_groups
             )
+
+            # --- Pre-Trade Risk Validation ---
+            # Create RiskEngineService and validate before promotion
+            risk_engine = RiskEngineService(
+                session_factory=self.session_factory,
+                position_group_repository_class=self.position_group_repository_class,
+                risk_action_repository_class=RiskActionRepository,
+                dca_order_repository_class=DCAOrderRepository,
+                order_service_class=OrderService,
+                risk_engine_config=risk_config,
+                user=user
+            )
+
+            # Calculate allocated capital for validation
+            signal_payload = best_signal.signal_payload
+            tv_data = signal_payload.get("tv", {})
+            execution_intent = signal_payload.get("execution_intent", {})
+            order_size = Decimal(str(tv_data.get("order_size", 0)))
+            entry_price = best_signal.entry_price
+            position_size_type = execution_intent.get("position_size_type", "contracts")
+
+            # Determine the pyramid index for capital calculation
+            target_group = next((g for g in active_groups if g.symbol == best_signal.symbol and g.exchange == best_signal.exchange and g.timeframe == best_signal.timeframe and g.side == best_signal.side), None)
+            if target_group:
+                pyramid_index = target_group.pyramid_count + 1
+            else:
+                pyramid_index = 0
+
+            # Check if custom capital override is enabled
+            if dca_config.use_custom_capital:
+                validation_capital = dca_config.get_capital_for_pyramid(pyramid_index)
+            else:
+                if position_size_type == "quote":
+                    validation_capital = order_size
+                else:
+                    validation_capital = order_size * entry_price
+
+            # Perform pre-trade risk validation
+            is_allowed, rejection_reason = await risk_engine.validate_pre_trade_risk(
+                signal=best_signal,
+                active_positions=active_groups,
+                allocated_capital_usd=validation_capital,
+                session=session,
+                is_pyramid_continuation=is_pyramid
+            )
+
+            if not is_allowed:
+                logger.warning(f"Queue promotion blocked by risk validation: {rejection_reason}")
+                best_signal.status = QueueStatus.REJECTED
+                best_signal.rejection_reason = rejection_reason
+                await queue_repo.update(best_signal)
+                await session.commit()
+                continue  # Try next user's signals
 
             # Retrieve already loaded config (or default)
             pyramid_rule_enabled = priority_config.priority_rules_enabled.get("same_pair_timeframe", False)

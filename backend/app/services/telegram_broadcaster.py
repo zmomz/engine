@@ -2,6 +2,7 @@
 Telegram Signal Broadcasting Service
 Sends trading signals to Telegram channels with smart, informative messages
 """
+import asyncio
 import logging
 import aiohttp
 from typing import Optional, Dict, Any, List
@@ -908,14 +909,16 @@ class TelegramBroadcaster:
             logger.error(f"Failed to save Telegram message ID: {e}")
 
     async def _send_message(self, text: str) -> Optional[int]:
-        """Send a new message to the Telegram channel"""
+        """Send a new message to the Telegram channel with short timeout"""
 
         if self.config.test_mode:
             logger.info(f"[TEST MODE] Would send Telegram message:\n{text}")
             return 999999  # Fake message ID for testing
 
         try:
-            async with aiohttp.ClientSession() as session:
+            # Use 5-second timeout to avoid blocking webhook responses
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 url = f"{self.base_url}/sendMessage"
                 data = {
                     "chat_id": self.config.channel_id,
@@ -934,19 +937,24 @@ class TelegramBroadcaster:
                         logger.error(f"Failed to send Telegram message: {response.status} - {error_text}")
                         return None
 
+        except asyncio.TimeoutError:
+            logger.warning(f"Telegram message timed out (5s) - message may not have been sent")
+            return None
         except Exception as e:
             logger.error(f"Error sending Telegram message: {e}")
             return None
 
     async def _update_message(self, message_id: int, text: str) -> Optional[int]:
-        """Update an existing message"""
+        """Update an existing message with short timeout"""
 
         if self.config.test_mode:
             logger.info(f"[TEST MODE] Would update Telegram message {message_id}:\n{text}")
             return message_id
 
         try:
-            async with aiohttp.ClientSession() as session:
+            # Use 5-second timeout to avoid blocking webhook responses
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 url = f"{self.base_url}/editMessageText"
                 data = {
                     "chat_id": self.config.channel_id,
@@ -964,6 +972,9 @@ class TelegramBroadcaster:
                         logger.error(f"Failed to update Telegram message: {response.status} - {error_text}")
                         return None
 
+        except asyncio.TimeoutError:
+            logger.warning(f"Telegram message update timed out (5s)")
+            return None
         except Exception as e:
             logger.error(f"Error updating Telegram message: {e}")
             return None

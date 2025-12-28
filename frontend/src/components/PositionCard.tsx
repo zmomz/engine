@@ -192,19 +192,29 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
                 {position.risk_blocked ? '⚠️ Blocked' : position.risk_eligible ? '✅ Eligible' : '○ N/A'}
               </Typography>
             </Box>
-            {position.auto_hedge_close_qty != null && position.auto_hedge_close_qty > 0 && (
-              <Box sx={{ gridColumn: '1 / -1' }}>
-                <Tooltip title="The quantity of this winning position that will be closed to recover the USD loss from another losing position, based on current profit per unit">
-                  <Box>
+            {(position.total_hedged_qty > 0 || position.total_hedged_value_usd > 0) && (
+              <>
+                <Box>
+                  <Tooltip title="Cumulative quantity closed to offset losers">
                     <Typography variant="caption" color="text.secondary">
-                      Auto Hedge Close Qty ℹ️
+                      Hedged Qty ℹ️
                     </Typography>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'warning.main', fontWeight: 500 }}>
-                      {safeToFixed(position.auto_hedge_close_qty, 4)}
+                  </Tooltip>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'info.main', fontWeight: 500 }}>
+                    {safeToFixed(position.total_hedged_qty, 4)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Tooltip title="Cumulative USD value of hedge closes">
+                    <Typography variant="caption" color="text.secondary">
+                      Hedged Value ℹ️
                     </Typography>
-                  </Box>
-                </Tooltip>
-              </Box>
+                  </Tooltip>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'info.main', fontWeight: 500 }}>
+                    ${safeToFixed(position.total_hedged_value_usd, 2)}
+                  </Typography>
+                </Box>
+              </>
             )}
           </Box>
 

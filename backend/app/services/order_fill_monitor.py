@@ -184,17 +184,23 @@ class OrderFillMonitorService:
         """
         Process a single order. Called in parallel with other orders.
         Uses semaphore to limit concurrency.
+        Handles deadlock errors gracefully by skipping the order for this cycle.
         """
         async with semaphore:
             try:
+                # Refresh order to get latest state - skip if it's been modified elsewhere
+                try:
+                    await session.refresh(order)
+                except Exception as refresh_err:
+                    logger.debug(f"Could not refresh order {order.id}: {refresh_err} - skipping")
+                    return
+
                 # Get price from cache (batch fetched earlier)
                 current_price = prices_cache.get(order.symbol)
 
-                # Check if position group is closed - if so, cancel this order
+                # Check if position group is closed or closing - skip and let exit handler manage
                 if order.group and order.group.status in ['closed', 'closing']:
-                    if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]:
-                        logger.info(f"Order {order.id} belongs to closed/closing position group - cancelling")
-                        await order_service.cancel_order(order)
+                    logger.debug(f"Order {order.id} belongs to {order.group.status} position - skipping")
                     return
 
                 # If already filled, we are here to check the TP order
@@ -343,9 +349,14 @@ class OrderFillMonitorService:
                         await self._trigger_risk_evaluation_on_fill(user, session)
 
             except Exception as e:
-                logger.error(f"Error processing order {order.id}: {e}")
-                import traceback
-                traceback.print_exc()
+                error_msg = str(e).lower()
+                # Handle deadlock gracefully - skip this order for now, it will be retried next cycle
+                if "deadlock" in error_msg or "pending" in error_msg and "rollback" in error_msg:
+                    logger.warning(f"Deadlock detected processing order {order.id} - will retry next cycle")
+                else:
+                    logger.error(f"Error processing order {order.id}: {e}")
+                    import traceback
+                    traceback.print_exc()
 
     async def _fetch_all_prices(
         self,
@@ -489,19 +500,36 @@ class OrderFillMonitorService:
                             finally:
                                 await connector.close()
 
-                        await session.commit()
-                        logger.debug(f"OrderFillMonitor: Committed changes for user {user.id}")
+                        # Try to commit, but handle deadlock/rollback errors gracefully
+                        try:
+                            await session.commit()
+                            logger.debug(f"OrderFillMonitor: Committed changes for user {user.id}")
+                        except Exception as commit_err:
+                            error_msg = str(commit_err).lower()
+                            if "deadlock" in error_msg or "rollback" in error_msg:
+                                logger.warning(f"Deadlock during commit for user {user.id} - rolling back and retrying next cycle")
+                                await session.rollback()
+                            else:
+                                raise
 
                     except Exception as e:
-                        logger.error(f"Error checking orders for user {user.username}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        error_msg = str(e).lower()
+                        if "deadlock" in error_msg or "rollback" in error_msg:
+                            logger.warning(f"Deadlock detected for user {user.username} - will retry next cycle")
+                        else:
+                            logger.error(f"Error checking orders for user {user.username}: {e}")
+                            import traceback
+                            traceback.print_exc()
                         await session.rollback()
 
             except Exception as e:
-                logger.error(f"Error in OrderFillMonitor check loop: {e}")
-                import traceback
-                traceback.print_exc()
+                error_msg = str(e).lower()
+                if "deadlock" in error_msg or "rollback" in error_msg:
+                    logger.warning(f"Deadlock in OrderFillMonitor check loop - will retry next cycle")
+                else:
+                    logger.error(f"Error in OrderFillMonitor check loop: {e}")
+                    import traceback
+                    traceback.print_exc()
                 await session.rollback()
 
     async def start_monitoring_task(self):

@@ -71,8 +71,9 @@ class PositionGroupSchema(BaseModel):
     updated_at: datetime
     closed_at: datetime | None = None
 
-    # Auto-calculated field: quantity to close from this winning position to offset a loser
-    auto_hedge_close_qty: Decimal | None = None
+    # Hedge tracking (cumulative for winner positions used in offset)
+    total_hedged_qty: Decimal | None = Decimal("0")
+    total_hedged_value_usd: Decimal | None = Decimal("0")
 
     pyramids: List[PyramidSchema] = []
 

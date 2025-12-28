@@ -239,6 +239,12 @@ class RiskEngineService:
                     logger.error(f"Risk Engine: No pyramid found for loser {loser.symbol}. Cannot place close order.")
                     return
 
+                # Mark loser as CLOSING before placing orders to prevent re-selection
+                loser.status = PositionGroupStatus.CLOSING.value
+                await position_group_repo.update(loser)
+                await session.flush()
+                logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSING before offset execution")
+
                 # Prepare all close orders for SIMULTANEOUS execution
                 close_tasks = []
 
@@ -258,6 +264,8 @@ class RiskEngineService:
 
                 # Prepare winner close tasks
                 winner_details = []
+                # Track winner positions and their close quantities for hedge tracking
+                winner_close_info = []  # List of (winner_pg, quantity_to_close, task_index)
                 for winner_pg, quantity_to_close in close_plan:
                     # Get pyramid for winner
                     winner_pyramid_result = await session.execute(
@@ -274,6 +282,10 @@ class RiskEngineService:
                         logger.info(f"Risk Engine: Cancelled pending orders for winner {winner_pg.symbol} (ID: {winner_pg.id}).")
                     except Exception as cancel_err:
                         logger.warning(f"Risk Engine: Failed to cancel orders for winner {winner_pg.symbol}: {cancel_err}")
+
+                    # Track task index (loser is at index 0, winners start at 1)
+                    task_index = len(close_tasks)
+                    winner_close_info.append((winner_pg, quantity_to_close, task_index))
 
                     # Add winner close task
                     close_tasks.append(
@@ -295,21 +307,87 @@ class RiskEngineService:
                         "quantity_closed": str(quantity_to_close)
                     })
 
-                # Execute ALL close orders SIMULTANEOUSLY
-                logger.info(f"Risk Engine: Executing {len(close_tasks)} close orders simultaneously...")
-                results = await asyncio.gather(*close_tasks, return_exceptions=True)
+                # Execute close orders SEQUENTIALLY to avoid session contention
+                # (asyncio.gather with shared session causes "Session is already flushing" errors)
+                logger.info(f"Risk Engine: Executing {len(close_tasks)} close orders sequentially...")
+                results = []
+                for task in close_tasks:
+                    try:
+                        result = await task
+                        results.append(result)
+                    except Exception as e:
+                        results.append(e)
 
                 # Check results
                 success_count = 0
                 error_count = 0
+                loser_close_success = False
                 for idx, result in enumerate(results):
                     if isinstance(result, Exception):
                         error_count += 1
                         logger.error(f"Risk Engine: Close order {idx} failed: {result}")
                     else:
                         success_count += 1
+                        # First task (idx=0) is always the loser close
+                        if idx == 0:
+                            loser_close_success = True
 
-                logger.info(f"Risk Engine: Simultaneous execution completed. Success: {success_count}, Errors: {error_count}")
+                logger.info(f"Risk Engine: Sequential execution completed. Success: {success_count}, Errors: {error_count}")
+
+                # Update loser status based on execution result
+                if loser_close_success:
+                    # Get current price for PnL calculation
+                    try:
+                        current_price = Decimal(str(await exchange_connector.get_current_price(loser.symbol)))
+                    except Exception:
+                        current_price = loser.weighted_avg_entry  # Fallback
+
+                    # Calculate realized PnL
+                    exit_value = loser.total_filled_quantity * current_price
+                    cost_basis = loser.total_invested_usd
+                    if loser.side == "long":
+                        realized_pnl = exit_value - cost_basis
+                    else:
+                        realized_pnl = cost_basis - exit_value
+
+                    # Mark loser as CLOSED
+                    loser.status = PositionGroupStatus.CLOSED.value
+                    loser.realized_pnl_usd = realized_pnl
+                    loser.unrealized_pnl_usd = Decimal("0")
+                    loser.closed_at = datetime.utcnow()
+                    await position_group_repo.update(loser)
+                    logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSED. Realized PnL: {realized_pnl}")
+
+                    # Update hedge tracking for successful winner closes
+                    for winner_pg, qty_closed, task_idx in winner_close_info:
+                        if not isinstance(results[task_idx], Exception):
+                            # Get current price for this winner's symbol
+                            try:
+                                winner_price = Decimal(str(await exchange_connector.get_current_price(winner_pg.symbol)))
+                            except Exception:
+                                winner_price = winner_pg.weighted_avg_entry  # Fallback
+
+                            hedge_value = qty_closed * winner_price
+
+                            # Accumulate hedge tracking (add to existing values)
+                            winner_pg.total_hedged_qty = (winner_pg.total_hedged_qty or Decimal("0")) + qty_closed
+                            winner_pg.total_hedged_value_usd = (winner_pg.total_hedged_value_usd or Decimal("0")) + hedge_value
+
+                            # Also reduce the winner's total_filled_quantity by the closed amount
+                            winner_pg.total_filled_quantity = winner_pg.total_filled_quantity - qty_closed
+
+                            await position_group_repo.update(winner_pg)
+                            logger.info(
+                                f"Risk Engine: Updated hedge tracking for winner {winner_pg.symbol}: "
+                                f"qty={qty_closed}, value=${hedge_value:.2f}, "
+                                f"cumulative_qty={winner_pg.total_hedged_qty}, "
+                                f"cumulative_value=${winner_pg.total_hedged_value_usd:.2f}"
+                            )
+                else:
+                    # Loser close failed - revert to previous status so it can be retried
+                    loser.status = PositionGroupStatus.ACTIVE.value
+                    await position_group_repo.update(loser)
+                    logger.error(f"Risk Engine: Loser {loser.symbol} close failed. Reverted to ACTIVE for retry.")
 
                 # Record risk action
                 risk_action = RiskAction(
@@ -352,6 +430,12 @@ class RiskEngineService:
 
                 await session.commit()
                 logger.info(f"Risk Engine: Offset for {loser.symbol} successfully executed and recorded.")
+
+                # Cleanup exchange connector
+                try:
+                    await exchange_connector.close()
+                except Exception as close_err:
+                    logger.debug(f"Risk Engine: Error closing exchange connector: {close_err}")
             else:
                 logger.debug(f"Risk Engine: No eligible loser or winners found for user {user.id}.")
         except Exception as e:

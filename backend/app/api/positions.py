@@ -9,7 +9,6 @@ import uuid
 
 from app.db.database import get_db_session, AsyncSessionLocal
 from app.schemas.position_group import PositionGroupSchema
-from app.schemas.grid_config import RiskEngineConfig
 from app.repositories.position_group import PositionGroupRepository
 from app.services.order_management import OrderService # New import
 from app.services.position_manager import PositionManagerService
@@ -127,104 +126,6 @@ async def _calculate_position_pnl(
         logger.error(f"Error calculating PnL for position {pos.id} ({pos.symbol}): {e}")
 
 
-def _calculate_auto_hedge_close_qty(
-    positions: List,
-    all_tickers: Dict[str, Any],
-    risk_config: RiskEngineConfig
-) -> None:
-    """
-    Calculate auto_hedge_close_qty for winning positions.
-
-    This shows how much of each winning position would need to be closed
-    to offset the loss from the worst losing position.
-
-    Formula: qty_to_close = loss_to_recover / profit_per_unit
-    Where:
-    - loss_to_recover = abs(loser.unrealized_pnl_usd)
-    - profit_per_unit = current_price - avg_entry (for longs)
-    """
-    from app.models.position_group import PositionGroupStatus
-
-    # Find the worst losing position (highest absolute loss %)
-    losers = [
-        p for p in positions
-        if p.status == PositionGroupStatus.ACTIVE.value
-        and float(p.unrealized_pnl_usd) < 0
-        and float(p.unrealized_pnl_percent) <= float(risk_config.loss_threshold_percent)
-    ]
-
-    if not losers:
-        # No eligible loser, no hedge needed
-        return
-
-    # Select worst loser by percentage (most negative)
-    worst_loser = min(losers, key=lambda p: float(p.unrealized_pnl_percent))
-    required_usd = abs(float(worst_loser.unrealized_pnl_usd))
-
-    # Find winning positions sorted by profit (highest first)
-    winners = [
-        p for p in positions
-        if p.status == PositionGroupStatus.ACTIVE.value
-        and float(p.unrealized_pnl_usd) > 0
-        and p.id != worst_loser.id
-    ]
-    winners.sort(key=lambda p: float(p.unrealized_pnl_usd), reverse=True)
-
-    # Limit to max_winners_to_combine
-    winners = winners[:risk_config.max_winners_to_combine]
-
-    remaining_needed = required_usd
-
-    for winner in winners:
-        if remaining_needed <= 0:
-            break
-
-        symbol = winner.symbol
-        current_price = None
-
-        # Get current price from tickers
-        if symbol in all_tickers:
-            current_price = float(all_tickers[symbol]['last'])
-        elif symbol.replace('/', '') in all_tickers:
-            current_price = float(all_tickers[symbol.replace('/', '')]['last'])
-
-        if current_price is None or current_price <= 0:
-            continue
-
-        avg_entry = float(winner.weighted_avg_entry)
-        total_qty = float(winner.total_filled_quantity)
-
-        if avg_entry <= 0 or total_qty <= 0:
-            continue
-
-        # Calculate profit per unit
-        if winner.side.lower() == "long":
-            profit_per_unit = current_price - avg_entry
-        else:
-            profit_per_unit = avg_entry - current_price
-
-        if profit_per_unit <= 0:
-            continue
-
-        # Calculate available profit from this winner
-        available_profit = float(winner.unrealized_pnl_usd)
-
-        # Determine how much profit to take from this winner
-        profit_to_take = min(available_profit, remaining_needed)
-
-        # Calculate quantity to close: qty = profit_to_take / profit_per_unit
-        qty_to_close = profit_to_take / profit_per_unit
-
-        # Cap at available quantity
-        if qty_to_close > total_qty:
-            qty_to_close = total_qty
-
-        # Store the calculated quantity
-        winner.auto_hedge_close_qty = Decimal(str(round(qty_to_close, 8)))
-
-        remaining_needed -= profit_to_take
-
-
 @router.get("/active", response_model=List[PositionGroupSchema])
 @limiter.limit("120/minute")
 async def get_current_user_active_positions(
@@ -256,17 +157,13 @@ async def get_current_user_active_positions(
 
     cache = await get_cache()
 
-    # Collect all tickers for auto_hedge_close_qty calculation
-    all_tickers_combined: Dict[str, Any] = {}
-
     # Process all exchanges in parallel
-    async def process_exchange(exchange_name: str, exchange_positions: List) -> Dict[str, Any]:
+    async def process_exchange(exchange_name: str, exchange_positions: List):
         if not ExchangeConfigService.has_valid_config(current_user, exchange_name):
             logger.warning(f"No valid API keys for exchange '{exchange_name}' to update PnL for {len(exchange_positions)} positions.")
-            return {}
+            return
 
         connector = None
-        all_tickers = {}
         try:
             connector = ExchangeConfigService.get_connector(current_user, exchange_name)
 
@@ -291,31 +188,11 @@ async def get_current_user_active_positions(
             logger.error(f"Error fetching prices from {exchange_name}: {e}")
         # Note: Don't close connector - it's cached for reuse by the factory
 
-        return all_tickers
-
-    # Process all exchanges in parallel and collect tickers
-    ticker_results = await asyncio.gather(*[
+    # Process all exchanges in parallel
+    await asyncio.gather(*[
         process_exchange(exchange_name, exchange_positions)
         for exchange_name, exchange_positions in groups_by_exchange.items()
     ], return_exceptions=True)
-
-    # Combine all tickers from all exchanges
-    for result in ticker_results:
-        if isinstance(result, dict):
-            all_tickers_combined.update(result)
-
-    # Calculate auto_hedge_close_qty for winning positions
-    try:
-        risk_config = RiskEngineConfig()
-        if current_user.risk_config:
-            if isinstance(current_user.risk_config, dict):
-                risk_config = RiskEngineConfig(**current_user.risk_config)
-            elif isinstance(current_user.risk_config, RiskEngineConfig):
-                risk_config = current_user.risk_config
-
-        _calculate_auto_hedge_close_qty(positions, all_tickers_combined, risk_config)
-    except Exception as e:
-        logger.warning(f"Failed to calculate auto_hedge_close_qty: {e}")
 
     return [PositionGroupSchema.from_orm(pos) for pos in positions]
 

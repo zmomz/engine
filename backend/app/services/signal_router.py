@@ -36,6 +36,9 @@ from app.models.position_group import PositionGroupStatus
 from app.models.dca_order import OrderType
 
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
+from app.services.risk.risk_engine import RiskEngineService
+from app.repositories.risk_action import RiskActionRepository
+from app.repositories.dca_order import DCAOrderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -374,6 +377,46 @@ class SignalRouterService:
                     await queue_service.add_signal_to_queue(signal)
                     logger.info(f"{msg_prefix} Signal queued for {signal.tv.symbol}")
                     return f"{msg_prefix} Signal queued for {signal.tv.symbol}"
+
+                # --- Pre-Trade Risk Validation ---
+                # Create RiskEngineService and validate before any position execution
+                risk_engine = RiskEngineService(
+                    session_factory=AsyncSessionLocal,
+                    position_group_repository_class=PositionGroupRepository,
+                    risk_action_repository_class=RiskActionRepository,
+                    dca_order_repository_class=DCAOrderRepository,
+                    order_service_class=OrderService,
+                    risk_engine_config=risk_config,
+                    user=self.user
+                )
+
+                # Get all active positions for validation
+                active_positions = await pg_repo.get_active_position_groups_for_user(self.user.id)
+
+                # Create a QueuedSignal for validation
+                validation_signal = QueuedSignal(
+                    user_id=self.user.id,
+                    exchange=signal.tv.exchange.lower(),
+                    symbol=signal.tv.symbol,
+                    timeframe=signal.tv.timeframe,
+                    side=signal_side,
+                    entry_price=Decimal(str(signal.tv.entry_price)),
+                    signal_payload=signal.model_dump(mode='json')
+                )
+
+                # Perform pre-trade risk validation
+                is_pyramid_continuation = existing_group is not None
+                is_allowed, rejection_reason = await risk_engine.validate_pre_trade_risk(
+                    signal=validation_signal,
+                    active_positions=active_positions,
+                    allocated_capital_usd=total_capital,
+                    session=db_session,
+                    is_pyramid_continuation=is_pyramid_continuation
+                )
+
+                if not is_allowed:
+                    logger.warning(f"Pre-trade risk validation failed for {signal.tv.symbol}: {rejection_reason}")
+                    return f"Risk validation failed: {rejection_reason}"
 
                 if existing_group:
                     # Pyramid Logic Check

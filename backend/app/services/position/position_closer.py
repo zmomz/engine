@@ -18,8 +18,6 @@ from app.repositories.risk_action import RiskActionRepository
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.order_management import OrderService
-from app.services.telegram_signal_helper import broadcast_exit_signal
-
 logger = logging.getLogger(__name__)
 
 
@@ -209,8 +207,8 @@ async def execute_handle_exit_signal(
                     quantity_closed=total_filled_quantity
                 )
 
-                # Broadcast exit signal to Telegram
-                await broadcast_exit_signal(position_group, current_price, session, exit_reason)
+                # Note: Telegram broadcast skipped here - handled by status change notification instead
+                # Background tasks with shared session cause "session is in prepared state" errors
 
             except Exception as e:
                 logger.error(f"DEBUG: Caught exception in handle_exit_signal: {type(e)} - {e}")
@@ -264,8 +262,7 @@ async def execute_handle_exit_signal(
                                 quantity_closed=available_balance
                             )
 
-                            # Broadcast exit signal to Telegram
-                            await broadcast_exit_signal(position_group, current_price, session, exit_reason)
+                            # Note: Telegram broadcast skipped here - handled by status change notification instead
 
                         else:
                             logger.error(f"No balance found for {base_currency}. Cannot retry close.")
