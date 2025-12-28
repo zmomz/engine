@@ -15,11 +15,10 @@ describe('RiskEngineSettings', () => {
       </MockFormProvider>
     );
     expect(screen.getByLabelText(/loss threshold/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/use trade age filter/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/age threshold/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/require full pyramids/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/post-full wait/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/timer start condition/i)).toBeInTheDocument();
-
+    expect(screen.getByLabelText(/required pyramids for timer/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/wait time after conditions met/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/max winners to combine/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/max realized loss/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/enable partial close of winners/i)).toBeInTheDocument();
   });
 });

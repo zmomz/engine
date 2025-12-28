@@ -20,22 +20,25 @@ describe('configStore', () => {
     jest.clearAllMocks();
   });
 
-  it('fetchSettings should load settings from authStore', async () => {
+  it('fetchSettings should load settings from API', async () => {
     const mockUser = { id: '1', username: 'test' };
-    (useAuthStore.getState as jest.Mock).mockReturnValue({ user: mockUser });
+    (api.get as jest.Mock).mockResolvedValue({ data: mockUser });
+    (useAuthStore.getState as jest.Mock).mockReturnValue({ token: 'test-token', login: jest.fn() });
 
     await useConfigStore.getState().fetchSettings();
 
+    expect(api.get).toHaveBeenCalledWith('/settings');
     expect(useConfigStore.getState().settings).toEqual(mockUser);
     expect(useConfigStore.getState().loading).toBe(false);
   });
 
-  it('fetchSettings should handle missing user', async () => {
-    (useAuthStore.getState as jest.Mock).mockReturnValue({ user: null });
+  it('fetchSettings should handle API error', async () => {
+    (api.get as jest.Mock).mockRejectedValue({ response: { data: { detail: 'Unauthorized' } } });
+    (useAuthStore.getState as jest.Mock).mockReturnValue({ token: null });
 
     await useConfigStore.getState().fetchSettings();
 
-    expect(useConfigStore.getState().error).toBe('User not authenticated');
+    expect(useConfigStore.getState().error).toBe('Unauthorized');
   });
 
   it('updateSettings should call API and update stores', async () => {

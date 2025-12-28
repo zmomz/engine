@@ -1,5 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import DashboardPage from './DashboardPage';
 import useDashboardStore from '../store/dashboardStore';
 import useRiskStore from '../store/riskStore';
@@ -8,9 +9,14 @@ import useRiskStore from '../store/riskStore';
 jest.mock('../store/dashboardStore');
 jest.mock('../store/riskStore');
 
+// Helper to render with router
+const renderWithRouter = (component: React.ReactElement) => {
+  return render(<MemoryRouter>{component}</MemoryRouter>);
+};
+
 describe('DashboardPage', () => {
-  const mockFetchDashboardData = jest.fn();
-  const mockFetchRiskStatus = jest.fn();
+  const mockFetchDashboardData = jest.fn().mockResolvedValue(undefined);
+  const mockFetchRiskStatus = jest.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -34,19 +40,25 @@ describe('DashboardPage', () => {
     });
   });
 
-  test('renders dashboard heading', () => {
-    render(<DashboardPage />);
+  test('renders dashboard heading', async () => {
+    renderWithRouter(<DashboardPage />);
     const headingElement = screen.getByText(/Dashboard/i);
     expect(headingElement).toBeInTheDocument();
+    // Wait for async effects to complete
+    await waitFor(() => {
+      expect(mockFetchDashboardData).toHaveBeenCalled();
+    });
   });
 
-  test('calls fetchDashboardData and fetchRiskStatus on mount', () => {
-    render(<DashboardPage />);
-    expect(mockFetchDashboardData).toHaveBeenCalled();
-    expect(mockFetchRiskStatus).toHaveBeenCalled();
+  test('calls fetchDashboardData and fetchRiskStatus on mount', async () => {
+    renderWithRouter(<DashboardPage />);
+    await waitFor(() => {
+      expect(mockFetchDashboardData).toHaveBeenCalled();
+      expect(mockFetchRiskStatus).toHaveBeenCalled();
+    });
   });
 
-  test('displays loading skeleton when loading and no data', () => {
+  test('displays loading skeleton when loading and no data', async () => {
     (useDashboardStore as unknown as jest.Mock).mockReturnValue({
       data: null,
       loading: true,
@@ -54,12 +66,15 @@ describe('DashboardPage', () => {
       fetchDashboardData: mockFetchDashboardData,
     });
 
-    render(<DashboardPage />);
+    renderWithRouter(<DashboardPage />);
     // Should show skeleton or loading state
     expect(screen.getByText(/Dashboard/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockFetchDashboardData).toHaveBeenCalled();
+    });
   });
 
-  test('displays error message when error occurs', () => {
+  test('displays error message when error occurs', async () => {
     (useDashboardStore as unknown as jest.Mock).mockReturnValue({
       data: null,
       loading: false,
@@ -67,11 +82,14 @@ describe('DashboardPage', () => {
       fetchDashboardData: mockFetchDashboardData,
     });
 
-    render(<DashboardPage />);
+    renderWithRouter(<DashboardPage />);
     expect(screen.getByText(/Error: Failed to fetch data/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockFetchDashboardData).toHaveBeenCalled();
+    });
   });
 
-  test('renders fetched data correctly', () => {
+  test('renders fetched data correctly', async () => {
     (useDashboardStore as unknown as jest.Mock).mockReturnValue({
       data: {
         live_dashboard: {
@@ -112,9 +130,12 @@ describe('DashboardPage', () => {
       error: null,
     });
 
-    render(<DashboardPage />);
+    renderWithRouter(<DashboardPage />);
 
     // Check Active Position Groups is displayed
     expect(screen.getByText('3')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockFetchDashboardData).toHaveBeenCalled();
+    });
   });
 });

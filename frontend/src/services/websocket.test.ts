@@ -74,11 +74,39 @@ describe('WebSocketService', () => {
   it('should handle incoming messages and update the store', () => {
     const positionGroupMessage = {
       type: 'position_groups_update',
-      payload: [{ id: 1, symbol: 'BTC/USD' }],
+      payload: [{
+        id: '1',
+        exchange: 'binance',
+        symbol: 'BTC/USD',
+        timeframe: 60,
+        side: 'long',
+        status: 'active',
+        pyramid_count: 1,
+        max_pyramids: 3,
+        replacement_count: 0,
+        total_dca_legs: 3,
+        filled_dca_legs: 1,
+        base_entry_price: 50000,
+        weighted_avg_entry: 50000,
+        total_invested_usd: 1000,
+        total_filled_quantity: 0.02,
+        unrealized_pnl_usd: 50,
+        unrealized_pnl_percent: 5,
+        realized_pnl_usd: 0,
+        tp_mode: 'standard',
+        risk_timer_expires: null,
+        risk_eligible: false,
+        risk_blocked: false,
+        created_at: '2024-01-01T00:00:00Z',
+        closed_at: null,
+        total_hedged_qty: 0,
+        total_hedged_value_usd: 0,
+        pyramids: [],
+      }],
     };
     const queuedSignalMessage = {
       type: 'queued_signals_update',
-      payload: [{ id: 1, symbol: 'ETH/USD' }],
+      payload: [{ id: '1', symbol: 'ETH/USD' }],
     };
 
     // Simulate receiving a position group update message
