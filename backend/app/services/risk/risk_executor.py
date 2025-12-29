@@ -118,10 +118,18 @@ async def calculate_partial_close_quantities(
             )
             continue
 
-        # Cap at available quantity
+        # IMPORTANT: Never close the entire position - only extract needed profit
+        # The quantity should always be less than total_filled since we only
+        # take partial profit. If calculation suggests closing entire position,
+        # something is wrong (price moved, or insufficient profit check failed).
         total_filled = Decimal(str(winner.total_filled_quantity))
-        if quantity_to_close > total_filled:
-            quantity_to_close = total_filled
+        if quantity_to_close >= total_filled:
+            logger.warning(
+                f"Risk Engine: Calculated quantity_to_close ({quantity_to_close}) >= "
+                f"total_filled ({total_filled}) for {winner.symbol}. "
+                f"This would close entire position. Skipping this winner."
+            )
+            continue
 
         close_plan.append((winner, quantity_to_close))
         remaining_needed -= profit_to_take

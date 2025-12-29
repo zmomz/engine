@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import get_cache
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.models.pyramid import Pyramid
 from app.models.queued_signal import QueuedSignal
@@ -37,6 +38,9 @@ from app.services.risk.risk_timer import update_risk_timers
 from app.services.risk.risk_executor import calculate_partial_close_quantities
 
 from fastapi import HTTPException, status
+
+# Lock TTL for offset execution (60 seconds)
+OFFSET_LOCK_TTL = 60
 
 logger = logging.getLogger(__name__)
 
@@ -104,10 +108,10 @@ class RiskEngineService:
             return False, "Engine force stopped by user"
 
         # 1. Max Open Positions Global
-        if not is_pyramid_continuation:
-            active_groups_count = len(active_positions)
-            if active_groups_count >= self.config.max_open_positions_global:
-                return False, f"Max global positions reached ({active_groups_count}/{self.config.max_open_positions_global})"
+        # NOTE: This check is now handled by ExecutionPoolManager.request_slot()
+        # which queues signals when pool is full instead of rejecting them.
+        # We skip this check here to allow proper queue behavior.
+        # The pool manager will prevent actual execution if pool is full.
 
         # 2. Max Open Positions Per Symbol/Timeframe/Exchange combination
         if not is_pyramid_continuation:
@@ -195,8 +199,20 @@ class RiskEngineService:
                     f"(loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners."
                 )
 
-                # Get exchange connector
+                # Acquire distributed lock to prevent concurrent offset execution for same loser
+                cache = await get_cache()
+                lock_resource = f"risk_offset:{loser.id}"
+                lock_id = str(uuid.uuid4())
+                lock_acquired = await cache.acquire_lock(lock_resource, lock_id, OFFSET_LOCK_TTL)
+
+                if not lock_acquired:
+                    logger.warning(
+                        f"Risk Engine: Another offset execution in progress for {loser.symbol}. Skipping."
+                    )
+                    return
+
                 try:
+                    # Get exchange connector
                     exchange_config = {}
                     encrypted_data = user.encrypted_api_keys
                     target_exchange = loser.exchange.lower()
@@ -206,6 +222,7 @@ class RiskEngineService:
                             exchange_config = encrypted_data[target_exchange]
                         elif "encrypted_data" not in encrypted_data:
                             logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}. Skipping.")
+                            await cache.release_lock(lock_resource, lock_id)
                             return
                         else:
                             exchange_config = {"encrypted_data": encrypted_data}
@@ -213,6 +230,7 @@ class RiskEngineService:
                         exchange_config = {"encrypted_data": encrypted_data}
                     else:
                         logger.error(f"Risk Engine: Invalid format for encrypted_api_keys for user {user.id}. Skipping.")
+                        await cache.release_lock(lock_resource, lock_id)
                         return
 
                     exchange_connector = get_exchange_connector(
@@ -221,6 +239,7 @@ class RiskEngineService:
                     )
                 except Exception as e:
                     logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
+                    await cache.release_lock(lock_resource, lock_id)
                     return
 
                 # Instantiate OrderService
@@ -235,6 +254,7 @@ class RiskEngineService:
 
                 if not close_plan and required_usd > 0:
                     logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
+                    await cache.release_lock(lock_resource, lock_id)
                     return
 
                 # Get pyramid for loser
@@ -244,13 +264,16 @@ class RiskEngineService:
                 loser_pyramid = loser_pyramid_result.scalar_one_or_none()
                 if not loser_pyramid:
                     logger.error(f"Risk Engine: No pyramid found for loser {loser.symbol}. Cannot place close order.")
+                    await cache.release_lock(lock_resource, lock_id)
                     return
 
                 # Mark loser as CLOSING before placing orders to prevent re-selection
+                # IMPORTANT: We commit immediately so other risk engine evaluations
+                # can see this status change and skip this loser
                 loser.status = PositionGroupStatus.CLOSING.value
                 await position_group_repo.update(loser)
-                await session.flush()
-                logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSING before offset execution")
+                await session.commit()
+                logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSING and committed to prevent re-selection")
 
                 # Prepare all close orders for SIMULTANEOUS execution
                 close_tasks = []
@@ -374,21 +397,42 @@ class RiskEngineService:
                             except Exception:
                                 winner_price = winner_pg.weighted_avg_entry  # Fallback
 
-                            hedge_value = qty_closed * winner_price
+                            # Calculate REALIZED PROFIT from the hedge (not notional value)
+                            # Profit = (exit_price - entry_price) * quantity for long
+                            # Profit = (entry_price - exit_price) * quantity for short
+                            if winner_pg.side == "long":
+                                hedge_profit = (winner_price - winner_pg.weighted_avg_entry) * qty_closed
+                            else:
+                                hedge_profit = (winner_pg.weighted_avg_entry - winner_price) * qty_closed
 
                             # Accumulate hedge tracking (add to existing values)
+                            # total_hedged_qty: quantity that was closed for offset
+                            # total_hedged_value_usd: PROFIT realized from the hedge (not notional)
                             winner_pg.total_hedged_qty = (winner_pg.total_hedged_qty or Decimal("0")) + qty_closed
-                            winner_pg.total_hedged_value_usd = (winner_pg.total_hedged_value_usd or Decimal("0")) + hedge_value
+                            winner_pg.total_hedged_value_usd = (winner_pg.total_hedged_value_usd or Decimal("0")) + hedge_profit
 
                             # Also reduce the winner's total_filled_quantity by the closed amount
                             winner_pg.total_filled_quantity = winner_pg.total_filled_quantity - qty_closed
 
+                            # Recalculate unrealized PnL based on remaining quantity
+                            # If all quantity is closed, PnL should be 0
+                            if winner_pg.total_filled_quantity <= 0:
+                                winner_pg.unrealized_pnl_usd = Decimal("0")
+                                winner_pg.unrealized_pnl_percent = Decimal("0")
+                            else:
+                                # Recalculate based on remaining quantity
+                                remaining_qty = winner_pg.total_filled_quantity
+                                if winner_pg.side == "long":
+                                    winner_pg.unrealized_pnl_usd = (winner_price - winner_pg.weighted_avg_entry) * remaining_qty
+                                else:
+                                    winner_pg.unrealized_pnl_usd = (winner_pg.weighted_avg_entry - winner_price) * remaining_qty
+
                             await position_group_repo.update(winner_pg)
                             logger.info(
                                 f"Risk Engine: Updated hedge tracking for winner {winner_pg.symbol}: "
-                                f"qty={qty_closed}, value=${hedge_value:.2f}, "
-                                f"cumulative_qty={winner_pg.total_hedged_qty}, "
-                                f"cumulative_value=${winner_pg.total_hedged_value_usd:.2f}"
+                                f"qty_closed={qty_closed}, profit_realized=${hedge_profit:.2f}, "
+                                f"cumulative_hedged_qty={winner_pg.total_hedged_qty}, "
+                                f"cumulative_hedged_profit=${winner_pg.total_hedged_value_usd:.2f}"
                             )
                 else:
                     # Loser close failed - revert to previous status so it can be retried
@@ -443,6 +487,11 @@ class RiskEngineService:
                     await exchange_connector.close()
                 except Exception as close_err:
                     logger.debug(f"Risk Engine: Error closing exchange connector: {close_err}")
+                finally:
+                    # Always release the distributed lock
+                    released = await cache.release_lock(lock_resource, lock_id)
+                    if not released:
+                        logger.warning(f"Risk Engine: Failed to release offset lock for {loser.symbol}")
             else:
                 logger.debug(f"Risk Engine: No eligible loser or winners found for user {user.id}.")
         except Exception as e:

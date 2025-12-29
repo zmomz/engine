@@ -75,6 +75,8 @@ def _select_top_winners(position_groups: List[PositionGroup], count: int, exclud
     regardless of whether all DCAs have filled. Valid statuses include:
     LIVE, PARTIALLY_FILLED, and ACTIVE. Positions in CLOSING, CLOSED, or FAILED
     states are excluded.
+
+    Positions with zero remaining quantity (fully hedged) are excluded.
     """
     # All "open" statuses that can participate as winners
     valid_winner_statuses = (
@@ -86,6 +88,7 @@ def _select_top_winners(position_groups: List[PositionGroup], count: int, exclud
         pg for pg in position_groups
         if pg.status in valid_winner_statuses
         and pg.unrealized_pnl_usd > 0
+        and pg.total_filled_quantity > 0  # Exclude fully hedged positions
         and (exclude_id is None or pg.id != exclude_id)
     ]
 
@@ -115,10 +118,12 @@ def select_loser_and_winners(
     - Rank all winning positions by unrealized profit USD
     - Select up to max_winners_to_combine (default: 3)
     - Exclude the loser from winner selection
+    - IMPORTANT: Combined winner profit must be >= loser loss
 
     Offset Execution:
     - Calculate required_usd to cover loser (exact loss amount)
-    - Close winners partially to realize that exact amount
+    - Close winners PARTIALLY to realize that exact amount
+    - Never close a winner's entire position - only extract needed profit
     """
     eligible_losers = _filter_eligible_losers(position_groups, config)
 
@@ -135,11 +140,21 @@ def select_loser_and_winners(
     # Required USD is the exact loss amount to cover
     required_usd = abs(selected_loser.unrealized_pnl_usd)
 
-    # Select winners, excluding the loser
-    selected_winners = _select_top_winners(
+    # Select potential winners, excluding the loser
+    potential_winners = _select_top_winners(
         position_groups,
         config.max_winners_to_combine,
         exclude_id=selected_loser.id
     )
 
-    return selected_loser, selected_winners, required_usd
+    # CRITICAL: Check if combined winner profit >= loser loss
+    # Only winners whose combined unrealized profit can cover the loss are valid
+    combined_profit = sum(
+        Decimal(str(w.unrealized_pnl_usd)) for w in potential_winners
+    )
+
+    if combined_profit < required_usd:
+        # Not enough profit to offset the loss - abort offset
+        return None, [], Decimal("0")
+
+    return selected_loser, potential_winners, required_usd
