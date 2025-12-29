@@ -18,7 +18,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { PositionGroup } from '../store/positionsStore';
-import { safeToFixed, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
+import { safeNumber, safeToFixed, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
 
 interface PositionCardProps {
   position: PositionGroup;
@@ -28,7 +28,7 @@ interface PositionCardProps {
 const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) => {
   const [expanded, setExpanded] = useState(false);
 
-  const isProfitable = (position.unrealized_pnl_usd || 0) >= 0;
+  const isProfitable = safeNumber(position.unrealized_pnl_usd) >= 0;
   const pnlColor = isProfitable ? 'success.main' : 'error.main';
   const pyramidProgress = position.max_pyramids > 0
     ? (position.pyramid_count / position.max_pyramids) * 100
@@ -192,7 +192,7 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
                 {position.risk_blocked ? '⚠️ Blocked' : position.risk_eligible ? '✅ Eligible' : '○ N/A'}
               </Typography>
             </Box>
-            {(position.total_hedged_qty > 0 || position.total_hedged_value_usd > 0) && (
+            {(safeNumber(position.total_hedged_qty) > 0 || safeNumber(position.total_hedged_value_usd) > 0) && (
               <>
                 <Box>
                   <Tooltip title="Cumulative quantity closed to offset losers">

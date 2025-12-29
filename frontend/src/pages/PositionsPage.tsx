@@ -198,9 +198,9 @@ const PositionsPage: React.FC = () => {
 
   // Calculate summary metrics for active positions
   const activeMetrics = useMemo(() => {
-    const totalInvested = positions.reduce((sum, pos) => sum + (pos.total_invested_usd || 0), 0);
-    const totalUnrealizedPnl = positions.reduce((sum, pos) => sum + (pos.unrealized_pnl_usd || 0), 0);
-    const profitablePositions = positions.filter(p => (p.unrealized_pnl_usd || 0) > 0).length;
+    const totalInvested = positions.reduce((sum, pos) => sum + safeNumber(pos.total_invested_usd), 0);
+    const totalUnrealizedPnl = positions.reduce((sum, pos) => sum + safeNumber(pos.unrealized_pnl_usd), 0);
+    const profitablePositions = positions.filter(p => safeNumber(p.unrealized_pnl_usd) > 0).length;
 
     // Calculate average age
     let avgAgeHours = 0;
@@ -224,9 +224,9 @@ const PositionsPage: React.FC = () => {
 
   // Calculate summary metrics for history
   const historyMetrics = useMemo(() => {
-    const totalRealizedPnl = positionHistory.reduce((sum, pos) => sum + (pos.realized_pnl_usd || 0), 0);
-    const wins = positionHistory.filter(p => (p.realized_pnl_usd || 0) > 0).length;
-    const losses = positionHistory.filter(p => (p.realized_pnl_usd || 0) < 0).length;
+    const totalRealizedPnl = positionHistory.reduce((sum, pos) => sum + safeNumber(pos.realized_pnl_usd), 0);
+    const wins = positionHistory.filter(p => safeNumber(p.realized_pnl_usd) > 0).length;
+    const losses = positionHistory.filter(p => safeNumber(p.realized_pnl_usd) < 0).length;
     const totalTrades = positionHistory.length;
     const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
     const avgTrade = totalTrades > 0 ? totalRealizedPnl / totalTrades : 0;
@@ -406,8 +406,8 @@ const PositionsPage: React.FC = () => {
         </Tooltip>
       ),
       renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        const value = params.row.total_hedged_qty;
-        if (!value || value === 0) {
+        const value = safeNumber(params.row.total_hedged_qty);
+        if (value === 0) {
           return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
         }
         return (
@@ -427,8 +427,8 @@ const PositionsPage: React.FC = () => {
       headerAlign: 'right',
       description: 'Cumulative USD value of hedge closes',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        const value = params.row.total_hedged_value_usd;
-        if (!value || value === 0) {
+        const value = safeNumber(params.row.total_hedged_value_usd);
+        if (value === 0) {
           return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
         }
         return (
@@ -579,8 +579,8 @@ const PositionsPage: React.FC = () => {
       headerAlign: 'right',
       description: 'Quantity used to offset losers',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        const value = params.row.total_hedged_qty;
-        if (!value || value === 0) {
+        const value = safeNumber(params.row.total_hedged_qty);
+        if (value === 0) {
           return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
         }
         return (
@@ -598,8 +598,8 @@ const PositionsPage: React.FC = () => {
       headerAlign: 'right',
       description: 'USD value of hedge closes',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => {
-        const value = params.row.total_hedged_value_usd;
-        if (!value || value === 0) {
+        const value = safeNumber(params.row.total_hedged_value_usd);
+        if (value === 0) {
           return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
         }
         return (

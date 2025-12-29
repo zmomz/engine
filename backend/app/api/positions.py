@@ -122,6 +122,10 @@ async def _calculate_position_pnl(
                 pos.unrealized_pnl_percent = Decimal(str((pnl / total_invested) * 100))
             else:
                 pos.unrealized_pnl_percent = Decimal("0")
+        else:
+            # No quantity means no unrealized PnL (fully hedged or not filled)
+            pos.unrealized_pnl_usd = Decimal("0")
+            pos.unrealized_pnl_percent = Decimal("0")
     except Exception as e:
         logger.error(f"Error calculating PnL for position {pos.id} ({pos.symbol}): {e}")
 

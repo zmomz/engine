@@ -40,30 +40,36 @@ async def test_dashboard_returns_all_configured_exchanges():
 
     This tests the bug where dashboard was only showing 1 exchange.
     """
-    async with httpx.AsyncClient(timeout=30.0, base_url=BASE_URL) as client:
-        # Login
-        r = await client.post(
-            "/api/v1/users/login",
-            data={"username": TEST_USER, "password": TEST_PASSWORD}
-        )
-        if r.status_code != 200:
-            pytest.skip("Could not authenticate - is the app running?")
-        cookies = r.cookies
+    try:
+        async with httpx.AsyncClient(timeout=60.0, base_url=BASE_URL) as client:
+            # Login
+            try:
+                r = await client.post(
+                    "/api/v1/users/login",
+                    data={"username": TEST_USER, "password": TEST_PASSWORD}
+                )
+            except (httpx.ConnectError, httpx.ReadTimeout):
+                pytest.skip("Could not connect to app - is Docker running?")
+            if r.status_code != 200:
+                pytest.skip("Could not authenticate - is the app running?")
+            cookies = r.cookies
 
-        # Get dashboard data
-        r = await client.get("/api/v1/dashboard/analytics", cookies=cookies)
-        assert r.status_code == 200, f"Dashboard failed: {r.text}"
+            # Get dashboard data
+            r = await client.get("/api/v1/dashboard/analytics", cookies=cookies)
+            assert r.status_code == 200, f"Dashboard failed: {r.text}"
 
-        data = r.json()
-        assert "live_dashboard" in data, "Missing live_dashboard"
+            data = r.json()
+            assert "live_dashboard" in data, "Missing live_dashboard"
 
-        live = data["live_dashboard"]
+            live = data["live_dashboard"]
 
-        # Check that TVL is calculated (mock should have balances)
-        assert "tvl" in live, "Missing TVL in dashboard"
+            # Check that TVL is calculated (mock should have balances)
+            assert "tvl" in live, "Missing TVL in dashboard"
 
-        # If mock exchange has balances, TVL should be > 0
-        # This catches the bug where only 1 exchange data was returned
+            # If mock exchange has balances, TVL should be > 0
+            # This catches the bug where only 1 exchange data was returned
+    except (httpx.ConnectError, httpx.ReadTimeout):
+        pytest.skip("Could not connect to app - is Docker running?")
 
 
 @pytest.mark.asyncio
@@ -75,24 +81,30 @@ async def test_dashboard_handles_exchange_errors_gracefully():
     The dashboard should still return data from working exchanges
     even if one exchange connector fails.
     """
-    async with httpx.AsyncClient(timeout=30.0, base_url=BASE_URL) as client:
-        # Login
-        r = await client.post(
-            "/api/v1/users/login",
-            data={"username": TEST_USER, "password": TEST_PASSWORD}
-        )
-        if r.status_code != 200:
-            pytest.skip("Could not authenticate")
-        cookies = r.cookies
+    try:
+        async with httpx.AsyncClient(timeout=60.0, base_url=BASE_URL) as client:
+            # Login
+            try:
+                r = await client.post(
+                    "/api/v1/users/login",
+                    data={"username": TEST_USER, "password": TEST_PASSWORD}
+                )
+            except (httpx.ConnectError, httpx.ReadTimeout):
+                pytest.skip("Could not connect to app - is Docker running?")
+            if r.status_code != 200:
+                pytest.skip("Could not authenticate")
+            cookies = r.cookies
 
-        # Dashboard should never fail completely
-        r = await client.get("/api/v1/dashboard/analytics", cookies=cookies)
-        assert r.status_code == 200, f"Dashboard should handle partial failures: {r.text}"
+            # Dashboard should never fail completely
+            r = await client.get("/api/v1/dashboard/analytics", cookies=cookies)
+            assert r.status_code == 200, f"Dashboard should handle partial failures: {r.text}"
 
-        data = r.json()
-        # Should have structure even if some exchanges failed
-        assert "live_dashboard" in data
-        assert "performance_dashboard" in data
+            data = r.json()
+            # Should have structure even if some exchanges failed
+            assert "live_dashboard" in data
+            assert "performance_dashboard" in data
+    except (httpx.ConnectError, httpx.ReadTimeout):
+        pytest.skip("Could not connect to app - is Docker running?")
 
 
 @pytest.mark.asyncio

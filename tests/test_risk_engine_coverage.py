@@ -210,12 +210,12 @@ async def test_validate_pre_trade_risk_checks(mock_config):
             risk_engine_config=mock_config
         )
         
-        signal = QueuedSignal(user_id=uuid.uuid4(), symbol="BTC/USD", exchange="binance") # Added user_id and exchange
+        signal = QueuedSignal(user_id=uuid.uuid4(), symbol="BTC/USD", exchange="binance", timeframe=60)
         active_positions = []
-        
+
         # 1. Success case
         session = AsyncMock()
-        
+
         # Mock daily pnl
         pos_repo_mock = MagicMock()
         pos_repo_mock.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0.0"))
@@ -225,23 +225,23 @@ async def test_validate_pre_trade_risk_checks(mock_config):
             signal, active_positions, Decimal("100.0"), session
         )
         assert result[0] is True
-        
+
         # 2. Max Global Positions
-        active_positions = [MagicMock(symbol=f"S{i}", total_invested_usd=Decimal("10"), exchange="binance") for i in range(5)]
+        active_positions = [MagicMock(symbol=f"S{i}", total_invested_usd=Decimal("10"), exchange="binance", timeframe=60) for i in range(5)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
         assert result[0] is False
-        
+
         # 3. Max Symbol Positions
-        active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("10"), exchange="binance") for _ in range(2)]
+        active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("10"), exchange="binance", timeframe=60) for _ in range(2)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
         assert result[0] is False
 
         # 4. Max Total Exposure
-        active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("950.0"), exchange="binance")] # + 100 > 1000
+        active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("950.0"), exchange="binance", timeframe=60)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )

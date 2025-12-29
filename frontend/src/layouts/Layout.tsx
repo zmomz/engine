@@ -1,14 +1,18 @@
 import React from 'react';
 import { Box, CssBaseline, ThemeProvider } from '@mui/material';
-import { darkTheme } from '../theme/theme';
+import { darkTheme, lightTheme } from '../theme/theme';
+import useThemeStore from '../store/themeStore';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const mode = useThemeStore((state) => state.mode);
+  const theme = mode === 'dark' ? darkTheme : lightTheme;
+
   return (
-    <ThemeProvider theme={darkTheme}>
+    <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ display: 'flex' }}>
         {children}

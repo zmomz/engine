@@ -2,7 +2,7 @@
 name = "execution-engine"
 version = "0.1.0"
 description = "A fully automated trading execution engine."
-authors = ["Gemini"]
+authors = ["Developer"]
 package-mode = false
 
 [tool.poetry.dependencies]

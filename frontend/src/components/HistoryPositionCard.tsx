@@ -17,7 +17,7 @@ interface HistoryPositionCardProps {
 }
 
 const HistoryPositionCard: React.FC<HistoryPositionCardProps> = ({ position }) => {
-  const isProfitable = (position.realized_pnl_usd || 0) >= 0;
+  const isProfitable = safeNumber(position.realized_pnl_usd) >= 0;
   const pnlColor = isProfitable ? 'success.main' : 'error.main';
 
   // Calculate percentage from realized PnL and invested amount

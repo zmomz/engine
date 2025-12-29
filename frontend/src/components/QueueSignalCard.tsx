@@ -16,7 +16,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import { format } from 'date-fns';
-import { safeToFixed, formatCompactPercent } from '../utils/formatters';
+import { safeNumber, safeToFixed, formatCompactPercent } from '../utils/formatters';
 
 interface QueueSignal {
   id: string;
@@ -70,7 +70,7 @@ const QueueSignalCard: React.FC<QueueSignalCardProps> = ({ signal, onPromote, on
   };
 
   const priorityColor = getPriorityColor(signal.priority_score || 0);
-  const hasLoss = (signal.current_loss_percent || 0) < 0;
+  const hasLoss = safeNumber(signal.current_loss_percent) < 0;
 
   return (
     <Card

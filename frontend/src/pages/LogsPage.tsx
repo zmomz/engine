@@ -88,7 +88,7 @@ const LogsPage: React.FC = () => {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `gemini-logs-${new Date().toISOString()}.txt`;
+                a.download = `engine-logs-${new Date().toISOString()}.txt`;
                 a.click();
                 URL.revokeObjectURL(url);
             }}

@@ -113,12 +113,12 @@ async def test_validate_pre_trade_risk_max_global(risk_service, mock_config):
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_max_per_symbol(risk_service):
     """Test rejection when max positions per symbol are exceeded."""
-    p1 = MagicMock(symbol="BTC/USD")
+    p1 = MagicMock(symbol="BTC/USD", timeframe=60, exchange="binance", total_invested_usd=Decimal("10"))
     active_positions = [p1]
     # Config max per symbol is 1
-    
-    signal = QueuedSignal(symbol="BTC/USD", user_id=uuid.uuid4())
-    
+
+    signal = QueuedSignal(symbol="BTC/USD", timeframe=60, exchange="binance", user_id=uuid.uuid4())
+
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
     )
