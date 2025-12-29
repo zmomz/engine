@@ -982,11 +982,20 @@ async def test_update_message_exception(telegram_config):
 async def test_save_message_id(broadcaster, position_group):
     """Test _save_message_id success."""
     mock_session = AsyncMock()
+    original_message_id = position_group.telegram_message_id
 
     await broadcaster._save_message_id(position_group, 12345, mock_session)
 
-    assert position_group.telegram_message_id == 12345
+    # CRITICAL: Verify position_group state was updated
+    assert position_group.telegram_message_id == 12345, \
+        "Position group telegram_message_id must be updated after save"
+
+    # CRITICAL: Verify state was persisted via session commit
     mock_session.commit.assert_called_once()
+
+    # CRITICAL: Verify message ID changed from original
+    assert position_group.telegram_message_id != original_message_id, \
+        "Message ID must change after save operation"
 
 
 @pytest.mark.asyncio

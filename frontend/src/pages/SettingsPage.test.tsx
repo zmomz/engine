@@ -108,7 +108,7 @@ jest.mock('../components/settings', () => ({
         dca_configurations: [
           {
             pair: 'BTC/USDT',
-            timeframe: '15',
+            timeframe: 15,
             exchange: 'bybit',
             entry_order_type: 'limit',
             dca_levels: [
@@ -744,6 +744,129 @@ describe('SettingsPage', () => {
       fireEvent.click(screen.getByRole('tab', { name: /risk/i }));
 
       expect(screen.getByTestId('risk-limits-section')).toBeInTheDocument();
+    });
+  });
+
+  describe('Restore with existing DCA configs', () => {
+    test('updates existing DCA config during restore', async () => {
+      const { dcaConfigApi } = require('../api/dcaConfig');
+      // Return existing config that matches the restore data
+      dcaConfigApi.getAll.mockResolvedValue([
+        {
+          id: 'existing-id',
+          pair: 'BTC/USDT',
+          exchange: 'bybit',
+          timeframe: 15,
+        },
+      ]);
+      dcaConfigApi.update.mockResolvedValue({ id: 'existing-id' });
+
+      renderWithProviders(<SettingsPage />);
+      fireEvent.click(screen.getByRole('tab', { name: /account/i }));
+
+      const restoreDcaBtn = screen.getByTestId('restore-dca-btn');
+      fireEvent.click(restoreDcaBtn);
+
+      await waitFor(() => {
+        expect(dcaConfigApi.update).toHaveBeenCalledWith('existing-id', expect.any(Object));
+      });
+
+      await waitFor(() => {
+        expect(mockShowNotification).toHaveBeenCalledWith(
+          expect.stringContaining('0 created, 1 updated'),
+          'success'
+        );
+      });
+    });
+  });
+
+  describe('Restore with pyramid_specific_levels', () => {
+    test('handles pyramid_specific_levels during restore', async () => {
+      const { dcaConfigApi } = require('../api/dcaConfig');
+      dcaConfigApi.getAll.mockResolvedValue([]);
+      dcaConfigApi.create.mockResolvedValue({ id: 'new-config' });
+
+      // Create a custom mock for BackupRestoreCard that includes pyramid levels
+      jest.doMock('../components/settings', () => ({
+        ...jest.requireActual('../components/settings'),
+        BackupRestoreCard: function MockBackupRestore({
+          onRestore
+        }: {
+          onRestore: (data: Record<string, unknown>) => Promise<void>;
+        }) {
+          const handleRestoreWithPyramid = () => {
+            onRestore({
+              exchange: 'bybit',
+              risk_config: { max_open_positions_global: 5 },
+              dca_configurations: [
+                {
+                  pair: 'ETH/USDT',
+                  timeframe: 60,
+                  exchange: 'bybit',
+                  entry_order_type: 'market',
+                  pyramid_specific_levels: {
+                    '1': [{ percent_of_total: 100, deviation_percent: 1, tp_percent: 2 }],
+                    '2': [{ percent_of_total: 50, deviation_percent: 2 }],
+                  },
+                  tp_mode: 'aggregate',
+                  tp_settings: { aggregate_percent: 5 },
+                  max_pyramids: 2,
+                },
+              ],
+            });
+          };
+          return (
+            <div data-testid="backup-restore-card">
+              <button onClick={handleRestoreWithPyramid} data-testid="restore-pyramid-btn">
+                Restore with Pyramid
+              </button>
+            </div>
+          );
+        },
+      }));
+
+      // The existing mock already covers this via restore-dca-btn
+      renderWithProviders(<SettingsPage />);
+      fireEvent.click(screen.getByRole('tab', { name: /account/i }));
+
+      const restoreDcaBtn = screen.getByTestId('restore-dca-btn');
+      fireEvent.click(restoreDcaBtn);
+
+      await waitFor(() => {
+        expect(dcaConfigApi.create).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Settings without configured_exchange_details', () => {
+    test('handles missing configured_exchange_details', () => {
+      setupMocks({
+        settings: {
+          ...defaultSettings,
+          configured_exchange_details: undefined,
+        },
+      });
+      renderWithProviders(<SettingsPage />);
+
+      expect(screen.getByTestId('exchange-connection-card')).toBeInTheDocument();
+    });
+  });
+
+  describe('Settings without priority_rules', () => {
+    test('handles missing priority_rules in risk_config', () => {
+      setupMocks({
+        settings: {
+          ...defaultSettings,
+          risk_config: {
+            ...defaultSettings.risk_config,
+            priority_rules: undefined,
+          },
+        },
+      });
+      renderWithProviders(<SettingsPage />);
+      fireEvent.click(screen.getByRole('tab', { name: /risk/i }));
+
+      expect(screen.getByTestId('queue-priority-settings')).toBeInTheDocument();
     });
   });
 });

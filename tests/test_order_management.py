@@ -767,8 +767,22 @@ async def test_place_market_order_success(order_service, mock_exchange_connector
         quantity=Decimal("0.001")
     )
 
+    # Verify the order was placed
     assert result["id"] == "market_order_123"
     mock_exchange_connector.place_order.assert_awaited_once()
+
+    # Verify order parameters were correct
+    call_args = mock_exchange_connector.place_order.call_args
+    assert call_args.kwargs.get("symbol") == "BTC/USDT"
+    assert call_args.kwargs.get("side", "").upper() == "SELL"
+    assert call_args.kwargs.get("order_type", "").upper() == "MARKET"
+    # Check for either 'amount' or 'quantity' parameter
+    qty = call_args.kwargs.get("amount") or call_args.kwargs.get("quantity")
+    assert qty == Decimal("0.001")
+
+    # Verify result contains expected fields
+    assert result["status"] == "closed"
+    assert result["filled"] == 0.001
 
 
 @pytest.mark.asyncio
@@ -846,6 +860,17 @@ async def test_place_market_order_with_db_record(order_service, mock_exchange_co
     assert result["id"] == "market_order_123"
     mock_dca_order_repository.create.assert_awaited_once()
 
+    # CRITICAL: Verify the created order has correct state
+    created_order = mock_dca_order_repository.create.call_args[0][0]
+    assert created_order.symbol == "BTC/USDT"
+    assert created_order.side == "sell"
+    assert created_order.order_type == "market"
+    assert created_order.group_id == position_group_id
+    assert created_order.exchange_order_id == "market_order_123"
+    # Market orders should be immediately filled
+    assert created_order.status == OrderStatus.FILLED.value
+    assert created_order.filled_quantity == Decimal("0.001")
+
 
 @pytest.mark.asyncio
 async def test_cancel_open_orders_for_group(order_service, mock_exchange_connector, mock_dca_order_repository):
@@ -898,6 +923,14 @@ async def test_cancel_open_orders_for_group(order_service, mock_exchange_connect
     # Should cancel open order and TP order
     assert mock_exchange_connector.cancel_order.call_count >= 1
 
+    # CRITICAL: Verify DB status was updated (catches "after hedge" bug)
+    assert open_order.status == OrderStatus.CANCELLED.value, \
+        "Open order must have CANCELLED status after cancel_open_orders_for_group"
+
+    # Verify repository.update was called to persist the status change
+    assert mock_dca_order_repository.update.call_count >= 1, \
+        "Repository update must be called to persist status change"
+
 
 @pytest.mark.asyncio
 async def test_close_position_market_long(order_service, mock_exchange_connector, mock_dca_order_repository):
@@ -914,7 +947,8 @@ async def test_close_position_market_long(order_service, mock_exchange_connector
     mock_exchange_connector.place_order.return_value = {
         "id": "close_order_123",
         "status": "closed",
-        "filled": 0.1
+        "filled": 0.1,
+        "average": 60000
     }
 
     await order_service.close_position_market(
@@ -922,9 +956,16 @@ async def test_close_position_market_long(order_service, mock_exchange_connector
         quantity_to_close=Decimal("0.1")
     )
 
+    # Verify order was placed
+    mock_exchange_connector.place_order.assert_awaited_once()
+
     # For long, close side should be SELL
     call_args = mock_exchange_connector.place_order.call_args
-    assert call_args.kwargs["side"] == "SELL"
+    assert call_args.kwargs.get("side", "").upper() == "SELL"
+    assert call_args.kwargs.get("order_type", "").upper() == "MARKET"
+    qty = call_args.kwargs.get("amount") or call_args.kwargs.get("quantity")
+    assert qty == Decimal("0.1")
+    assert call_args.kwargs.get("symbol") == "BTC/USDT"
 
 
 @pytest.mark.asyncio
@@ -942,7 +983,8 @@ async def test_close_position_market_short(order_service, mock_exchange_connecto
     mock_exchange_connector.place_order.return_value = {
         "id": "close_order_123",
         "status": "closed",
-        "filled": 0.1
+        "filled": 0.1,
+        "average": 60000
     }
 
     await order_service.close_position_market(
@@ -950,9 +992,15 @@ async def test_close_position_market_short(order_service, mock_exchange_connecto
         quantity_to_close=Decimal("0.1")
     )
 
+    # Verify order was placed
+    mock_exchange_connector.place_order.assert_awaited_once()
+
     # For short, close side should be BUY
     call_args = mock_exchange_connector.place_order.call_args
-    assert call_args.kwargs["side"] == "BUY"
+    assert call_args.kwargs.get("side", "").upper() == "BUY"
+    assert call_args.kwargs.get("order_type", "").upper() == "MARKET"
+    qty = call_args.kwargs.get("amount") or call_args.kwargs.get("quantity")
+    assert qty == Decimal("0.1")
 
 
 @pytest.mark.asyncio
@@ -977,7 +1025,17 @@ async def test_execute_force_close_success(order_service, mock_exchange_connecto
 
     result = await order_service.execute_force_close(group_id)
 
-    assert result.status == PositionGroupStatus.CLOSING.value
+    # CRITICAL: Verify status transition happened
+    assert result.status == PositionGroupStatus.CLOSING.value, \
+        "Position must transition to CLOSING status on force close"
+
+    # Verify repository update was called to persist the state change
+    mock_position_repo.update.assert_awaited_once()
+
+    # Verify the correct position was updated
+    updated_position = mock_position_repo.update.call_args[0][0]
+    assert updated_position.id == group_id
+    assert updated_position.status == PositionGroupStatus.CLOSING.value
 
 
 @pytest.mark.asyncio

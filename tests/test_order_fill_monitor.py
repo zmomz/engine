@@ -264,10 +264,19 @@ async def test_check_orders_partial_fill_updates_correctly(mock_order_fill_monit
     assert mock_order.status == OrderStatus.PARTIALLY_FILLED.value
     assert mock_order.filled_quantity == Decimal("50.0")
     assert mock_order.avg_fill_price == Decimal("60000.5")
-    
-    # 2. Verify Repository Update was called
+
+    # 2. Verify Repository Update was called with correct order state
     assert mock_dca_repo_instance.update.called
     assert mock_dca_repo_instance.update.call_count >= 1
+
+    # CRITICAL: Verify the updated order has correct final state
+    updated_order = mock_dca_repo_instance.update.call_args[0][0]
+    assert updated_order.status == OrderStatus.PARTIALLY_FILLED.value, \
+        "Order status must be PARTIALLY_FILLED after partial fill"
+    assert updated_order.filled_quantity == Decimal("50.0"), \
+        "Order filled_quantity must match exchange response"
+    assert updated_order.avg_fill_price == Decimal("60000.5"), \
+        "Order avg_fill_price must match exchange response"
 
     # 3. Verify Logging
     # OrderService logs: "Status CHANGING from ... to ..."

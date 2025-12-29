@@ -23,6 +23,7 @@ const renderWithTheme = (component: React.ReactElement) => {
 
 const mockInitialData: DCAConfiguration = {
   id: 'config-123',
+  user_id: 'user-123',
   pair: 'BTC/USDT',
   timeframe: 60,
   exchange: 'binance',
@@ -34,6 +35,8 @@ const mockInitialData: DCAConfiguration = {
   tp_mode: 'per_leg',
   tp_settings: {},
   max_pyramids: 5,
+  use_custom_capital: false,
+  custom_capital_usd: 200,
 };
 
 describe('DCAConfigForm', () => {
@@ -565,6 +568,199 @@ describe('DCAConfigForm', () => {
       );
 
       expect(screen.getByText('DCA Levels')).toBeInTheDocument();
+    });
+  });
+
+  describe('Form Submission', () => {
+    test('calls onSubmit with form data when Save clicked', async () => {
+      const mockData: DCAConfiguration = {
+        id: 'test-123',
+        user_id: 'user-123',
+        pair: 'ETH/USDT',
+        timeframe: 15,
+        exchange: 'binance',
+        entry_order_type: 'limit',
+        dca_levels: [
+          { gap_percent: 0, weight_percent: 100, tp_percent: 2 },
+        ],
+        tp_mode: 'per_leg',
+        tp_settings: {},
+        max_pyramids: 3,
+        use_custom_capital: false,
+        custom_capital_usd: 200,
+      };
+
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={mockData}
+          isEdit={true}
+        />
+      );
+
+      const saveButton = screen.getByRole('button', { name: /save/i });
+      fireEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Pyramid Tab Interactions', () => {
+    test('can enable pyramid-specific levels', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            max_pyramids: 2,
+          }}
+          isEdit={true}
+        />
+      );
+
+      // Switch to P1 tab
+      const p1Tab = screen.getByRole('tab', { name: /p1/i });
+      fireEvent.click(p1Tab);
+
+      await waitFor(() => {
+        // Should show enable checkbox
+        expect(screen.getByText(/enable p1 dca levels/i)).toBeInTheDocument();
+      });
+    });
+
+    test('shows P2 tab for max_pyramids >= 2', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            max_pyramids: 2,
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.getByRole('tab', { name: /p2/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('DCA Level Removal', () => {
+    test('shows delete button for each level', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={mockInitialData}
+          isEdit={true}
+        />
+      );
+
+      const deleteButtons = screen.getAllByTestId('DeleteIcon');
+      expect(deleteButtons.length).toBe(2); // Two levels in mockInitialData
+    });
+  });
+
+  describe('TP Mode interactions', () => {
+    test('shows aggregate TP field in aggregate mode', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            tp_mode: 'aggregate',
+            tp_settings: { tp_aggregate_percent: 2.5 },
+          }}
+          isEdit={true}
+        />
+      );
+
+      // Should show the Agg TP % field
+      expect(screen.getByLabelText(/agg tp %/i)).toBeInTheDocument();
+    });
+
+    test('per_leg mode does not show aggregate TP field', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            tp_mode: 'per_leg',
+          }}
+          isEdit={true}
+        />
+      );
+
+      // Should not show the Agg TP % field
+      expect(screen.queryByLabelText(/agg tp %/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Entry Order Type', () => {
+    test('can select market entry type', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            entry_order_type: 'market',
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.getByDisplayValue('market')).toBeInTheDocument();
+    });
+  });
+
+  describe('Custom Capital Toggle', () => {
+    test('shows using webhook message when custom capital is off', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            use_custom_capital: false,
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.getByText(/using position size from tradingview webhook signal/i)).toBeInTheDocument();
+    });
+
+    test('shows using custom capital message when toggle is on', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            use_custom_capital: true,
+            custom_capital_usd: 500,
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.getByText(/using custom capital from settings below/i)).toBeInTheDocument();
     });
   });
 });

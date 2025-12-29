@@ -35,6 +35,7 @@ const renderWithTheme = (component: React.ReactElement) => {
 const mockConfigs: DCAConfiguration[] = [
   {
     id: 'config-1',
+    user_id: 'user-123',
     pair: 'BTC/USDT',
     timeframe: 60,
     exchange: 'binance',
@@ -43,9 +44,12 @@ const mockConfigs: DCAConfiguration[] = [
     tp_mode: 'per_leg',
     tp_settings: {},
     max_pyramids: 5,
+    use_custom_capital: false,
+    custom_capital_usd: 200,
   },
   {
     id: 'config-2',
+    user_id: 'user-123',
     pair: 'ETH/USDT',
     timeframe: 15,
     exchange: 'bybit',
@@ -54,6 +58,8 @@ const mockConfigs: DCAConfiguration[] = [
     tp_mode: 'aggregate',
     tp_settings: { tp_aggregate_percent: 2 },
     max_pyramids: 3,
+    use_custom_capital: false,
+    custom_capital_usd: 200,
   },
 ];
 

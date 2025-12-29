@@ -13,6 +13,7 @@ const renderWithTheme = (component: React.ReactElement) => {
 
 const createMockConfig = (overrides: Partial<DCAConfiguration> = {}): DCAConfiguration => ({
   id: 'config-123',
+  user_id: 'user-123',
   pair: 'BTC/USDT',
   timeframe: 60,
   exchange: 'binance',
@@ -24,6 +25,8 @@ const createMockConfig = (overrides: Partial<DCAConfiguration> = {}): DCAConfigu
   tp_mode: 'per_leg',
   tp_settings: {},
   max_pyramids: 5,
+  use_custom_capital: false,
+  custom_capital_usd: 200,
   ...overrides,
 });
 

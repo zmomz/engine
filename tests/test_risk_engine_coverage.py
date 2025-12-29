@@ -399,6 +399,21 @@ async def test_evaluate_user_positions_execution(mock_config):
         mock_risk_repo.create.assert_called_once()
         assert session.commit.call_count == 2  # Called twice: once for each close operation
 
+        # CRITICAL: Verify position states were updated
+        # Loser should have been updated (full close)
+        assert mock_pos_repo.update.call_count >= 1, \
+            "Position repository update must be called after hedge execution"
+
+        # Verify cancel_open_orders_for_group was called for the loser
+        mock_order_service_instance.cancel_open_orders_for_group.assert_called()
+
+        # Verify risk action was created with correct data
+        risk_action_call = mock_risk_repo.create.call_args[0][0]
+        # RiskAction uses group_id and loser_group_id, not user_id and loser_position_id
+        assert risk_action_call.group_id == loser.id
+        assert risk_action_call.loser_group_id == loser.id
+        assert risk_action_call.loser_pnl_usd == loser.unrealized_pnl_usd
+
 
 # --- Additional Coverage Tests ---
 
@@ -492,8 +507,19 @@ async def test_set_risk_blocked_success(mock_config, mock_user):
 
         result = await service.set_risk_blocked(group_id, True)
 
-        assert mock_position_group.risk_blocked is True
+        # CRITICAL: Verify state was actually changed
+        assert mock_position_group.risk_blocked is True, \
+            "Position risk_blocked must be set to True"
+
+        # Verify repository update was called with correct position
         mock_pos_repo.update.assert_called_once_with(mock_position_group)
+
+        # Verify the updated position has the correct flag
+        updated_position = mock_pos_repo.update.call_args[0][0]
+        assert updated_position.risk_blocked is True, \
+            "Updated position must have risk_blocked=True"
+
+        # Verify commit was called to persist the change
         mock_session.commit.assert_called_once()
 
 

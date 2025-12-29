@@ -186,6 +186,14 @@ class TestPlaceOrder:
         assert result['id'] == '123456789'  # Native Bybit ID
         mock_bybit_connector.exchange.create_order.assert_called_once()
 
+        # CRITICAL: Verify order response contains required fields for tracking
+        assert 'id' in result, "Order response must contain order ID"
+        assert 'status' in result, "Order response must contain status"
+
+        # CRITICAL: Verify order ID is the native Bybit ID (not composite)
+        assert result['id'] == '123456789', \
+            "Order ID must be native Bybit orderId for status tracking"
+
     @pytest.mark.asyncio
     async def test_place_order_with_reduce_only(self, mock_bybit_connector):
         """Test order placement with reduce_only parameter."""
@@ -283,6 +291,14 @@ class TestGetOrderStatus:
         assert result['status'] == 'open'
         assert result['filled'] == 0.005
 
+        # CRITICAL: Verify order status response contains required fields
+        assert 'id' in result, "Order status response must contain order ID"
+        assert 'status' in result, "Order status response must contain status"
+        assert 'filled' in result, "Order status response must contain filled amount"
+
+        # CRITICAL: Verify order ID matches request
+        assert result['id'] == '123456', "Order ID in response must match requested order"
+
     @pytest.mark.asyncio
     async def test_get_order_status_retry_with_trigger(self, mock_bybit_connector):
         """Test retry with trigger param for conditional orders."""
@@ -344,6 +360,17 @@ class TestCancelOrder:
         result = await mock_bybit_connector.cancel_order('123456', 'BTC/USDT')
 
         assert result['status'] == 'canceled'
+
+        # CRITICAL: Verify cancel response contains required fields
+        assert 'id' in result, "Cancel response must contain order ID"
+        assert 'status' in result, "Cancel response must contain status"
+
+        # CRITICAL: Verify order ID matches request
+        assert result['id'] == '123456', "Order ID in cancel response must match requested order"
+
+        # CRITICAL: Verify status is 'canceled' after cancel operation
+        assert result['status'] == 'canceled', \
+            "Order status must be 'canceled' after successful cancel (catches status update bug)"
 
     @pytest.mark.asyncio
     async def test_cancel_order_already_cancelled(self, mock_bybit_connector):
@@ -435,6 +462,14 @@ class TestFetchBalance:
 
         assert balance['USDT'] == 10000.0
         assert balance['BTC'] == 0.5
+
+        # CRITICAL: Verify balance structure matches expected format
+        assert 'USDT' in balance, "USDT balance must be present"
+        assert 'BTC' in balance, "BTC balance must be present"
+
+        # CRITICAL: Verify balance values are numeric for calculations
+        assert isinstance(balance['USDT'], (int, float)), \
+            "Balance values must be numeric for trading calculations"
 
     @pytest.mark.asyncio
     async def test_fetch_balance_fallback_to_spot(self, mock_bybit_connector):

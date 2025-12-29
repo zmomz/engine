@@ -376,8 +376,8 @@ async def deep_validate_engine():
                     "prev_market_position": "long", "prev_market_position_size": 500,
                     "entry_price": TEST_ENTRY_PRICE, "close_price": TEST_ENTRY_PRICE, "order_size": 500
                 },
-                "strategy_info": {"trade_id": "cleanup_eth", "alert_name": "Cleanup"},
-                "execution_intent": {"type": "signal", "side": "sell"},
+                "strategy_info": {"trade_id": "cleanup_eth", "alert_name": "Cleanup", "alert_message": "Cleanup"},
+                "execution_intent": {"type": "signal", "side": "sell", "position_size_type": "quote", "precision_mode": "auto"},
                 "risk": {"max_slippage_percent": 1.0}
             }
             await client.post(f"{BASE_URL}/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=exit_payload)
@@ -536,8 +536,8 @@ async def deep_validate_engine():
                     "prev_market_position": "long", "prev_market_position_size": TEST_POSITION_SIZE,
                     "entry_price": tp_price, "close_price": tp_price, "order_size": TEST_POSITION_SIZE
                 },
-                "strategy_info": {"trade_id": f"exit_{datetime.now().strftime('%H%M%S')}", "alert_name": "Exit"},
-                "execution_intent": {"type": "signal", "side": "sell"},
+                "strategy_info": {"trade_id": f"exit_{datetime.now().strftime('%H%M%S')}", "alert_name": "Exit", "alert_message": "Exit signal"},
+                "execution_intent": {"type": "signal", "side": "sell", "position_size_type": "quote", "precision_mode": "auto"},
                 "risk": {"max_slippage_percent": 1.0}
             }
             r = await client.post(f"{BASE_URL}/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=exit_payload)

@@ -485,3 +485,12 @@ async def test_calculate_partial_close_satisfied_early(mock_user):
     # Only first winner should be used
     assert len(plan) == 1
     assert plan[0][0] == winner1
+
+    # CRITICAL: Verify the planned close quantity
+    position, close_qty = plan[0]
+    assert close_qty > Decimal("0"), "Close quantity must be positive"
+    assert close_qty <= position.total_filled_quantity, \
+        "Close quantity must not exceed position quantity"
+
+    # Verify connector was properly closed
+    mock_connector.close.assert_called_once()

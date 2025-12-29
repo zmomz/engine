@@ -152,4 +152,235 @@ describe('WebSocketService', () => {
     service.close();
     expect(mockWebSocket.close).toHaveBeenCalled();
   });
+
+  describe('Error handling', () => {
+    it('should handle invalid JSON messages', () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const messageEvent = new MessageEvent('message', {
+        data: 'not valid json {{{',
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('WebSocket: Invalid JSON received');
+      expect(mockSetPositions).not.toHaveBeenCalled();
+      expect(mockSetQueuedSignals).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle invalid message structure (missing type)', () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify({ payload: [] }),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'WebSocket: Invalid message structure',
+        expect.any(Array)
+      );
+      expect(mockSetPositions).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle invalid message type', () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify({ type: 'unknown_type', payload: [] }),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'WebSocket: Invalid message structure',
+        expect.any(Array)
+      );
+      expect(mockSetPositions).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle invalid position_groups_update payload', () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Payload missing required fields
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'position_groups_update',
+          payload: [{ id: '1' }], // Missing symbol, side, status, exchange
+        }),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'WebSocket: Invalid position_groups_update payload',
+        expect.any(Array)
+      );
+      expect(mockSetPositions).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle invalid queued_signals_update payload', () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Payload missing required fields
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'queued_signals_update',
+          payload: [{ wrongField: 'value' }], // Missing id and symbol
+        }),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'WebSocket: Invalid queued_signals_update payload',
+        expect.any(Array)
+      );
+      expect(mockSetQueuedSignals).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should warn when sending message while WebSocket is not open', () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // Set readyState to CLOSED using Object.defineProperty for readonly property
+      Object.defineProperty(mockWebSocket, 'readyState', { value: 3, writable: true }); // WebSocket.CLOSED
+
+      service.send({ type: 'test' });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith('WebSocket not open. Message not sent.');
+      expect(mockWebSocket.send).not.toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should handle general errors during message processing', () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Make getState throw an error
+      (usePositionsStore.getState as jest.Mock).mockImplementation(() => {
+        throw new Error('Store error');
+      });
+
+      const positionGroupMessage = {
+        type: 'position_groups_update',
+        payload: [{
+          id: '1',
+          exchange: 'binance',
+          symbol: 'BTC/USD',
+          side: 'long',
+          status: 'active',
+        }],
+      };
+
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify(positionGroupMessage),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'WebSocket: Error processing message',
+        expect.any(Error)
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should handle when WebSocket is null during send', () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // Create a new service instance and manually set ws to null
+      const newService = new WebSocketService('ws://localhost:8000/ws');
+      (newService as any).ws = null;
+
+      newService.send({ type: 'test' });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith('WebSocket not open. Message not sent.');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should handle when WebSocket is null during close', () => {
+      // Create a new service instance and manually set ws to null
+      const newService = new WebSocketService('ws://localhost:8000/ws');
+      (newService as any).ws = null;
+
+      // Should not throw
+      expect(() => newService.close()).not.toThrow();
+    });
+  });
+
+  describe('Valid message handling', () => {
+    it('should handle valid queued_signals_update with all required fields', () => {
+      const queuedSignalMessage = {
+        type: 'queued_signals_update',
+        payload: [{
+          id: '1',
+          symbol: 'ETH/USD',
+          status: 'pending',
+          extra_field: 'should be preserved',
+        }],
+      };
+
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify(queuedSignalMessage),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(mockSetQueuedSignals).toHaveBeenCalledWith(queuedSignalMessage.payload);
+    });
+
+    it('should handle empty payload arrays', () => {
+      const positionGroupMessage = {
+        type: 'position_groups_update',
+        payload: [],
+      };
+
+      const messageEvent = new MessageEvent('message', {
+        data: JSON.stringify(positionGroupMessage),
+      });
+
+      if (mockWebSocket.onmessage) {
+        mockWebSocket.onmessage(messageEvent);
+      }
+
+      expect(mockSetPositions).toHaveBeenCalledWith([]);
+    });
+  });
+
+  describe('WebSocket lifecycle', () => {
+    it('should handle onopen event', () => {
+      // The onopen handler is set but does nothing (commented console.log)
+      // Just verify it doesn't throw
+      if (mockWebSocket.onopen) {
+        expect(() => mockWebSocket.onopen!(new Event('open'))).not.toThrow();
+      }
+    });
+  });
 });

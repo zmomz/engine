@@ -184,4 +184,142 @@ describe('useKeyboardShortcuts', () => {
 
     removeEventListenerSpy.mockRestore();
   });
+
+  test('does not trigger shortcuts when typing in INPUT element', () => {
+    renderHook(() => useKeyboardShortcuts(), { wrapper });
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    const event = new KeyboardEvent('keydown', {
+      key: '1',
+      altKey: true,
+      bubbles: true,
+    });
+    Object.defineProperty(event, 'target', { value: input });
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    document.body.removeChild(input);
+  });
+
+  test('does not trigger shortcuts when typing in TEXTAREA element', () => {
+    renderHook(() => useKeyboardShortcuts(), { wrapper });
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+
+    const event = new KeyboardEvent('keydown', {
+      key: '1',
+      altKey: true,
+      bubbles: true,
+    });
+    Object.defineProperty(event, 'target', { value: textarea });
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    document.body.removeChild(textarea);
+  });
+
+  test('does not trigger shortcuts in contentEditable element', () => {
+    renderHook(() => useKeyboardShortcuts(), { wrapper });
+
+    const div = document.createElement('div');
+    div.contentEditable = 'true';
+    // Need to set isContentEditable property which is readonly in browsers
+    Object.defineProperty(div, 'isContentEditable', { value: true, writable: false });
+    document.body.appendChild(div);
+
+    const event = new KeyboardEvent('keydown', {
+      key: '1',
+      altKey: true,
+      bubbles: true,
+    });
+    Object.defineProperty(event, 'target', { value: div });
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    document.body.removeChild(div);
+  });
+
+  test('calls onRefresh on Cmd+R (macOS)', () => {
+    const onRefresh = jest.fn();
+    renderHook(() => useKeyboardShortcuts({ onRefresh }), { wrapper });
+
+    fireKeyboardEvent('r', { metaKey: true });
+
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  test('does not call onRefresh on Ctrl+Shift+R', () => {
+    const onRefresh = jest.fn();
+    renderHook(() => useKeyboardShortcuts({ onRefresh }), { wrapper });
+
+    fireKeyboardEvent('r', { ctrlKey: true, shiftKey: true });
+
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+
+  test('does not call F/S/E shortcuts when modifier key is pressed', () => {
+    (useLocation as jest.Mock).mockReturnValue({ pathname: '/risk' });
+    const onForceStart = jest.fn();
+    renderHook(() => useKeyboardShortcuts({ onForceStart }), { wrapper });
+
+    // With ctrlKey
+    fireKeyboardEvent('f', { ctrlKey: true });
+    expect(onForceStart).not.toHaveBeenCalled();
+
+    // With altKey
+    fireKeyboardEvent('f', { altKey: true });
+    expect(onForceStart).not.toHaveBeenCalled();
+
+    // With metaKey
+    fireKeyboardEvent('f', { metaKey: true });
+    expect(onForceStart).not.toHaveBeenCalled();
+  });
+
+  test('handles uppercase key for F/S/E shortcuts', () => {
+    (useLocation as jest.Mock).mockReturnValue({ pathname: '/risk' });
+    const onForceStart = jest.fn();
+    renderHook(() => useKeyboardShortcuts({ onForceStart }), { wrapper });
+
+    fireKeyboardEvent('F');
+
+    expect(onForceStart).toHaveBeenCalled();
+  });
+
+  test('does not call navigation on Alt+Shift+number', () => {
+    renderHook(() => useKeyboardShortcuts(), { wrapper });
+
+    fireKeyboardEvent('1', { altKey: true, shiftKey: true });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  test('handles empty options gracefully', () => {
+    renderHook(() => useKeyboardShortcuts({}), { wrapper });
+
+    // Should not throw
+    expect(() => fireKeyboardEvent('r', { ctrlKey: true })).not.toThrow();
+  });
+
+  test('handles default key case in risk shortcuts switch', () => {
+    (useLocation as jest.Mock).mockReturnValue({ pathname: '/risk' });
+    const onForceStart = jest.fn();
+    renderHook(() => useKeyboardShortcuts({ onForceStart }), { wrapper });
+
+    // Fire a key that's not f, s, or e
+    fireKeyboardEvent('x');
+
+    expect(onForceStart).not.toHaveBeenCalled();
+  });
 });

@@ -268,6 +268,14 @@ async def test_route_pyramid_continuation(sample_user, sample_signal, mock_async
         assert "Pyramid executed" in result
         pos_manager_instance_mock.handle_pyramid_continuation.assert_called_once()
 
+        # CRITICAL: Verify handle_pyramid_continuation was called with correct position group
+        call_kwargs = pos_manager_instance_mock.handle_pyramid_continuation.call_args.kwargs
+        assert call_kwargs["existing_position_group"].id == existing_group.id, \
+            "Pyramid continuation must be called with the existing position group"
+        assert call_kwargs["existing_position_group"].symbol == "BTCUSDT", \
+            "Pyramid continuation must preserve symbol"
+
+
 @pytest.mark.asyncio
 async def test_route_max_pyramids_reached(sample_user, sample_signal, mock_async_session, mock_deps):
     # Setup: Existing group with max pyramids
@@ -313,6 +321,14 @@ async def test_route_max_pyramids_reached(sample_user, sample_signal, mock_async
         result = await service.route(sample_signal, mock_async_session)
 
         assert "Max pyramids reached" in result
+
+        # CRITICAL: Verify pyramid was NOT executed when max reached
+        pos_manager_instance_mock.handle_pyramid_continuation.assert_not_called()
+
+        # CRITICAL: Verify position state was NOT modified
+        assert existing_group.pyramid_count == 5, \
+            "Pyramid count must not change when max pyramids reached"
+
 
 @pytest.mark.asyncio
 async def test_route_pyramid_exception(sample_user, sample_signal, mock_async_session, mock_deps):
@@ -361,6 +377,16 @@ async def test_route_pyramid_exception(sample_user, sample_signal, mock_async_se
 
         assert "Pyramid execution failed" in result
 
+        # CRITICAL: Verify handle_pyramid_continuation was called (and failed)
+        pos_manager_instance_mock.handle_pyramid_continuation.assert_called_once()
+
+        # CRITICAL: Verify position state was NOT modified on failure
+        assert existing_group.pyramid_count == 1, \
+            "Pyramid count must not change when pyramid execution fails"
+        assert existing_group.status == PositionGroupStatus.LIVE, \
+            "Position status must not change when pyramid execution fails"
+
+
 @pytest.mark.asyncio
 async def test_route_new_position_exception(sample_user, sample_signal, mock_async_session, mock_deps):
     # Setup: No existing group
@@ -391,6 +417,9 @@ async def test_route_new_position_exception(sample_user, sample_signal, mock_asy
         result = await service.route(sample_signal, mock_async_session)
 
         assert "New position execution failed" in result
+
+        # CRITICAL: Verify create_position_group_from_signal was called (and failed)
+        pos_manager_instance_mock.create_position_group_from_signal.assert_called_once()
 
 
 # --- Additional Coverage Tests ---
@@ -446,6 +475,12 @@ async def test_route_exit_signal_success(sample_user, sample_signal, mock_async_
         assert "Exit signal executed" in result
         pos_manager_instance_mock.handle_exit_signal.assert_called_once()
 
+        # CRITICAL: Verify handle_exit_signal was called with correct position group ID
+        # Note: position_group_id is passed as the first positional argument
+        call_args = pos_manager_instance_mock.handle_exit_signal.call_args.args
+        assert call_args[0] == existing_group.id, \
+            "Exit signal must be called with the correct position group ID"
+
 
 @pytest.mark.asyncio
 async def test_route_exit_signal_no_position_found(sample_user, sample_signal, mock_async_session, mock_deps):
@@ -470,12 +505,21 @@ async def test_route_exit_signal_no_position_found(sample_user, sample_signal, m
     mock_queue_instance = mock_deps["queue"].return_value
     mock_queue_instance.cancel_queued_signals_on_exit = AsyncMock(return_value=2)
 
-    with patch("app.services.signal_router.PositionManagerService", new=mock_deps["pos_manager"]):
+    pos_manager_mock = mock_deps["pos_manager"]
+    pos_manager_instance_mock = pos_manager_mock.return_value
+
+    with patch("app.services.signal_router.PositionManagerService", new=pos_manager_mock):
         service = SignalRouterService(sample_user)
         result = await service.route(sample_signal, mock_async_session)
 
         assert "No active short position found" in result
         assert "2 queued signal(s) cancelled" in result
+
+        # CRITICAL: Verify handle_exit_signal was NOT called when no position exists
+        pos_manager_instance_mock.handle_exit_signal.assert_not_called()
+
+        # CRITICAL: Verify queued signals were cancelled
+        mock_queue_instance.cancel_queued_signals_on_exit.assert_called_once()
 
 
 @pytest.mark.asyncio

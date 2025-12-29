@@ -109,11 +109,18 @@ class RiskEngineService:
             if active_groups_count >= self.config.max_open_positions_global:
                 return False, f"Max global positions reached ({active_groups_count}/{self.config.max_open_positions_global})"
 
-        # 2. Max Open Positions Per Symbol
+        # 2. Max Open Positions Per Symbol/Timeframe/Exchange combination
         if not is_pyramid_continuation:
-            symbol_positions = [p for p in active_positions if p.symbol == signal.symbol]
-            if len(symbol_positions) >= self.config.max_open_positions_per_symbol:
-                return False, f"Max positions for {signal.symbol} reached ({len(symbol_positions)}/{self.config.max_open_positions_per_symbol})"
+            # Check for positions with same symbol, timeframe, AND exchange
+            matching_positions = [
+                p for p in active_positions
+                if p.symbol == signal.symbol
+                and p.timeframe == signal.timeframe
+                and p.exchange.lower() == signal.exchange.lower()
+            ]
+            if len(matching_positions) >= self.config.max_open_positions_per_symbol:
+                position_key = f"{signal.symbol}/{signal.timeframe}m/{signal.exchange}"
+                return False, f"Max positions for {position_key} reached ({len(matching_positions)}/{self.config.max_open_positions_per_symbol})"
 
         # 3. Max Total Exposure
         current_exposure = sum(p.total_invested_usd for p in active_positions)

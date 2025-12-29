@@ -203,6 +203,11 @@ class TestBroadcastEntrySignal:
 
             mock_broadcaster.send_entry_signal.assert_called_once()
 
+            # CRITICAL: Verify message ID was returned (needed for editing later)
+            # The actual update happens elsewhere, but we verify the return value
+            assert mock_broadcaster.send_entry_signal.return_value == 12345, \
+                "Entry signal must return message ID for later updates"
+
     @pytest.mark.asyncio
     async def test_broadcast_entry_signal_success_without_dca_config(
         self, sample_user, sample_position_group, sample_pyramid, sample_dca_orders
@@ -467,6 +472,12 @@ class TestBroadcastExitSignal:
             # For short: (entry - exit) / entry * 100 = (50000-49000)/50000*100 = 2%
             call_kwargs = mock_broadcaster.send_exit_signal.call_args.kwargs
             assert call_kwargs["pnl_percent"] == Decimal("2")
+
+            # CRITICAL: Verify PnL calculation is correct for short position
+            # For short: profit when exit < entry
+            # (entry_price - exit_price) / entry_price * 100 = (50000 - 49000) / 50000 * 100 = 2%
+            assert call_kwargs["pnl_percent"] > 0, \
+                "PnL must be positive for winning short trade (exit < entry)"
 
     @pytest.mark.asyncio
     async def test_broadcast_exit_signal_exception(self, sample_user, sample_position_group):

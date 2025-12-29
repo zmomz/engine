@@ -218,6 +218,12 @@ async def test_validate_pre_trade_risk_pass(mock_risk_engine_service):
     assert result is True
     assert reason is None
 
+    # CRITICAL: Verify the service config state allows trading
+    assert mock_risk_engine_service.config.engine_force_stopped is False, \
+        "Engine must not be force stopped for trade to pass"
+    assert mock_risk_engine_service.config.engine_paused_by_loss_limit is False, \
+        "Engine must not be paused for trade to pass"
+
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_fail_max_global(mock_risk_engine_service):
@@ -236,13 +242,20 @@ async def test_validate_pre_trade_risk_fail_max_global(mock_risk_engine_service)
     assert result is False
     assert "Max global positions" in reason
 
+    # CRITICAL: Verify the actual position count was checked
+    actual_count = len(active_positions)
+    max_allowed = mock_risk_engine_service.config.max_open_positions_global
+    assert actual_count >= max_allowed, \
+        f"Test precondition: active positions ({actual_count}) must be >= max ({max_allowed})"
+
 
 @pytest.mark.asyncio
-async def test_validate_pre_trade_risk_fail_max_symbol(mock_risk_engine_service):
-    signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4())
-    # Mock 1 active position for BTCUSDT (limit is 1)
+async def test_validate_pre_trade_risk_fail_max_symbol_timeframe_exchange(mock_risk_engine_service):
+    """Test that max position limit is per symbol/timeframe/exchange combination."""
+    signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4(), timeframe=60, exchange="binance")
+    # Mock 1 active position for BTCUSDT/60/binance (limit is 1)
     active_positions = [
-        PositionGroup(symbol="BTCUSDT", total_invested_usd=Decimal("100"))
+        PositionGroup(symbol="BTCUSDT", timeframe=60, exchange="binance", total_invested_usd=Decimal("100"))
     ]
     allocated_capital = Decimal("100")
     session = AsyncMock()
@@ -251,20 +264,65 @@ async def test_validate_pre_trade_risk_fail_max_symbol(mock_risk_engine_service)
         signal, active_positions, allocated_capital, session
     )
     assert result is False
-    assert "Max positions for BTCUSDT" in reason
+    assert "BTCUSDT/60m/binance" in reason
+
+    # CRITICAL: Verify symbol/timeframe/exchange limit was enforced
+    matching_positions = [
+        p for p in active_positions
+        if p.symbol == signal.symbol and p.timeframe == signal.timeframe and p.exchange.lower() == signal.exchange.lower()
+    ]
+    max_per_symbol = mock_risk_engine_service.config.max_open_positions_per_symbol
+    assert len(matching_positions) >= max_per_symbol, \
+        f"Test precondition: positions for {signal.symbol}/{signal.timeframe}/{signal.exchange} ({len(matching_positions)}) must be >= max ({max_per_symbol})"
 
 
 @pytest.mark.asyncio
-async def test_validate_pre_trade_risk_pass_pyramid(mock_risk_engine_service):
-    signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4())
-    # Mock 1 active position for BTCUSDT (limit is 1)
+async def test_validate_pre_trade_risk_pass_different_timeframe(mock_risk_engine_service):
+    """Test that same symbol with different timeframe is allowed."""
+    signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4(), timeframe=15, exchange="binance")
+    # Existing position is BTCUSDT/60/binance - different timeframe
     active_positions = [
-        PositionGroup(symbol="BTCUSDT", total_invested_usd=Decimal("100"))
+        PositionGroup(symbol="BTCUSDT", timeframe=60, exchange="binance", total_invested_usd=Decimal("100"))
     ]
     allocated_capital = Decimal("100")
     session = AsyncMock()
 
-    # Should pass because it is a pyramid continuation
+    result, reason = await mock_risk_engine_service.validate_pre_trade_risk(
+        signal, active_positions, allocated_capital, session
+    )
+    assert result is True
+    assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_validate_pre_trade_risk_pass_different_exchange(mock_risk_engine_service):
+    """Test that same symbol/timeframe with different exchange is allowed."""
+    signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4(), timeframe=60, exchange="bybit")
+    # Existing position is BTCUSDT/60/binance - different exchange
+    active_positions = [
+        PositionGroup(symbol="BTCUSDT", timeframe=60, exchange="binance", total_invested_usd=Decimal("100"))
+    ]
+    allocated_capital = Decimal("100")
+    session = AsyncMock()
+
+    result, reason = await mock_risk_engine_service.validate_pre_trade_risk(
+        signal, active_positions, allocated_capital, session
+    )
+    assert result is True
+    assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_validate_pre_trade_risk_pass_pyramid(mock_risk_engine_service):
+    signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4(), timeframe=60, exchange="binance")
+    # Mock 1 active position for BTCUSDT/60/binance (limit is 1)
+    active_positions = [
+        PositionGroup(symbol="BTCUSDT", timeframe=60, exchange="binance", total_invested_usd=Decimal("100"))
+    ]
+    allocated_capital = Decimal("100")
+    session = AsyncMock()
+
+    # Should pass because it is a pyramid continuation (bypasses symbol/timeframe/exchange limit)
     result, reason = await mock_risk_engine_service.validate_pre_trade_risk(
         signal, active_positions, allocated_capital, session, is_pyramid_continuation=True
     )

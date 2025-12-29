@@ -23,21 +23,23 @@ describe('PositionCard', () => {
 
   const mockPosition: PositionGroup = {
     id: 'pos-1',
-    user_id: 'user-1',
     symbol: 'BTC/USDT',
     side: 'long',
     status: 'ACTIVE',
     exchange: 'binance',
+    timeframe: 60,
     created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-    updated_at: new Date().toISOString(),
+    closed_at: null,
     unrealized_pnl_usd: 150.50,
     unrealized_pnl_percent: 5.25,
+    realized_pnl_usd: 0,
     weighted_avg_entry: 42500,
     total_invested_usd: 1000,
     total_filled_quantity: 0.0235,
     base_entry_price: 42000,
     pyramid_count: 2,
     max_pyramids: 3,
+    replacement_count: 0,
     filled_dca_legs: 3,
     total_dca_legs: 5,
     tp_mode: 'weighted_average',
@@ -46,6 +48,7 @@ describe('PositionCard', () => {
     risk_timer_expires: null,
     total_hedged_qty: 0,
     total_hedged_value_usd: 0,
+    pyramids: [],
   };
 
   beforeEach(() => {

@@ -127,18 +127,63 @@ describe('API Service', () => {
       expect(responseOnRejected).toBeDefined();
       const mockLogout = jest.fn();
       isolatedAuthStore.getState.mockReturnValue({ logout: mockLogout });
-      
+
       Object.defineProperty(window, 'location', {
         value: { href: '' },
         writable: true
       });
-      
+
       const error = { response: { status: 401 } };
-      
+
       await expect(responseOnRejected(error)).rejects.toEqual(error);
-      
+
       expect(mockLogout).toHaveBeenCalled();
       expect(window.location.href).toBe('/login');
+    });
+
+    it('response interceptor should pass through non-401 errors', async () => {
+      expect(responseOnRejected).toBeDefined();
+      const mockLogout = jest.fn();
+      isolatedAuthStore.getState.mockReturnValue({ logout: mockLogout });
+
+      const error = { response: { status: 500 } };
+
+      await expect(responseOnRejected(error)).rejects.toEqual(error);
+
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it('response interceptor should handle errors without response object', async () => {
+      expect(responseOnRejected).toBeDefined();
+      const mockLogout = jest.fn();
+      isolatedAuthStore.getState.mockReturnValue({ logout: mockLogout });
+
+      const error = { message: 'Network Error' };
+
+      await expect(responseOnRejected(error)).rejects.toEqual(error);
+
+      expect(mockLogout).not.toHaveBeenCalled();
+    });
+
+    it('request interceptor should reject on error', async () => {
+      // Get the error handler (second argument to use)
+      const requestOnError = mockRequestUse.mock.calls[0]?.[1];
+      expect(requestOnError).toBeDefined();
+
+      const error = new Error('Request setup failed');
+
+      await expect(requestOnError(error)).rejects.toEqual(error);
+    });
+
+    it('response interceptor should pass through successful responses', () => {
+      // Get the success handler (first argument to use)
+      const responseOnFulfilled = mockResponseUse.mock.calls[0]?.[0];
+      expect(responseOnFulfilled).toBeDefined();
+
+      const response = { data: { message: 'success' }, status: 200 };
+      const result = responseOnFulfilled(response);
+
+      expect(result).toEqual(response);
     });
   });
 });

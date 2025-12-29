@@ -27,13 +27,13 @@ class TradingViewData(BaseModel):
 class StrategyInfo(BaseModel):
     trade_id: str
     alert_name: str
-    alert_message: str
+    alert_message: Optional[str] = ""  # Optional - not needed for exit signals
 
 class ExecutionIntent(BaseModel):
     type: Literal["signal", "exit", "reduce", "reverse"]
     side: Literal["buy", "sell", "long", "short"]
-    position_size_type: Literal["contracts", "base", "quote"]
-    precision_mode: Literal["auto"]
+    position_size_type: Optional[Literal["contracts", "base", "quote"]] = "quote"  # Default for exits
+    precision_mode: Optional[Literal["auto"]] = "auto"  # Default for exits
 
 class RiskInfo(BaseModel):
     stop_loss: Optional[float] = None

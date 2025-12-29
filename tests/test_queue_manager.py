@@ -453,6 +453,16 @@ async def test_promote_highest_priority_signal_logic(queue_manager_service, mock
     assert mock_queued_signal_repository_class.return_value.update.call_count == 2
     assert mock_exchange_connector.get_current_price.call_count == 2
 
+    # CRITICAL: Verify loss percent was calculated and set on signals
+    # Signal1: entry=50000, current=45000, loss = (45000-50000)/50000 * 100 = -10%
+    assert signal1.current_loss_percent is not None, \
+        "Signal must have current_loss_percent calculated after price fetch"
+
+    # CRITICAL: Verify update was called with signals containing loss calculations
+    update_calls = mock_queued_signal_repository_class.return_value.update.call_args_list
+    assert len(update_calls) == 2, "Update must be called for each signal"
+
+
 @pytest.mark.asyncio
 async def test_promote_highest_priority_signal_no_signals(queue_manager_service, mock_queued_signal_repository_class, mock_execution_pool_manager):
     """
@@ -566,7 +576,15 @@ async def test_promote_highest_priority_signal_no_slot(queue_manager_service, mo
     queue_manager_service.exchange_connector.get_current_price.assert_called_once_with("ETHUSDT")
     # Assert that update was called once for loss calc, but not for promotion (no DCA config)
     assert mock_queued_signal_repository_class.return_value.update.call_count == 1
-    assert signal_in_queue.status == QueueStatus.QUEUED # Status should NOT change
+
+    # CRITICAL: Verify signal status was NOT changed when no slot available
+    assert signal_in_queue.status == QueueStatus.QUEUED, \
+        "Signal status must remain QUEUED when no execution slot available"
+
+    # CRITICAL: Verify signal was NOT promoted (no promoted_at timestamp)
+    assert not hasattr(signal_in_queue, 'promoted_at') or signal_in_queue.promoted_at is None, \
+        "Signal must not have promoted_at timestamp when not promoted"
+
 
 @pytest.mark.asyncio
 async def test_promote_highest_priority_signal_pyramid_continuation(queue_manager_service, mock_queued_signal_repository_class, mock_position_group_repository_class, mock_execution_pool_manager, user_id_fixture):
@@ -864,9 +882,22 @@ async def test_force_add_specific_signal_to_pool_success(queue_manager_service, 
     result = await queue_manager_service.force_add_specific_signal_to_pool(signal_id, user_id=user_id_fixture)
 
     assert result is not None
-    assert mock_signal.status == QueueStatus.PROMOTED
-    assert mock_signal.promoted_at is not None
+
+    # CRITICAL: Verify signal status transitioned to PROMOTED
+    assert mock_signal.status == QueueStatus.PROMOTED, \
+        "Signal status must transition to PROMOTED after force promotion"
+
+    # CRITICAL: Verify promoted_at timestamp was set
+    assert mock_signal.promoted_at is not None, \
+        "Signal must have promoted_at timestamp after promotion"
+
+    # CRITICAL: Verify state was persisted via repository update
     mock_queued_signal_repository_class.return_value.update.assert_called_once_with(mock_signal)
+
+    # CRITICAL: Verify the updated signal has PROMOTED status
+    updated_signal = mock_queued_signal_repository_class.return_value.update.call_args[0][0]
+    assert updated_signal.status == QueueStatus.PROMOTED, \
+        "Updated signal passed to repository must have PROMOTED status"
 
 
 @pytest.mark.asyncio

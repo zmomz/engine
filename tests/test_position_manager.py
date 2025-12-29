@@ -348,15 +348,27 @@ async def test_create_position_group_submits_orders(
     # Assert
     mock_order_service_instance = mock_order_service_class.return_value
     assert mock_order_service_instance.submit_order.call_count == 2
-    
+
     # Check the details of the first call
     first_call_args = mock_order_service_instance.submit_order.call_args_list[0].args
     dca_order_arg = first_call_args[0]
-    
+
     assert isinstance(dca_order_arg, DCAOrder)
     assert dca_order_arg.price == dca_levels[0]['price']
     assert dca_order_arg.quantity == dca_levels[0]['quantity']
     assert dca_order_arg.status == OrderStatus.PENDING
+
+    # CRITICAL: Verify all orders have correct leg_index
+    for i, call_args in enumerate(mock_order_service_instance.submit_order.call_args_list):
+        order = call_args.args[0]
+        assert order.leg_index == i, f"Order {i} should have leg_index={i}"
+
+    # Verify total quantity matches expected DCA allocation
+    total_qty = sum(
+        call_args.args[0].quantity
+        for call_args in mock_order_service_instance.submit_order.call_args_list
+    )
+    assert total_qty > 0, "Total DCA quantity must be positive"
 
 @pytest.mark.asyncio
 async def test_handle_pyramid_continuation_increment_count(

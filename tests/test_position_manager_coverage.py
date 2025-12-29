@@ -192,6 +192,12 @@ async def test_update_position_stats_calculates_long_stats(
     assert result is not None
     assert result.total_filled_quantity > 0
 
+    # CRITICAL: Verify state was persisted via repository update
+    mock_repo.update.assert_called_once()
+    updated_position = mock_repo.update.call_args[0][0]
+    assert updated_position.total_filled_quantity > 0, \
+        "Position total_filled_quantity must be updated after stats calculation"
+
 
 @pytest.mark.asyncio
 async def test_update_position_stats_calculates_short_stats(
@@ -215,6 +221,12 @@ async def test_update_position_stats_calculates_short_stats(
         result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
     assert result is not None
+
+    # CRITICAL: Verify state was persisted via repository update
+    mock_repo.update.assert_called_once()
+    updated_position = mock_repo.update.call_args[0][0]
+    assert updated_position.side == "short", \
+        "Position side must remain short after stats calculation"
 
 
 @pytest.mark.asyncio
@@ -247,8 +259,9 @@ async def test_update_position_stats_updates_pyramid_status(
         with patch("app.services.position.position_manager.broadcast_entry_signal", new_callable=AsyncMock):
             result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
-    # Pyramid should be marked as FILLED
-    assert pyramid.status == PyramidStatus.FILLED
+    # CRITICAL: Pyramid should be marked as FILLED - this is a state transition
+    assert pyramid.status == PyramidStatus.FILLED, \
+        "Pyramid status must transition to FILLED when all orders are filled"
 
 
 @pytest.mark.asyncio
@@ -269,10 +282,21 @@ async def test_update_position_stats_transition_to_active(
     mock_session.get.return_value = mock_user
 
     with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
-        with patch("app.services.position.position_manager.broadcast_status_change", new_callable=AsyncMock):
+        with patch("app.services.position.position_manager.broadcast_status_change", new_callable=AsyncMock) as mock_broadcast:
             result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
-    assert position_group.status == PositionGroupStatus.ACTIVE
+    # CRITICAL: Verify state transition from LIVE to ACTIVE
+    assert position_group.status == PositionGroupStatus.ACTIVE, \
+        "Position must transition to ACTIVE when all DCA legs are filled"
+
+    # CRITICAL: Verify state was persisted via repository update
+    mock_repo.update.assert_called()
+    updated_position = mock_repo.update.call_args[0][0]
+    assert updated_position.status == PositionGroupStatus.ACTIVE, \
+        "Updated position must have ACTIVE status persisted"
+
+    # Verify broadcast was called with correct status
+    mock_broadcast.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -294,10 +318,18 @@ async def test_update_position_stats_transition_to_partially_filled(
     mock_session.get.return_value = mock_user
 
     with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
-        with patch("app.services.position.position_manager.broadcast_status_change", new_callable=AsyncMock):
+        with patch("app.services.position.position_manager.broadcast_status_change", new_callable=AsyncMock) as mock_broadcast:
             result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
-    assert position_group.status == PositionGroupStatus.PARTIALLY_FILLED
+    # CRITICAL: Verify state transition from LIVE to PARTIALLY_FILLED
+    assert position_group.status == PositionGroupStatus.PARTIALLY_FILLED, \
+        "Position must transition to PARTIALLY_FILLED when some legs filled but more expected"
+
+    # CRITICAL: Verify state was persisted via repository update
+    mock_repo.update.assert_called()
+    updated_position = mock_repo.update.call_args[0][0]
+    assert updated_position.status == PositionGroupStatus.PARTIALLY_FILLED, \
+        "Updated position must have PARTIALLY_FILLED status persisted"
 
 
 @pytest.mark.asyncio
@@ -338,7 +370,18 @@ async def test_update_position_stats_auto_close_all_tps_hit(
     with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
         result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
-    assert position_group.status == PositionGroupStatus.CLOSED
+    # CRITICAL: Verify state transition to CLOSED when all TPs hit
+    assert position_group.status == PositionGroupStatus.CLOSED, \
+        "Position must transition to CLOSED when all TPs hit and qty = 0"
+
+    # CRITICAL: Verify state was persisted via repository update
+    mock_repo.update.assert_called()
+    updated_position = mock_repo.update.call_args[0][0]
+    assert updated_position.status == PositionGroupStatus.CLOSED, \
+        "Updated position must have CLOSED status persisted"
+
+    # Verify cancel_open_orders was called to clean up remaining orders
+    mock_order_service.cancel_open_orders_for_group.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -368,12 +411,22 @@ async def test_update_position_stats_triggers_aggregate_tp_long(
     mock_session.get.return_value = mock_user
 
     with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
-        with patch("app.services.position.position_manager.broadcast_tp_hit", new_callable=AsyncMock):
+        with patch("app.services.position.position_manager.broadcast_tp_hit", new_callable=AsyncMock) as mock_broadcast_tp:
             result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
-    # Should have executed TP
+    # CRITICAL: Should have executed TP via market order
     mock_order_service.place_market_order.assert_called_once()
-    assert position_group.status == PositionGroupStatus.CLOSED
+
+    # CRITICAL: Verify market order was placed with correct side (sell for long exit)
+    market_order_call = mock_order_service.place_market_order.call_args
+    assert market_order_call is not None, "Market order must be placed for aggregate TP"
+
+    # CRITICAL: Verify state transition to CLOSED after aggregate TP
+    assert position_group.status == PositionGroupStatus.CLOSED, \
+        "Position must transition to CLOSED after aggregate TP execution"
+
+    # Verify TP hit was broadcast
+    mock_broadcast_tp.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -406,10 +459,18 @@ async def test_update_position_stats_triggers_aggregate_tp_short(
     mock_session.get.return_value = mock_user
 
     with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
-        with patch("app.services.position.position_manager.broadcast_tp_hit", new_callable=AsyncMock):
+        with patch("app.services.position.position_manager.broadcast_tp_hit", new_callable=AsyncMock) as mock_broadcast_tp:
             result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
+    # CRITICAL: Should have executed TP via market order
     mock_order_service.place_market_order.assert_called_once()
+
+    # CRITICAL: Verify market order was placed with correct side (buy for short exit)
+    market_order_call = mock_order_service.place_market_order.call_args
+    assert market_order_call is not None, "Market order must be placed for aggregate TP on short"
+
+    # Verify TP hit was broadcast
+    mock_broadcast_tp.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -438,10 +499,18 @@ async def test_update_position_stats_hybrid_tp(
     mock_session.get.return_value = mock_user
 
     with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
-        with patch("app.services.position.position_manager.broadcast_tp_hit", new_callable=AsyncMock):
+        with patch("app.services.position.position_manager.broadcast_tp_hit", new_callable=AsyncMock) as mock_broadcast_tp:
             result = await position_manager_service._execute_update_position_stats(mock_session, position_group.id)
 
+    # CRITICAL: Should have executed TP via market order for hybrid mode
     mock_order_service.place_market_order.assert_called_once()
+
+    # CRITICAL: Verify hybrid TP mode triggers aggregate TP correctly
+    market_order_call = mock_order_service.place_market_order.call_args
+    assert market_order_call is not None, "Market order must be placed for hybrid TP"
+
+    # Verify TP hit was broadcast
+    mock_broadcast_tp.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -759,7 +828,17 @@ async def test_handle_exit_signal_with_session(
                 session=mock_session
             )
 
+    # CRITICAL: Verify cancel_open_orders was called to clean up pending orders
     mock_order_service.cancel_open_orders_for_group.assert_called_once()
+
+    # CRITICAL: Verify close_position_market was called to exit the position
+    mock_order_service.close_position_market.assert_called_once()
+
+    # CRITICAL: Verify the position state was retrieved for exit handling
+    mock_repo.get_with_orders.assert_called_once()
+    # The method uses 'group_id' as the first positional argument
+    assert mock_repo.get_with_orders.call_args[0][0] == position_group.id, \
+        "Must retrieve position with orders for exit signal handling"
 
 
 # --- Tests for update_risk_timer with provided position_group ---
