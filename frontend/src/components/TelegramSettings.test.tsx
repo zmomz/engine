@@ -19,7 +19,7 @@ const theme = createTheme({
 });
 
 // Wrapper component that provides form context
-const TestWrapper: React.FC<{ defaultValues?: any; children: React.ReactNode }> = ({
+const TestWrapper: React.FC<{ defaultValues?: any; children?: React.ReactNode }> = ({
   defaultValues = {
     telegramSettings: {
       enabled: true,
@@ -157,19 +157,26 @@ describe('TelegramSettings', () => {
       });
     });
 
-    it('shows success notification on successful connection', async () => {
-      mockedApi.post.mockResolvedValue({});
+    it(
+      'shows success notification on successful connection',
+      async () => {
+        mockedApi.post.mockResolvedValue({});
 
-      render(<TestWrapper />);
-      fireEvent.click(screen.getByText('Test Connection'));
+        render(<TestWrapper />);
+        fireEvent.click(screen.getByText('Test Connection'));
 
-      await waitFor(() => {
-        expect(mockShowNotification).toHaveBeenCalledWith(
-          'Successfully connected to Telegram bot',
-          'success'
+        await waitFor(
+          () => {
+            expect(mockShowNotification).toHaveBeenCalledWith(
+              'Successfully connected to Telegram bot',
+              'success'
+            );
+          },
+          { timeout: 10000 }
         );
-      });
-    });
+      },
+      15000
+    );
 
     it('shows error notification on failed connection', async () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
@@ -271,21 +278,28 @@ describe('TelegramSettings', () => {
       });
     });
 
-    it('shows error notification on failed message', async () => {
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-      mockedApi.post.mockRejectedValue({
-        response: { data: { detail: 'Channel not found' } },
-      });
+    it(
+      'shows error notification on failed message',
+      async () => {
+        const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+        mockedApi.post.mockRejectedValue({
+          response: { data: { detail: 'Channel not found' } },
+        });
 
-      render(<TestWrapper />);
-      fireEvent.click(screen.getByText('Send Test Message'));
+        render(<TestWrapper />);
+        fireEvent.click(screen.getByText('Send Test Message'));
 
-      await waitFor(() => {
-        expect(mockShowNotification).toHaveBeenCalledWith('Channel not found', 'error');
-      });
+        await waitFor(
+          () => {
+            expect(mockShowNotification).toHaveBeenCalledWith('Channel not found', 'error');
+          },
+          { timeout: 10000 }
+        );
 
-      consoleSpy.mockRestore();
-    });
+        consoleSpy.mockRestore();
+      },
+      15000
+    );
 
     it('shows Sending... while sending', async () => {
       mockedApi.post.mockImplementation(

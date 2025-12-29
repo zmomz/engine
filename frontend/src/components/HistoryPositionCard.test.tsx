@@ -21,13 +21,12 @@ const renderWithTheme = (component: React.ReactElement) => {
 describe('HistoryPositionCard', () => {
   const mockPosition: PositionGroup = {
     id: 'pos-1',
-    user_id: 'user-1',
     symbol: 'BTC/USDT',
     side: 'long',
     status: 'CLOSED',
     exchange: 'binance',
+    timeframe: 60,
     created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-    updated_at: new Date().toISOString(),
     closed_at: new Date().toISOString(),
     realized_pnl_usd: 150.50,
     unrealized_pnl_usd: 0,
@@ -38,6 +37,7 @@ describe('HistoryPositionCard', () => {
     base_entry_price: 42000,
     pyramid_count: 2,
     max_pyramids: 3,
+    replacement_count: 0,
     filled_dca_legs: 3,
     total_dca_legs: 5,
     tp_mode: 'weighted_average',
@@ -46,7 +46,7 @@ describe('HistoryPositionCard', () => {
     risk_timer_expires: null,
     total_hedged_qty: 0,
     total_hedged_value_usd: 0,
-    timeframe: '1h',
+    pyramids: [],
   };
 
   describe('basic rendering', () => {
@@ -62,11 +62,11 @@ describe('HistoryPositionCard', () => {
 
     it('renders timeframe chip', () => {
       renderWithTheme(<HistoryPositionCard position={mockPosition} />);
-      expect(screen.getByText('1h')).toBeInTheDocument();
+      expect(screen.getByText('60')).toBeInTheDocument();
     });
 
     it('renders - when timeframe is null', () => {
-      const positionWithoutTimeframe = { ...mockPosition, timeframe: null };
+      const positionWithoutTimeframe = { ...mockPosition, timeframe: null as any };
       renderWithTheme(<HistoryPositionCard position={positionWithoutTimeframe} />);
       expect(screen.getAllByText('-').length).toBeGreaterThan(0);
     });
