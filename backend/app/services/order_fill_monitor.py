@@ -17,9 +17,13 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from app.repositories.dca_order import DCAOrderRepository
 from app.repositories.position_group import PositionGroupRepository
 from app.repositories.user import UserRepository
+from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.repositories.dca_configuration import DCAConfigurationRepository
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.factory import get_exchange_connector
@@ -268,7 +272,9 @@ class OrderFillMonitorService:
 
                         if order.status == OrderStatus.FILLED.value:
                             await position_manager.update_position_stats(order.group_id, session=session)
-                            await order_service.place_tp_order(order)
+                            # Only place per-leg TP orders if tp_mode supports it
+                            if order.group and order.group.tp_mode in ["per_leg", "hybrid"]:
+                                await order_service.place_tp_order(order)
 
                             # Use eager-loaded pyramid
                             if order.group and order.pyramid:
@@ -308,10 +314,12 @@ class OrderFillMonitorService:
                 if updated_order.status == OrderStatus.FILLED.value:
                     await session.flush()
 
-                    logger.info(f"Order {order.id} FILLED - updating position stats and placing TP order")
+                    logger.info(f"Order {order.id} FILLED - updating position stats")
                     await position_manager.update_position_stats(updated_order.group_id, session=session)
-                    await order_service.place_tp_order(updated_order)
-                    logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
+                    # Only place per-leg TP orders if tp_mode supports it
+                    if updated_order.group and updated_order.group.tp_mode in ["per_leg", "hybrid"]:
+                        await order_service.place_tp_order(updated_order)
+                        logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
 
                     # Use eager-loaded pyramid
                     if updated_order.group and updated_order.pyramid:
@@ -331,11 +339,13 @@ class OrderFillMonitorService:
                     if updated_order.filled_quantity and updated_order.filled_quantity > 0 and not updated_order.tp_order_id:
                         logger.info(
                             f"Order {order.id} PARTIALLY_FILLED ({updated_order.filled_quantity}/{updated_order.quantity}) "
-                            f"- updating position stats and placing partial TP order"
+                            f"- updating position stats"
                         )
                         await position_manager.update_position_stats(updated_order.group_id, session=session)
-                        await order_service.place_tp_order_for_partial_fill(updated_order)
-                        logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
+                        # Only place per-leg TP orders if tp_mode supports it
+                        if updated_order.group and updated_order.group.tp_mode in ["per_leg", "hybrid"]:
+                            await order_service.place_tp_order_for_partial_fill(updated_order)
+                            logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
 
                         # Use eager-loaded pyramid
                         if updated_order.group and updated_order.pyramid:
@@ -419,6 +429,15 @@ class OrderFillMonitorService:
                         logger.debug(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
 
                         if not all_orders:
+                            # Even with no open orders, check aggregate TP for idle positions
+                            await self._check_aggregate_tp_for_idle_positions(session, user)
+                            try:
+                                await session.commit()
+                                logger.debug(f"OrderFillMonitor: Committed changes for user {user.id} (idle check only)")
+                            except Exception as commit_err:
+                                error_msg = str(commit_err).lower()
+                                if "deadlock" in error_msg or "rollback" in error_msg:
+                                    await session.rollback()
                             continue
 
                         # Group orders by exchange
@@ -499,6 +518,9 @@ class OrderFillMonitorService:
 
                             finally:
                                 await connector.close()
+
+                        # Check aggregate TP for positions without open orders
+                        await self._check_aggregate_tp_for_idle_positions(session, user)
 
                         # Try to commit, but handle deadlock/rollback errors gracefully
                         try:
@@ -608,3 +630,181 @@ class OrderFillMonitorService:
                 pass
             finally:
                 logger.info("OrderFillMonitorService monitoring task stopped.")
+
+    async def _check_aggregate_tp_for_idle_positions(self, session: AsyncSession, user):
+        """
+        Check aggregate TP for positions that have no open orders.
+        This ensures positions can close via aggregate TP even when no orders are pending.
+        """
+        try:
+            position_group_repo = self.position_group_repository_class(session)
+
+            # Get all active positions for this user with aggregate/hybrid TP mode
+            result = await session.execute(
+                select(PositionGroup)
+                .where(
+                    PositionGroup.user_id == user.id,
+                    PositionGroup.status == PositionGroupStatus.ACTIVE.value,
+                    PositionGroup.tp_mode.in_(["aggregate", "hybrid"]),
+                    PositionGroup.tp_aggregate_percent > 0,
+                    PositionGroup.total_filled_quantity > 0
+                )
+                .options(selectinload(PositionGroup.dca_orders))
+            )
+            positions = result.scalars().all()
+
+            if not positions:
+                return
+
+            logger.debug(f"OrderFillMonitor: Checking aggregate TP for {len(positions)} idle positions")
+
+            # Group by exchange
+            positions_by_exchange: Dict[str, List[PositionGroup]] = {}
+            for pos in positions:
+                # Check if position has any open orders - skip if it does
+                has_open_orders = any(
+                    o.status in [OrderStatus.OPEN.value, OrderStatus.TRIGGER_PENDING.value, OrderStatus.PARTIALLY_FILLED.value]
+                    for o in pos.dca_orders
+                )
+                if has_open_orders:
+                    continue  # Skip - will be handled by order processing
+
+                ex = pos.exchange.lower()
+                if ex not in positions_by_exchange:
+                    positions_by_exchange[ex] = []
+                positions_by_exchange[ex].append(pos)
+
+            for exchange_name, positions_to_check in positions_by_exchange.items():
+                if not positions_to_check:
+                    continue
+
+                try:
+                    # Setup connector
+                    if exchange_name == "mock":
+                        exchange_keys_data = {
+                            "api_key": "mock_api_key_12345",
+                            "api_secret": "mock_api_secret_67890"
+                        }
+                    else:
+                        exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
+                        if not exchange_keys_data:
+                            continue
+
+                    connector = get_exchange_connector(exchange_name, exchange_config=exchange_keys_data)
+
+                    try:
+                        for pos in positions_to_check:
+                            await self._check_single_position_aggregate_tp(
+                                session, user, pos, connector, position_group_repo
+                            )
+                    finally:
+                        await connector.close()
+
+                except Exception as e:
+                    logger.error(f"OrderFillMonitor: Error checking aggregate TP for {exchange_name}: {e}")
+
+        except Exception as e:
+            logger.error(f"OrderFillMonitor: Error in _check_aggregate_tp_for_idle_positions: {e}")
+
+    async def _check_single_position_aggregate_tp(
+        self,
+        session: AsyncSession,
+        user,
+        position_group: PositionGroup,
+        connector,
+        position_group_repo
+    ):
+        """Check aggregate TP for a single position and execute if triggered."""
+        try:
+            current_price = Decimal(str(await connector.get_current_price(position_group.symbol)))
+            current_avg_price = position_group.weighted_avg_entry
+            current_qty = position_group.total_filled_quantity
+
+            if current_qty <= 0 or current_avg_price <= 0:
+                return
+
+            # Calculate aggregate TP target
+            if position_group.side.lower() == "long":
+                aggregate_tp_price = current_avg_price * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
+                should_execute_tp = current_price >= aggregate_tp_price
+            else:
+                aggregate_tp_price = current_avg_price * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
+                should_execute_tp = current_price <= aggregate_tp_price
+
+            if not should_execute_tp:
+                return
+
+            logger.info(
+                f"OrderFillMonitor: Aggregate TP Triggered for idle position {position_group.symbol} "
+                f"(ID: {position_group.id}) at {current_price} (Target: {aggregate_tp_price})"
+            )
+
+            # Create order service and execute TP
+            order_service = self.order_service_class(
+                session=session,
+                user=user,
+                exchange_connector=connector
+            )
+
+            # Calculate PnL
+            if position_group.side.lower() == "long":
+                unrealized_pnl = (current_price - current_avg_price) * current_qty
+            else:
+                unrealized_pnl = (current_avg_price - current_price) * current_qty
+
+            pnl_percent = position_group.tp_aggregate_percent
+
+            # Broadcast TP hit
+            await broadcast_tp_hit(
+                position_group=position_group,
+                pyramid=None,
+                tp_type="aggregate",
+                tp_price=aggregate_tp_price,
+                pnl_percent=pnl_percent,
+                session=session,
+                pnl_usd=unrealized_pnl,
+                closed_quantity=current_qty,
+                remaining_pyramids=0
+            )
+
+            # Cancel any remaining open orders
+            await order_service.cancel_open_orders_for_group(position_group.id)
+
+            # Place market close order (don't record in DB - just execute on exchange)
+            close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+            await order_service.place_market_order(
+                user_id=user.id,
+                exchange=position_group.exchange,
+                symbol=position_group.symbol,
+                side=close_side,
+                quantity=current_qty,
+                position_group_id=position_group.id,
+                record_in_db=False
+            )
+
+            # Mark position as closed
+            from datetime import datetime
+            position_group.status = PositionGroupStatus.CLOSED
+            position_group.closed_at = datetime.utcnow()
+            position_group.total_filled_quantity = Decimal("0")
+            position_group.unrealized_pnl_usd = Decimal("0")
+
+            # Calculate realized PnL including hedge value
+            total_exit_value = current_qty * current_price
+            hedge_profit = (position_group.total_hedged_value_usd or Decimal("0")) - (
+                (position_group.total_hedged_qty or Decimal("0")) * current_avg_price
+            )
+            realized_pnl = unrealized_pnl + hedge_profit
+            position_group.realized_pnl_usd = realized_pnl
+
+            await position_group_repo.update(position_group)
+
+            logger.info(
+                f"OrderFillMonitor: Executed Aggregate TP for idle position {position_group.symbol} "
+                f"(ID: {position_group.id}) - Realized PnL: {realized_pnl}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"OrderFillMonitor: Error checking aggregate TP for position {position_group.id}: {e}"
+            )

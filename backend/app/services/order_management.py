@@ -626,7 +626,7 @@ class OrderService:
             avg_price = Decimal("0")
 
             if expected_price and max_slippage_percent is not None:
-                avg_price_raw = exchange_order_data.get("average") or exchange_order_data.get("price") or "0"
+                avg_price_raw = exchange_order_data.get("average") or exchange_order_data.get("avg_price") or exchange_order_data.get("price") or "0"
                 avg_price = Decimal(str(avg_price_raw)) if avg_price_raw else Decimal("0")
                 if avg_price > 0:
                     # Calculate actual slippage
@@ -659,7 +659,7 @@ class OrderService:
                 # Extract fill details
                 filled_qty_raw = exchange_order_data.get("filled") or quantity
                 filled_qty = Decimal(str(filled_qty_raw))
-                avg_price_raw = exchange_order_data.get("average") or exchange_order_data.get("price") or "0"
+                avg_price_raw = exchange_order_data.get("average") or exchange_order_data.get("avg_price") or exchange_order_data.get("price") or "0"
                 avg_price = Decimal(str(avg_price_raw)) if avg_price_raw else Decimal("0")
 
                 # If avg_price is 0 (common in immediate response), might need to fetch order? 

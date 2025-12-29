@@ -689,6 +689,21 @@ class RiskEngineService:
             if self.user:
                 daily_realized_pnl = await position_group_repo.get_daily_realized_pnl(user_id=self.user.id)
 
+            # Check actual risk engine running status from Redis health
+            risk_engine_running = self._running  # Default to instance state
+            try:
+                from app.core.cache import get_cache
+                cache = await get_cache()
+                health_data = await cache.get_service_health("risk_engine")
+                if health_data:
+                    # Consider running if heartbeat within last 5 minutes
+                    import time
+                    last_heartbeat = health_data.get("last_heartbeat", 0)
+                    if time.time() - last_heartbeat < 300:  # 5 minutes
+                        risk_engine_running = health_data.get("status") == "running"
+            except Exception:
+                pass  # Fall back to instance state
+
             return {
                 "identified_loser": loser_info,
                 "identified_winners": winners_info,
@@ -697,7 +712,7 @@ class RiskEngineService:
                 "projected_plan": projected_plan,
                 "at_risk_positions": at_risk_positions,
                 "recent_actions": recent_actions_info,
-                "risk_engine_running": self._running,
+                "risk_engine_running": risk_engine_running,
                 "engine_paused_by_loss_limit": self.config.engine_paused_by_loss_limit,
                 "engine_force_stopped": self.config.engine_force_stopped,
                 "daily_realized_pnl": float(daily_realized_pnl),

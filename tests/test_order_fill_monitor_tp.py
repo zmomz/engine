@@ -62,6 +62,7 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
     mock_group = MagicMock()
     mock_group.exchange = "binance"
     mock_group.status = "active"
+    mock_group.tp_mode = "per_leg"  # Set tp_mode so place_tp_order is called
     order1.group = mock_group
     order1.pyramid = None
 
@@ -104,8 +105,10 @@ async def test_check_orders_places_tp(mock_order_fill_monitor_service):
         mock_user_repo_instance.get_all_active_users = AsyncMock(return_value=[mock_user])
 
         # Mock connector
-        mock_connector = AsyncMock()
+        mock_connector = MagicMock()
         mock_connector.close = AsyncMock()
+        mock_connector.get_all_tickers = AsyncMock(return_value={})
+        mock_connector.get_current_price = AsyncMock(return_value=Decimal("60000"))
         mock_get_conn.return_value = mock_connector
 
         await mock_order_fill_monitor_service._check_orders()
