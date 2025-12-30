@@ -242,29 +242,34 @@ def test_select_loser_sorting_logic(mock_config):
 
 @pytest.mark.asyncio
 async def test_calculate_partial_close_quantities_exact_coverage(mock_user):
-    """Test calculating closure amount when winner has enough profit."""
+    """Test calculating closure amount when winner has enough profit.
+
+    For SPOT trading: All positions are "long" (buy to enter, sell to exit).
+    """
     winner = PositionGroup(
-        id=uuid.uuid4(), symbol="ETH/USD", side="short",
-        unrealized_pnl_usd=Decimal("100.0"), weighted_avg_entry=Decimal("3000.0"), exchange="binance",
+        id=uuid.uuid4(), symbol="ETH/USD", side="long",
+        unrealized_pnl_usd=Decimal("100.0"), weighted_avg_entry=Decimal("2900.0"), exchange="binance",
         total_filled_quantity=Decimal("1.0")
     )
-    
-    # Need 50 USD. Profit per unit is 100. Expect 0.5 units close.
+
+    # Need 50 USD. Current price is 3000, entry was 2900.
+    # Profit per unit = 3000 - 2900 = 100
+    # Qty to close = 50 / 100 = 0.5 units
     required_usd = Decimal("50.0")
     precision_rules = {"ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("10")}}
-    
+
     # Mock the exchange connector within the calculate_partial_close_quantities function
     with patch('app.services.risk.risk_executor.get_exchange_connector') as mock_get_connector:
         # Create an AsyncMock instance that will be returned by get_exchange_connector
         mock_exchange_instance = AsyncMock()
-        mock_exchange_instance.get_current_price.return_value = Decimal("2900.0") 
+        mock_exchange_instance.get_current_price.return_value = Decimal("3000.0")  # Price went up
         mock_exchange_instance.get_precision_rules.return_value = precision_rules
         mock_exchange_instance.close.return_value = None # Explicitly set return for close
 
         mock_get_connector.return_value = mock_exchange_instance # Set the return value for the patched function
-        
+
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
-    
+
     assert len(plan) == 1
     pg, qty = plan[0]
     assert pg.symbol == "ETH/USD"

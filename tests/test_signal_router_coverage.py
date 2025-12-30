@@ -483,9 +483,12 @@ async def test_route_exit_signal_success(sample_user, sample_signal, mock_async_
 
 @pytest.mark.asyncio
 async def test_route_exit_signal_no_position_found(sample_user, sample_signal, mock_async_session, mock_deps):
-    """Test exit signal when no active position exists."""
+    """Test exit signal when no active position exists.
+
+    For SPOT trading: All positions are "long", so exit always targets long.
+    """
     sample_signal.execution_intent.type = "exit"
-    sample_signal.tv.action = "sell"  # Exit a short position
+    sample_signal.tv.action = "sell"  # Exit a long position (spot trading)
 
     repo_instance = mock_deps["repo"].return_value
     repo_instance.get_active_position_group_for_exit = AsyncMock(return_value=None)
@@ -511,7 +514,8 @@ async def test_route_exit_signal_no_position_found(sample_user, sample_signal, m
         service = SignalRouterService(sample_user)
         result = await service.route(sample_signal, mock_async_session)
 
-        assert "No active short position found" in result
+        # For spot trading, we always look for "long" positions
+        assert "No active long position found" in result
         assert "2 queued signal(s) cancelled" in result
 
         # CRITICAL: Verify handle_exit_signal was NOT called when no position exists
@@ -845,12 +849,14 @@ async def test_route_capital_cap_at_max_exposure(sample_user, sample_signal, moc
 
 
 @pytest.mark.asyncio
-async def test_route_sell_action_maps_to_short(sample_user, sample_signal, mock_async_session, mock_deps):
-    """Test that 'sell' action is mapped to 'short' for entry signals."""
-    sample_signal.tv.action = "sell"
+async def test_route_sell_action_rejected_in_spot(sample_user, sample_signal, mock_async_session, mock_deps):
+    """Test that 'sell' action without exit intent is rejected for spot trading.
 
-    mock_pool_instance = mock_deps["pool"].return_value
-    mock_pool_instance.request_slot = AsyncMock(return_value=True)
+    For SPOT trading: Short positions are not supported. A 'sell' action without
+    execution_intent.type='exit' should return an error message.
+    """
+    sample_signal.tv.action = "sell"
+    sample_signal.execution_intent.type = "signal"  # Not an exit
 
     mock_exchange = AsyncMock()
     mock_exchange.get_precision_rules.return_value = {
@@ -863,23 +869,18 @@ async def test_route_sell_action_maps_to_short(sample_user, sample_signal, mock_
     }
     mock_deps["config_service"].get_connector.return_value = mock_exchange
 
-    repo_instance = mock_deps["repo"].return_value
-    repo_instance.get_active_position_group_for_signal = AsyncMock(return_value=None)
-
     pos_manager_mock = mock_deps["pos_manager"]
     pos_manager_instance_mock = pos_manager_mock.return_value
-    mock_new_position_group = MagicMock(spec=PositionGroup)
-    mock_new_position_group.status = PositionGroupStatus.LIVE
-    pos_manager_instance_mock.create_position_group_from_signal = AsyncMock(return_value=mock_new_position_group)
 
     with patch("app.services.signal_router.PositionManagerService", new=pos_manager_mock):
         service = SignalRouterService(sample_user)
         result = await service.route(sample_signal, mock_async_session)
 
-        # Verify short was used
-        call_args = pos_manager_instance_mock.create_position_group_from_signal.call_args
-        signal_arg = call_args.kwargs["signal"]
-        assert signal_arg.side == "short"
+        # Verify sell signal was rejected for spot trading
+        assert "Spot trading does not support short positions" in result
+
+        # CRITICAL: Verify no position was created
+        pos_manager_instance_mock.create_position_group_from_signal.assert_not_called()
 
 
 @pytest.mark.asyncio

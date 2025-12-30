@@ -200,15 +200,31 @@ async def test_update_position_stats_calculates_long_stats(
 
 
 @pytest.mark.asyncio
-async def test_update_position_stats_calculates_short_stats(
+async def test_update_position_stats_with_exit_orders(
     position_manager_service, mock_session, position_group, filled_orders, mock_user, mock_exchange_connector
 ):
-    """Test update_position_stats correctly calculates stats for short position."""
-    position_group.dca_orders = filled_orders
-    position_group.side = "short"
-    # Change orders to sell for short position
-    for order in filled_orders:
-        order.side = "sell"
+    """Test update_position_stats correctly calculates stats with exit orders.
+
+    For SPOT trading: All positions are "long" (buy to enter, sell to exit).
+    This test verifies that sell orders (exits) are processed correctly.
+    """
+    # Add exit order
+    exit_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=position_group.id,
+        pyramid_id=None,
+        leg_index=999,
+        side="sell",  # Exit order
+        price=Decimal("50500"),
+        quantity=Decimal("0.005"),
+        filled_quantity=Decimal("0.005"),
+        avg_fill_price=Decimal("50500"),
+        status=OrderStatus.FILLED,
+        filled_at=datetime.utcnow(),
+        tp_hit=False
+    )
+    position_group.dca_orders = filled_orders + [exit_order]
+    position_group.side = "long"
 
     mock_repo = MagicMock()
     mock_repo.get_with_orders = AsyncMock(return_value=position_group)
@@ -225,8 +241,11 @@ async def test_update_position_stats_calculates_short_stats(
     # CRITICAL: Verify state was persisted via repository update
     mock_repo.update.assert_called_once()
     updated_position = mock_repo.update.call_args[0][0]
-    assert updated_position.side == "short", \
-        "Position side must remain short after stats calculation"
+    assert updated_position.side == "long", \
+        "Position side must remain long after stats calculation"
+    # After partial exit, quantity should be reduced
+    assert updated_position.total_filled_quantity < Decimal("0.02"), \
+        "Total filled quantity should decrease after exit order"
 
 
 @pytest.mark.asyncio
@@ -430,21 +449,25 @@ async def test_update_position_stats_triggers_aggregate_tp_long(
 
 
 @pytest.mark.asyncio
-async def test_update_position_stats_triggers_aggregate_tp_short(
+async def test_update_position_stats_triggers_aggregate_tp_sell_side(
     position_manager_service, mock_session, position_group, filled_orders, mock_user, mock_exchange_connector
 ):
-    """Test update_position_stats triggers aggregate TP for short position."""
-    position_group.side = "short"
+    """Test update_position_stats triggers aggregate TP and sells with correct side.
+
+    For SPOT trading: All positions are "long", so TP always uses SELL to exit.
+    This test verifies the market order uses the correct side.
+    """
+    position_group.side = "long"
     for order in filled_orders:
-        order.side = "sell"
+        order.side = "buy"
 
     position_group.dca_orders = filled_orders
     position_group.status = PositionGroupStatus.ACTIVE
     position_group.tp_mode = "aggregate"
     position_group.tp_aggregate_percent = Decimal("2")
 
-    # Set price below TP threshold for short
-    mock_exchange_connector.get_current_price.return_value = Decimal("48500")
+    # Set price above TP threshold for long
+    mock_exchange_connector.get_current_price.return_value = Decimal("51500")
 
     mock_repo = MagicMock()
     mock_repo.get_with_orders = AsyncMock(return_value=position_group)
@@ -465,9 +488,11 @@ async def test_update_position_stats_triggers_aggregate_tp_short(
     # CRITICAL: Should have executed TP via market order
     mock_order_service.place_market_order.assert_called_once()
 
-    # CRITICAL: Verify market order was placed with correct side (buy for short exit)
+    # CRITICAL: Verify market order was placed with correct side (SELL for long exit in spot trading)
     market_order_call = mock_order_service.place_market_order.call_args
-    assert market_order_call is not None, "Market order must be placed for aggregate TP on short"
+    assert market_order_call is not None, "Market order must be placed for aggregate TP"
+    assert market_order_call.kwargs.get("side") == "SELL", \
+        "For spot trading, TP exit must use SELL side"
 
     # Verify TP hit was broadcast
     mock_broadcast_tp.assert_called_once()

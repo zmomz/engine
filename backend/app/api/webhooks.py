@@ -42,8 +42,8 @@ async def tradingview_webhook(
 
     # Create a lock key based on user + symbol + timeframe + side
     # This prevents race conditions for the same position
-    action = webhook_payload.tv.action.lower()
-    side = "long" if action == "buy" else "short" if action == "sell" else action
+    # For SPOT trading: All positions are "long" (we buy to enter, sell to exit)
+    side = "long"
 
     lock_resource = f"webhook:{user.id}:{webhook_payload.tv.symbol}:{webhook_payload.tv.timeframe}:{side}"
     lock_id = str(uuid.uuid4())

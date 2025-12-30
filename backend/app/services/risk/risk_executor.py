@@ -92,9 +92,9 @@ async def calculate_partial_close_quantities(
             logger.error(f"Risk Engine: Failed to get price for {winner.symbol}: {e}")
             continue
 
+        # For SPOT trading: All positions are "long"
+        # Profit = current_price - entry_price
         profit_per_unit = current_price - Decimal(str(winner.weighted_avg_entry))
-        if winner.side == "short":
-            profit_per_unit = Decimal(str(winner.weighted_avg_entry)) - current_price
 
         if profit_per_unit <= 0:
             logger.warning(f"Cannot calculate quantity for {winner.symbol}: profit_per_unit is zero or negative ({profit_per_unit}).")

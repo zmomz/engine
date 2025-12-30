@@ -203,9 +203,9 @@ class SignalRouterService:
             # --- Handle Exit Signal ---
             intent_type = signal.execution_intent.type.lower() if signal.execution_intent else "signal"
             if intent_type == "exit":
-                # Determine target position side to close
-                # If action is 'buy', we close 'long'. If 'sell', we close 'short'.
-                target_side = "long" if signal.tv.action.lower() == "buy" else "short"
+                # For SPOT trading: All positions are "long" (we buy to enter, sell to exit)
+                # Exit signals always target the "long" position regardless of action
+                target_side = "long"
 
                 # Cancel any queued signals for this symbol/timeframe/side
                 # This prevents queued entries from being promoted after the position is closed
@@ -249,14 +249,18 @@ class SignalRouterService:
 
             # --- Handle Entry/Pyramid Signal ---
             else: # intent_type != "exit"
-                # Map 'buy'/'sell' to 'long'/'short' for entry matching
+                # For SPOT trading: Only "buy" creates positions (all positions are "long")
+                # "sell" action without exit intent is ignored (spot can't short)
                 raw_action = signal.tv.action.lower()
                 if raw_action == "buy":
                     signal_side = "long"
                 elif raw_action == "sell":
-                    signal_side = "short"
+                    # In spot trading, a "sell" signal without exit intent is invalid
+                    # We can't open short positions in spot markets
+                    logger.warning(f"Ignoring sell signal for {signal.tv.symbol} - spot trading does not support short positions. Use execution_intent.type='exit' to close a long position.")
+                    return "Signal ignored: Spot trading does not support short positions. Use exit intent to close positions."
                 else:
-                    signal_side = raw_action # Fallback
+                    signal_side = raw_action # Fallback (assume 'long' if not recognized)
 
                 # Use SQL-based lookup with row locking to prevent race conditions
                 existing_group = await pg_repo.get_active_position_group_for_signal(

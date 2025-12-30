@@ -1033,10 +1033,13 @@ def test_select_loser_and_winners_no_eligible_losers(mock_config):
 
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_short_position(mock_user):
-    """Test calculate_partial_close_quantities for short positions."""
+async def test_calculate_partial_close_quantities_long_position(mock_user):
+    """Test calculate_partial_close_quantities for long positions.
+
+    For SPOT trading: All positions are "long" (buy to enter, sell to exit).
+    """
     exchange_connector = AsyncMock()
-    exchange_connector.get_current_price.return_value = Decimal("80.0")  # Price went down
+    exchange_connector.get_current_price.return_value = Decimal("100.0")  # Price went up
     exchange_connector.get_precision_rules.return_value = {
         "ETH/USD": {"step_size": Decimal("0.01"), "min_notional": Decimal("5.0")}
     }
@@ -1045,8 +1048,8 @@ async def test_calculate_partial_close_quantities_short_position(mock_user):
     winner = MagicMock()
     winner.symbol = "ETH/USD"
     winner.unrealized_pnl_usd = Decimal("50.0")
-    winner.weighted_avg_entry = Decimal("90.0")  # Shorted at 90
-    winner.side = "short"  # Short position
+    winner.weighted_avg_entry = Decimal("90.0")  # Bought at 90
+    winner.side = "long"  # Long position (spot trading)
     winner.total_filled_quantity = Decimal("10.0")
     winner.exchange = "binance"
 
@@ -1060,7 +1063,7 @@ async def test_calculate_partial_close_quantities_short_position(mock_user):
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
 
     assert len(plan) == 1
-    # Profit per unit for short = entry - current = 90 - 80 = 10
+    # Profit per unit for long = current - entry = 100 - 90 = 10
     # Qty = 20 / 10 = 2.0
     assert plan[0][1] == Decimal("2.00")
 

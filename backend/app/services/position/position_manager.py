@@ -256,11 +256,9 @@ class PositionManagerService:
             qty = o.filled_quantity
             price = o.avg_fill_price or o.price
 
-            is_entry = False
-            if group_side == "long" and order_side == "buy":
-                is_entry = True
-            elif group_side == "short" and order_side == "sell":
-                is_entry = True
+            # For SPOT trading: All positions are "long"
+            # "buy" orders are entries, "sell" orders are exits
+            is_entry = (order_side == "buy")
 
             if is_entry:
                 new_invested = current_invested_usd + (qty * price)
@@ -272,11 +270,9 @@ class PositionManagerService:
                 current_qty = new_qty
                 current_invested_usd = new_invested
             else:
-                if group_side == "long":
-                    trade_pnl = (price - current_avg_price) * qty
-                else:
-                    trade_pnl = (current_avg_price - price) * qty
-
+                # For SPOT trading: All positions are "long"
+                # PnL = (sell_price - avg_entry_price) * quantity
+                trade_pnl = (price - current_avg_price) * qty
                 total_realized_pnl += trade_pnl
                 current_qty -= qty
                 current_invested_usd = current_qty * current_avg_price
@@ -305,10 +301,9 @@ class PositionManagerService:
             current_price = Decimal(str(current_price))
 
             if current_qty > 0 and current_avg_price > 0:
-                if position_group.side.lower() == "long":
-                    position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty
-                else:
-                    position_group.unrealized_pnl_usd = (current_avg_price - current_price) * current_qty
+                # For SPOT trading: All positions are "long"
+                # Unrealized PnL = (current_price - avg_entry) * quantity
+                position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty
 
                 if position_group.total_invested_usd > 0:
                     position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100")
@@ -370,15 +365,11 @@ class PositionManagerService:
                 should_execute_tp = False
 
                 if position_group.tp_mode in ["aggregate", "hybrid"] and position_group.tp_aggregate_percent > 0:
-                    aggregate_tp_price = Decimal("0")
-                    if position_group.side.lower() == "long":
-                        aggregate_tp_price = current_avg_price * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
-                        if current_price >= aggregate_tp_price:
-                            should_execute_tp = True
-                    else:
-                        aggregate_tp_price = current_avg_price * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
-                        if current_price <= aggregate_tp_price:
-                            should_execute_tp = True
+                    # For SPOT trading: All positions are "long"
+                    # TP triggers when price rises above entry + TP%
+                    aggregate_tp_price = current_avg_price * (Decimal("1") + position_group.tp_aggregate_percent / Decimal("100"))
+                    if current_price >= aggregate_tp_price:
+                        should_execute_tp = True
 
                     if should_execute_tp:
                         logger.info(f"Aggregate TP Triggered for Group {group_id} at {current_price} (Target: {aggregate_tp_price})")
@@ -406,7 +397,8 @@ class PositionManagerService:
 
                         await order_service.cancel_open_orders_for_group(group_id)
 
-                        close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                        # For SPOT trading: All positions are "long", so we SELL to close
+                        close_side = "SELL"
                         await order_service.place_market_order(
                             user_id=user.id,
                             exchange=position_group.exchange,
@@ -508,12 +500,10 @@ class PositionManagerService:
             else:
                 tp_percent = position_group.tp_aggregate_percent
 
-            if position_group.side.lower() == "long":
-                pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
-                tp_triggered = current_price >= pyramid_tp_price
-            else:
-                pyramid_tp_price = pyramid_avg_entry * (Decimal("1") - tp_percent / Decimal("100"))
-                tp_triggered = current_price <= pyramid_tp_price
+            # For SPOT trading: All positions are "long"
+            # TP triggers when price rises above entry + TP%
+            pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
+            tp_triggered = current_price >= pyramid_tp_price
 
             if tp_triggered:
                 logger.info(
@@ -521,11 +511,9 @@ class PositionManagerService:
                     f"at {current_price} (Target: {pyramid_tp_price}, Avg Entry: {pyramid_avg_entry})"
                 )
 
-                # Calculate PnL for notification
-                if position_group.side.lower() == "long":
-                    pnl_usd = (current_price - pyramid_avg_entry) * total_qty
-                else:
-                    pnl_usd = (pyramid_avg_entry - current_price) * total_qty
+                # For SPOT trading: All positions are "long"
+                # PnL = (current_price - avg_entry) * quantity
+                pnl_usd = (current_price - pyramid_avg_entry) * total_qty
 
                 remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id])
 
@@ -559,8 +547,8 @@ class PositionManagerService:
                         except Exception as e:
                             logger.warning(f"Failed to cancel TP order {order.tp_order_id}: {e}")
 
-                # Execute Market Close for pyramid quantity
-                close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                # For SPOT trading: All positions are "long", so we SELL to close
+                close_side = "SELL"
                 await order_service.place_market_order(
                     user_id=user.id,
                     exchange=position_group.exchange,
