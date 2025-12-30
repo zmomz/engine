@@ -1,7 +1,27 @@
-
 import axios from 'axios';
 import useAuthStore, { User } from '../authStore';
 import { act } from '@testing-library/react';
+
+// Suppress console.error for expected error handling logs during tests
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    const message = args[0];
+    if (message?.includes?.('Registration failed') ||
+        message?.includes?.('Login failed') ||
+        (typeof message === 'string' && (
+          message.includes('Registration failed') ||
+          message.includes('Login failed')
+        ))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
 
 // Mock axios
 jest.mock('axios');

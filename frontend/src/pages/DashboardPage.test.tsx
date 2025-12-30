@@ -5,6 +5,22 @@ import DashboardPage from './DashboardPage';
 import useDashboardStore, { startDashboardPolling, stopDashboardPolling } from '../store/dashboardStore';
 import useRiskStore from '../store/riskStore';
 
+// Suppress console.error for act() warnings - these are known testing issues
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    if (args[0]?.includes?.('inside a test was not wrapped in act') ||
+        (typeof args[0] === 'string' && args[0].includes('inside a test was not wrapped in act'))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
+
 // Mock the stores
 jest.mock('../store/dashboardStore');
 jest.mock('../store/riskStore');

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ThemeProvider } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import AnalyticsPage from './AnalyticsPage';
@@ -7,22 +7,39 @@ import usePositionsStore from '../store/positionsStore';
 import useDashboardStore from '../store/dashboardStore';
 import { darkTheme } from '../theme/theme';
 
+// Suppress console.error for jsdom navigation errors (expected when clicking download links)
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    if (args[0]?.includes?.('Not implemented: navigation') ||
+        (typeof args[0] === 'string' && args[0].includes('Not implemented: navigation'))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
+
 // Mock stores
 jest.mock('../store/positionsStore');
 jest.mock('../store/dashboardStore');
 
 // Mock recharts to avoid SVG rendering issues in tests
+// Return null for components that don't need children to avoid linearGradient warnings
 jest.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: any) => <div data-testid="responsive-container">{children}</div>,
-  AreaChart: ({ children }: any) => <div data-testid="area-chart">{children}</div>,
-  Area: () => <div data-testid="area" />,
-  BarChart: ({ children }: any) => <div data-testid="bar-chart">{children}</div>,
-  Bar: ({ children }: any) => <div data-testid="bar">{children}</div>,
-  Cell: () => <div data-testid="cell" />,
-  XAxis: () => <div data-testid="x-axis" />,
-  YAxis: () => <div data-testid="y-axis" />,
-  CartesianGrid: () => <div data-testid="cartesian-grid" />,
-  Tooltip: () => <div data-testid="tooltip" />,
+  AreaChart: () => <div data-testid="area-chart" />,
+  Area: () => null,
+  BarChart: () => <div data-testid="bar-chart" />,
+  Bar: () => null,
+  Cell: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+  CartesianGrid: () => null,
+  Tooltip: () => null,
 }));
 
 // Mock useKeyboardShortcuts
@@ -35,12 +52,17 @@ jest.mock('../components/DataFreshnessIndicator', () => ({
   DataFreshnessIndicator: () => <div data-testid="data-freshness" />,
 }));
 
-const renderWithProviders = (component: React.ReactElement) => {
-  return render(
-    <ThemeProvider theme={darkTheme}>
-      <MemoryRouter>{component}</MemoryRouter>
-    </ThemeProvider>
-  );
+// Helper to render and wait for async updates to complete
+const renderWithProviders = async (component: React.ReactElement) => {
+  let result;
+  await act(async () => {
+    result = render(
+      <ThemeProvider theme={darkTheme}>
+        <MemoryRouter>{component}</MemoryRouter>
+      </ThemeProvider>
+    );
+  });
+  return result!;
 };
 
 describe('AnalyticsPage', () => {
@@ -128,27 +150,27 @@ describe('AnalyticsPage', () => {
     });
   });
 
-  test('renders analytics page heading', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('renders analytics page heading', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('displays trade count chip', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays trade count chip', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     // The chip shows "X trades" format
     expect(screen.getByText(/\d+ trades$/)).toBeInTheDocument();
   });
 
-  test('renders time range toggle buttons', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('renders time range toggle buttons', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByRole('button', { name: '24h' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '7d' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '30d' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
   });
 
-  test('changes time range when toggle button clicked', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('changes time range when toggle button clicked', async () => {
+    await renderWithProviders(<AnalyticsPage />);
 
     fireEvent.click(screen.getByRole('button', { name: '24h' }));
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
@@ -158,47 +180,47 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
   });
 
-  test('displays PnL period summary when data available', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays PnL period summary when data available', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Today')).toBeInTheDocument();
     expect(screen.getByText('This Week')).toBeInTheDocument();
     expect(screen.getByText('This Month')).toBeInTheDocument();
     expect(screen.getByText('All Time')).toBeInTheDocument();
   });
 
-  test('displays key metrics cards', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays key metrics cards', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Total PnL')).toBeInTheDocument();
     expect(screen.getByText('Win Rate')).toBeInTheDocument();
     expect(screen.getByText('Profit Factor')).toBeInTheDocument();
     expect(screen.getByText('Avg Hold Time')).toBeInTheDocument();
   });
 
-  test('displays performance summary section', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays performance summary section', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Performance Summary')).toBeInTheDocument();
     expect(screen.getByText('Win/Loss Ratio')).toBeInTheDocument();
   });
 
-  test('displays pair performance table', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays pair performance table', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Performance by Pair')).toBeInTheDocument();
     // Find in table context
     const table = screen.getByRole('table');
     expect(table).toBeInTheDocument();
   });
 
-  test('displays equity curve section', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays equity curve section', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Equity Curve')).toBeInTheDocument();
   });
 
-  test('displays PnL by day of week section', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays PnL by day of week section', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('PnL by Day of Week')).toBeInTheDocument();
   });
 
-  test('renders loading skeleton when loading and no data', () => {
+  test('renders loading skeleton when loading and no data', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [],
       fetchPositionHistory: mockFetchPositionHistory,
@@ -211,19 +233,19 @@ describe('AnalyticsPage', () => {
       loading: true,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     // Should not show Analytics heading when loading
     expect(screen.queryByText('Analytics')).not.toBeInTheDocument();
   });
 
-  test('shows export button', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('shows export button', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     const exportButton = screen.getByRole('button', { name: /Export/i });
     expect(exportButton).toBeInTheDocument();
   });
 
   test('opens export menu on click', async () => {
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
 
     const exportButton = screen.getByRole('button', { name: /Export/i });
     fireEvent.click(exportButton);
@@ -235,11 +257,16 @@ describe('AnalyticsPage', () => {
   });
 
   test('handles export trades CSV click', async () => {
-    // Mock URL.createObjectURL
-    const originalCreateObjectURL = global.URL.createObjectURL;
-    global.URL.createObjectURL = jest.fn(() => 'blob:test');
+    // Use fake timers to handle navigation timeout cleanup
+    jest.useFakeTimers();
 
-    renderWithProviders(<AnalyticsPage />);
+    // Mock URL.createObjectURL and revokeObjectURL
+    const originalCreateObjectURL = global.URL.createObjectURL;
+    const originalRevokeObjectURL = global.URL.revokeObjectURL;
+    global.URL.createObjectURL = jest.fn(() => 'blob:test');
+    global.URL.revokeObjectURL = jest.fn();
+
+    await renderWithProviders(<AnalyticsPage />);
 
     const exportButton = screen.getByRole('button', { name: /Export/i });
     fireEvent.click(exportButton);
@@ -249,16 +276,28 @@ describe('AnalyticsPage', () => {
       fireEvent.click(exportTradesOption);
     });
 
+    // Run pending timers wrapped in act to handle react-transition-group state updates
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
     // Restore
     global.URL.createObjectURL = originalCreateObjectURL;
+    global.URL.revokeObjectURL = originalRevokeObjectURL;
+    jest.useRealTimers();
   });
 
   test('handles export summary CSV click', async () => {
-    // Mock URL.createObjectURL
-    const originalCreateObjectURL = global.URL.createObjectURL;
-    global.URL.createObjectURL = jest.fn(() => 'blob:test');
+    // Use fake timers to handle navigation timeout cleanup
+    jest.useFakeTimers();
 
-    renderWithProviders(<AnalyticsPage />);
+    // Mock URL.createObjectURL and revokeObjectURL
+    const originalCreateObjectURL = global.URL.createObjectURL;
+    const originalRevokeObjectURL = global.URL.revokeObjectURL;
+    global.URL.createObjectURL = jest.fn(() => 'blob:test');
+    global.URL.revokeObjectURL = jest.fn();
+
+    await renderWithProviders(<AnalyticsPage />);
 
     const exportButton = screen.getByRole('button', { name: /Export/i });
     fireEvent.click(exportButton);
@@ -268,12 +307,19 @@ describe('AnalyticsPage', () => {
       fireEvent.click(exportSummaryOption);
     });
 
+    // Run pending timers wrapped in act to handle react-transition-group state updates
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
     // Restore
     global.URL.createObjectURL = originalCreateObjectURL;
+    global.URL.revokeObjectURL = originalRevokeObjectURL;
+    jest.useRealTimers();
   });
 
-  test('handles refresh button click', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('handles refresh button click', async () => {
+    await renderWithProviders(<AnalyticsPage />);
 
     // Find the refresh icon button
     const refreshButtons = screen.getAllByRole('button');
@@ -290,32 +336,32 @@ describe('AnalyticsPage', () => {
     expect(mockFetchDashboardData).toHaveBeenCalled();
   });
 
-  test('calls fetch functions on mount', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('calls fetch functions on mount', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(mockFetchPositionHistory).toHaveBeenCalled();
     expect(mockFetchDashboardData).toHaveBeenCalled();
   });
 
-  test('displays risk metrics when available', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays risk metrics when available', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Risk Metrics')).toBeInTheDocument();
     expect(screen.getByText('Max DD')).toBeInTheDocument();
     expect(screen.getByText('Sharpe')).toBeInTheDocument();
     expect(screen.getByText('Sortino')).toBeInTheDocument();
   });
 
-  test('handles empty position history', () => {
+  test('handles empty position history', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [],
       fetchPositionHistory: mockFetchPositionHistory,
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('No closed trades in selected period')).toBeInTheDocument();
   });
 
-  test('handles position with null realized_pnl_usd', () => {
+  test('handles position with null realized_pnl_usd', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [
         {
@@ -334,11 +380,11 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('handles position with string realized_pnl_usd', () => {
+  test('handles position with string realized_pnl_usd', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [
         {
@@ -357,22 +403,22 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('handles missing dashboard data', () => {
+  test('handles missing dashboard data', async () => {
     (useDashboardStore as unknown as jest.Mock).mockReturnValue({
       data: null,
       fetchDashboardData: mockFetchDashboardData,
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('handles all losing trades (profit factor edge case)', () => {
+  test('handles all losing trades (profit factor edge case)', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [
         {
@@ -391,11 +437,11 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('handles all winning trades (profit factor infinity)', () => {
+  test('handles all winning trades (profit factor infinity)', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [
         {
@@ -414,26 +460,26 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('∞')).toBeInTheDocument();
   });
 
-  test('displays avg win and avg loss stats', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays avg win and avg loss stats', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Avg Win')).toBeInTheDocument();
     expect(screen.getByText('Avg Loss')).toBeInTheDocument();
     expect(screen.getByText('Best Trade')).toBeInTheDocument();
     expect(screen.getByText('Worst Trade')).toBeInTheDocument();
   });
 
-  test('displays win/loss chips', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays win/loss chips', async () => {
+    await renderWithProviders(<AnalyticsPage />);
     // Look for W and L chips (e.g., "2W", "1L")
     expect(screen.getByText(/\dW$/)).toBeInTheDocument();
     expect(screen.getByText(/\dL$/)).toBeInTheDocument();
   });
 
-  test('handles position without closed_at date', () => {
+  test('handles position without closed_at date', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [
         {
@@ -452,11 +498,11 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('handles recent positions in 24h time range', () => {
+  test('handles recent positions in 24h time range', async () => {
     const recentDate = new Date();
     recentDate.setHours(recentDate.getHours() - 2);
 
@@ -478,27 +524,27 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     fireEvent.click(screen.getByRole('button', { name: '24h' }));
 
     // Position should still be visible after switching to 24h
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('export button disabled when no positions', () => {
+  test('export button disabled when no positions', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [],
       fetchPositionHistory: mockFetchPositionHistory,
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     const exportButton = screen.getByRole('button', { name: /Export/i });
     expect(exportButton).toBeDisabled();
   });
 
-  test('displays symbols in pair performance table', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('displays symbols in pair performance table', async () => {
+    await renderWithProviders(<AnalyticsPage />);
 
     // Look for the table headers
     expect(screen.getByText('Symbol')).toBeInTheDocument();
@@ -507,32 +553,32 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('PnL')).toBeInTheDocument();
   });
 
-  test('hides PnL summary when no dashboard data', () => {
+  test('hides PnL summary when no dashboard data', async () => {
     (useDashboardStore as unknown as jest.Mock).mockReturnValue({
       data: null,
       fetchDashboardData: mockFetchDashboardData,
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
 
     // Today/This Week etc. should not be visible
     expect(screen.queryByText('Today')).not.toBeInTheDocument();
     expect(screen.queryByText('Risk Metrics')).not.toBeInTheDocument();
   });
 
-  test('displays no data message for day of week when no data', () => {
+  test('displays no data message for day of week when no data', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [],
       fetchPositionHistory: mockFetchPositionHistory,
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('No data available')).toBeInTheDocument();
   });
 
-  test('handles position with undefined realized_pnl_usd', () => {
+  test('handles position with undefined realized_pnl_usd', async () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
       positionHistory: [
         {
@@ -551,20 +597,20 @@ describe('AnalyticsPage', () => {
       loading: false,
     });
 
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
     expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  test('handles 7d time range selection', () => {
-    renderWithProviders(<AnalyticsPage />);
+  test('handles 7d time range selection', async () => {
+    await renderWithProviders(<AnalyticsPage />);
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
     expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('shows correct profit factor label based on value', () => {
+  test('shows correct profit factor label based on value', async () => {
     // With default mock data, profit factor should be > 1
-    renderWithProviders(<AnalyticsPage />);
+    await renderWithProviders(<AnalyticsPage />);
 
     // The label should show based on profit factor value
     // With wins=350 and losses=50, profit factor = 7, so label should be "Good"

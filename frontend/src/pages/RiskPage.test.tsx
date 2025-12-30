@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material';
 import RiskPage from './RiskPage';
@@ -23,6 +23,22 @@ jest.mock('@mui/material', () => ({
   useMediaQuery: () => mockUseMediaQuery(),
 }));
 
+// Suppress console.error for TouchRipple act() warnings - these are known MUI testing issues
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    if (args[0]?.includes?.('TouchRipple') ||
+        (typeof args[0] === 'string' && args[0].includes('inside a test was not wrapped in act'))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
+
 // Create a theme with custom bullish/bearish colors
 const theme = createTheme({
   palette: {
@@ -38,14 +54,19 @@ const theme = createTheme({
 (theme.palette as any).bullish = { main: '#4caf50', light: '#81c784', dark: '#388e3c', contrastText: '#fff' };
 (theme.palette as any).bearish = { main: '#f44336', light: '#e57373', dark: '#d32f2f', contrastText: '#fff' };
 
-const renderWithProviders = (component: React.ReactElement) => {
-  return render(
-    <ThemeProvider theme={theme}>
-      <MemoryRouter>
-        {component}
-      </MemoryRouter>
-    </ThemeProvider>
-  );
+// Helper to render with providers wrapped in act() to handle async state updates
+const renderWithProviders = async (component: React.ReactElement) => {
+  let result;
+  await act(async () => {
+    result = render(
+      <ThemeProvider theme={theme}>
+        <MemoryRouter>
+          {component}
+        </MemoryRouter>
+      </ThemeProvider>
+    );
+  });
+  return result!;
 };
 
 const mockRiskStatus = {
@@ -81,7 +102,7 @@ const mockRiskStatus = {
   daily_realized_pnl: -100,
   at_risk_positions: [{ id: 'pos1' }],
   recent_actions: [
-    { loser_pnl_usd: -50, winners_count: 2 }
+    { id: 'action1', loser_pnl_usd: -50, winners_count: 2 }
   ],
   config: {
     max_open_positions_global: 5,
@@ -132,7 +153,7 @@ describe('RiskPage', () => {
   });
 
   test('renders risk status dashboard', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^Risk$/i, level: 4 })).toBeInTheDocument();
@@ -143,7 +164,7 @@ describe('RiskPage', () => {
   });
 
   test('triggers manual evaluation', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Run Evaluation/i })).toBeInTheDocument();
@@ -159,7 +180,7 @@ describe('RiskPage', () => {
   });
 
   test('triggers block position', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^Block$/i })).toBeInTheDocument();
@@ -175,7 +196,7 @@ describe('RiskPage', () => {
   });
 
   test('triggers skip next evaluation', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Skip Next/i })).toBeInTheDocument();
@@ -204,7 +225,7 @@ describe('RiskPage', () => {
       forceStop: mockForceStop,
     });
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     // Should show skeleton, not the main content
     expect(screen.queryByRole('heading', { name: /^Risk$/i })).not.toBeInTheDocument();
@@ -224,7 +245,7 @@ describe('RiskPage', () => {
       forceStop: mockForceStop,
     });
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByText('Failed to fetch risk status')).toBeInTheDocument();
@@ -247,7 +268,7 @@ describe('RiskPage', () => {
       forceStop: mockForceStop,
     });
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       // There are multiple "Stopped" chips in the UI
@@ -259,7 +280,7 @@ describe('RiskPage', () => {
   });
 
   test('shows stop button when engine is running', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Stop/i })).toBeInTheDocument();
@@ -287,7 +308,7 @@ describe('RiskPage', () => {
       forceStop: mockForceStop,
     });
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByText(/Engine paused: Loss limit reached/i)).toBeInTheDocument();
@@ -295,7 +316,7 @@ describe('RiskPage', () => {
   });
 
   test('shows loser identified chip and details', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByText('Loser Identified')).toBeInTheDocument();
@@ -306,7 +327,7 @@ describe('RiskPage', () => {
   test('does not run evaluation when confirm is cancelled', async () => {
     mockRequestConfirm.mockResolvedValue(false);
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Run Evaluation/i })).toBeInTheDocument();
@@ -326,7 +347,7 @@ describe('RiskPage', () => {
   test('does not block when confirm is cancelled', async () => {
     mockRequestConfirm.mockResolvedValue(false);
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^Block$/i })).toBeInTheDocument();
@@ -345,7 +366,7 @@ describe('RiskPage', () => {
   test('shows metrics cards with correct values', async () => {
     jest.useRealTimers(); // Use real timers for this test
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -369,7 +390,7 @@ describe('RiskPage', () => {
       forceStop: mockForceStop,
     });
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByText(/No position currently/i)).toBeInTheDocument();
@@ -377,7 +398,7 @@ describe('RiskPage', () => {
   });
 
   test('refresh button triggers fetchStatus', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -416,7 +437,7 @@ describe('RiskPage', () => {
       forceStop: mockForceStop,
     });
 
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByText('5m')).toBeInTheDocument();
@@ -424,7 +445,7 @@ describe('RiskPage', () => {
   });
 
   test('shows eligibility chips for loser', async () => {
-    renderWithProviders(<RiskPage />);
+    await renderWithProviders(<RiskPage />);
 
     await waitFor(() => {
       expect(screen.getByText('Pyramids')).toBeInTheDocument();
@@ -438,7 +459,7 @@ describe('RiskPage', () => {
     });
 
     test('renders mobile cards instead of data grid', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -451,7 +472,7 @@ describe('RiskPage', () => {
 
   describe('tables', () => {
     test('shows table with position data', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -462,7 +483,7 @@ describe('RiskPage', () => {
     });
 
     test('shows at risk positions section', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -475,7 +496,7 @@ describe('RiskPage', () => {
 
   describe('winners section', () => {
     test('shows winner details when present', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('ETHUSDT')).toBeInTheDocument();
@@ -496,7 +517,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -530,7 +551,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Unblock/i })).toBeInTheDocument();
@@ -559,7 +580,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Unblock/i })).toBeInTheDocument();
@@ -592,7 +613,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Start/i })).toBeInTheDocument();
@@ -609,7 +630,7 @@ describe('RiskPage', () => {
 
   describe('recent actions', () => {
     test('shows recent offset actions', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -622,7 +643,7 @@ describe('RiskPage', () => {
 
   describe('projected plan', () => {
     test('shows projected plan when available', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('ETHUSDT')).toBeInTheDocument();
@@ -656,7 +677,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('BTCUSDT')).toBeInTheDocument();
@@ -687,7 +708,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('BTCUSDT')).toBeInTheDocument();
@@ -724,7 +745,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('Recent Offsets')).toBeInTheDocument();
@@ -759,7 +780,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('Recent Offsets')).toBeInTheDocument();
@@ -801,7 +822,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('No recent offsets recorded')).toBeInTheDocument();
@@ -811,7 +832,7 @@ describe('RiskPage', () => {
 
   describe('execute offset', () => {
     test('shows execute offset button when conditions are met', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -823,7 +844,7 @@ describe('RiskPage', () => {
     });
 
     test('clicking execute offset opens preview dialog', async () => {
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /^Risk$/i })).toBeInTheDocument();
@@ -846,7 +867,7 @@ describe('RiskPage', () => {
     test('does not skip when confirm is cancelled', async () => {
       mockRequestConfirm.mockResolvedValue(false);
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Skip Next/i })).toBeInTheDocument();
@@ -886,7 +907,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Unblock/i })).toBeInTheDocument();
@@ -932,7 +953,7 @@ describe('RiskPage', () => {
         forceStop: mockForceStop,
       });
 
-      renderWithProviders(<RiskPage />);
+      await renderWithProviders(<RiskPage />);
 
       await waitFor(() => {
         expect(screen.getByText('Recent Offsets')).toBeInTheDocument();

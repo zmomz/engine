@@ -12,6 +12,23 @@ jest.mock('@mui/material', () => ({
 
 import { useMediaQuery } from '@mui/material';
 
+// Suppress console.warn for MUI DataGrid licensing and deprecation warnings
+const originalWarn = console.warn;
+beforeAll(() => {
+  console.warn = (...args: any[]) => {
+    if (args[0]?.includes?.('MUI X') ||
+        args[0]?.includes?.('MUI:') ||
+        (typeof args[0] === 'string' && (args[0].includes('license') || args[0].includes('deprecated')))) {
+      return;
+    }
+    originalWarn.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.warn = originalWarn;
+});
+
 const mockedUseMediaQuery = useMediaQuery as jest.Mock;
 
 const theme = createTheme({

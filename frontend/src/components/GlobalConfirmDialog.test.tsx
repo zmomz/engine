@@ -4,6 +4,22 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import GlobalConfirmDialog from './GlobalConfirmDialog';
 import useConfirmStore from '../store/confirmStore';
 
+// Suppress console.error for TouchRipple act() warnings - these are known MUI testing issues
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    if (args[0]?.includes?.('TouchRipple') ||
+        (typeof args[0] === 'string' && args[0].includes('inside a test was not wrapped in act'))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
+
 const theme = createTheme({
   palette: {
     mode: 'dark',

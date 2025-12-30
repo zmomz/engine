@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import SettingsPage from './SettingsPage';
@@ -9,6 +9,27 @@ import { darkTheme } from '../theme/theme';
 
 jest.mock('../store/configStore');
 jest.mock('../store/confirmStore');
+
+// Suppress console.error for TouchRipple act() warnings and expected form validation logs during tests
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    const message = args[0];
+    if (message?.includes?.('TouchRipple') ||
+        message?.includes?.('Form validation errors') ||
+        (typeof message === 'string' && (
+          message.includes('inside a test was not wrapped in act') ||
+          message.includes('Form validation errors')
+        ))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
 
 // Mock child components to simplify testing
 jest.mock('../components/QueuePrioritySettings', () => {

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import useAuthStore from './store/authStore';
 import useConfigStore from './store/configStore';
 import { MemoryRouter } from 'react-router-dom';
@@ -6,6 +6,29 @@ import App from './App';
 
 jest.mock('./store/authStore');
 jest.mock('./store/configStore');
+
+// Suppress console.error for act() warnings and expected store error messages during tests
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    const message = args[0];
+    if (message?.includes?.('inside a test was not wrapped in act') ||
+        message?.includes?.('Failed to fetch dashboard data') ||
+        message?.includes?.('Failed to fetch positions') ||
+        message?.includes?.('Failed to fetch risk status') ||
+        (typeof message === 'string' && (
+          message.includes('inside a test was not wrapped in act') ||
+          message.includes('Failed to fetch')
+        ))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
 
 describe('App Routing', () => {
   const mockLogin = jest.fn();

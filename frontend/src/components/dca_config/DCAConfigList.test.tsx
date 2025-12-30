@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ThemeProvider } from '@mui/material/styles';
 import DCAConfigList from './DCAConfigList';
 import { darkTheme } from '../../theme/theme';
@@ -25,6 +25,29 @@ jest.mock('@mui/material', () => {
 });
 
 import { useMediaQuery } from '@mui/material';
+
+// Suppress console.error for act() warnings and expected error handling logs during tests
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    const message = args[0];
+    if (message?.includes?.('inside a test was not wrapped in act') ||
+        message?.includes?.('Network error') ||
+        message?.includes?.('Delete failed') ||
+        (typeof message === 'string' && (
+          message.includes('inside a test was not wrapped in act') ||
+          message.includes('Network error') ||
+          message.includes('Delete failed')
+        ))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
 
 const renderWithTheme = (component: React.ReactElement) => {
   return render(

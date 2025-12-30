@@ -4,6 +4,29 @@ import { ThemeProvider } from '@mui/material/styles';
 import BackupRestoreCard from './BackupRestoreCard';
 import { darkTheme } from '../../theme/theme';
 
+// Suppress console.error for act() warnings and expected error handling logs during tests
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args: any[]) => {
+    const message = args[0];
+    if (message?.includes?.('inside a test was not wrapped in act') ||
+        message?.includes?.('Backup failed') ||
+        message?.includes?.('Restore failed') ||
+        (typeof message === 'string' && (
+          message.includes('inside a test was not wrapped in act') ||
+          message.includes('Backup failed') ||
+          message.includes('Restore failed')
+        ))) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
+
 // Mock notification store
 const mockShowNotification = jest.fn();
 jest.mock('../../store/notificationStore', () => {
