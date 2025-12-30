@@ -61,6 +61,7 @@ class BaseClient:
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=self.timeout,
+                trust_env=False,  # Bypass proxy settings
             )
         return self._client
 

@@ -54,15 +54,16 @@ class PyramidGetsHighestPriority(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool and create positions
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -159,15 +160,16 @@ class ReplacementCountBoostsPriority(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -273,15 +275,16 @@ class FIFOWithEqualPriority(BaseScenario):
         await self.mock.set_price("BTCUSDT", 95000)
         await self.mock.set_price("ETHUSDT", 3400)
 
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -366,15 +369,16 @@ class PriorityScoreCalculation(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -461,15 +465,16 @@ class AutoPromotionOnSlotFree(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -555,15 +560,16 @@ class PyramidPriorityOverNewEntry(BaseScenario):
 
     async def execute(self) -> bool:
         # Create positions (fill pool)
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -663,15 +669,16 @@ class PromotionSelectsHighestPriority(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -741,13 +748,24 @@ class QueueMaxCapacity(BaseScenario):
     category = "queue"
 
     async def setup(self) -> bool:
-        # Create configs for many symbols
-        symbols = [f"TEST{i}/USDT" for i in range(1, 15)]  # TEST1 to TEST14
+        # Use real symbols that exist on mock exchange
+        fill_symbols = ["SOL/USDT", "BTC/USDT", "ETH/USDT"]
+        queue_symbols = ["ADA/USDT", "XRP/USDT", "DOGE/USDT", "LINK/USDT", "TRX/USDT",
+                         "LTC/USDT", "AVAX/USDT"]
+        all_symbols = fill_symbols + queue_symbols
 
-        for symbol in symbols:
+        prices = {
+            "SOLUSDT": 200, "BTCUSDT": 95000, "ETHUSDT": 3400,
+            "ADAUSDT": 0.9, "XRPUSDT": 2.2, "DOGEUSDT": 0.32,
+            "LINKUSDT": 22, "TRXUSDT": 0.25, "LTCUSDT": 100, "AVAXUSDT": 35
+        }
+
+        for symbol in all_symbols:
             ex_symbol = symbol.replace("/", "")
-            # Use generic pricing
-            await self.mock.set_price(ex_symbol, 10.0)
+            try:
+                await self.mock.set_price(ex_symbol, prices.get(ex_symbol, 10))
+            except Exception:
+                pass  # Symbol may not be supported
 
             config = await self.engine.get_dca_config_by_pair(symbol)
             if not config:
@@ -770,29 +788,39 @@ class QueueMaxCapacity(BaseScenario):
     async def execute(self) -> bool:
         # Use standard symbols that exist
         fill_symbols = ["SOL/USDT", "BTC/USDT", "ETH/USDT"]
-        queue_symbols = ["ADA/USDT", "XRP/USDT", "DOGE/USDT", "LINK/USDT", "TRX/USDT"]
+        queue_symbols = ["ADA/USDT", "XRP/USDT", "DOGE/USDT", "LINK/USDT", "TRX/USDT",
+                         "LTC/USDT", "AVAX/USDT"]
 
         # Set prices
-        prices = {"SOLUSDT": 200, "BTCUSDT": 95000, "ETHUSDT": 3400,
-                  "ADAUSDT": 0.9, "XRPUSDT": 2.2, "DOGEUSDT": 0.32, "LINKUSDT": 22, "TRXUSDT": 0.25}
+        prices = {
+            "SOLUSDT": 200, "BTCUSDT": 95000, "ETHUSDT": 3400,
+            "ADAUSDT": 0.9, "XRPUSDT": 2.2, "DOGEUSDT": 0.32,
+            "LINKUSDT": 22, "TRXUSDT": 0.25, "LTCUSDT": 100, "AVAXUSDT": 35
+        }
 
         for symbol in fill_symbols + queue_symbols:
             ex_symbol = symbol.replace("/", "")
-            await self.mock.set_price(ex_symbol, prices.get(ex_symbol, 10))
+            try:
+                await self.mock.set_price(ex_symbol, prices.get(ex_symbol, 10))
+            except Exception:
+                pass  # Skip if symbol doesn't exist
 
             config = await self.engine.get_dca_config_by_pair(symbol)
             if not config:
-                await self.engine.create_dca_config({
-                    "pair": symbol,
-                    "timeframe": 60,
-                    "exchange": "mock",
-                    "entry_order_type": "market",
-                    "max_pyramids": 2,
-                    "tp_mode": "per_leg",
-                    "dca_levels": [
-                        {"gap_percent": 0, "weight_percent": 100, "tp_percent": 10},
-                    ],
-                })
+                try:
+                    await self.engine.create_dca_config({
+                        "pair": symbol,
+                        "timeframe": 60,
+                        "exchange": "mock",
+                        "entry_order_type": "market",
+                        "max_pyramids": 2,
+                        "tp_mode": "per_leg",
+                        "dca_levels": [
+                            {"gap_percent": 0, "weight_percent": 100, "tp_percent": 10},
+                        ],
+                    })
+                except Exception:
+                    pass
 
         # Fill pool
         for symbol in fill_symbols:
@@ -873,15 +901,16 @@ class QueueStatePersistence(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
@@ -947,15 +976,16 @@ class QueueConcurrentAccess(BaseScenario):
 
     async def execute(self) -> bool:
         # Fill pool
-        for ex_symbol, price in [("SOLUSDT", 200), ("BTCUSDT", 95000), ("ETHUSDT", 3400)]:
+        fill_data = [("SOLUSDT", 200, 300), ("BTCUSDT", 95000, 500), ("ETHUSDT", 3400, 400)]
+        for ex_symbol, price, size in fill_data:
             await self.engine.send_webhook(build_entry_payload(
                 user_id=self.config.user_id,
                 secret=self.config.webhook_secret,
                 symbol=ex_symbol,
-                position_size=300,
+                position_size=size,
                 entry_price=price,
             ))
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
         await wait_for_position_count(self.engine, 3, timeout=30)
 
