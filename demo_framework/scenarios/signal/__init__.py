@@ -1,0 +1,86 @@
+"""Signal Processing Scenarios (S-001 to S-035)."""
+
+from .entry_scenarios import (
+    ValidEntryCreatesPosition,
+    EntryWithQuoteSize,
+    EntryWithContractsSize,
+    EntryWithMarketOrder,
+    EntryWithLimitOrder,
+    EntryBlockedPoolFull,
+    EntryBlockedNoDCAConfig,
+    EntryBlockedInvalidSignature,
+    EntryWithSymbolNormalization,
+    EntryRespectsMinNotional,
+    EntryRespectsMinQty,
+    DuplicateEntryForSameSymbol,
+)
+
+from .pyramid_scenarios import (
+    ValidPyramidAddsToPosition,
+    PyramidBlockedMaxReached,
+    PyramidRequiresPriceMove,
+    PyramidUsesCorrectDCALevel,
+    PyramidWithDifferentSide,
+    PyramidQueuedWhenPoolFull,
+    PyramidUpdatesAverageEntry,
+    PyramidNoPositionCreatesNew,
+    PyramidRespectsMinimumSize,
+    PyramidTimestampValidation,
+)
+
+from .exit_scenarios import (
+    ValidExitClosesPosition,
+    ExitWithoutPositionIgnored,
+    ExitCancelsOpenOrders,
+    ExitCancelsQueuedSignals,
+    ExitWithPartialFill,
+    ExitWithWrongSide,
+    ExitTriggersRiskRecalc,
+    ExitAtLoss,
+    ExitAtProfit,
+    ExitMarketOrderImmediate,
+    MultipleExitSignals,
+    ExitDuringPyramid,
+    ExitWithTimestamp,
+)
+
+__all__ = [
+    # Entry scenarios (S-001 to S-012)
+    "ValidEntryCreatesPosition",
+    "EntryWithQuoteSize",
+    "EntryWithContractsSize",
+    "EntryWithMarketOrder",
+    "EntryWithLimitOrder",
+    "EntryBlockedPoolFull",
+    "EntryBlockedNoDCAConfig",
+    "EntryBlockedInvalidSignature",
+    "EntryWithSymbolNormalization",
+    "EntryRespectsMinNotional",
+    "EntryRespectsMinQty",
+    "DuplicateEntryForSameSymbol",
+    # Pyramid scenarios (S-013 to S-022)
+    "ValidPyramidAddsToPosition",
+    "PyramidBlockedMaxReached",
+    "PyramidRequiresPriceMove",
+    "PyramidUsesCorrectDCALevel",
+    "PyramidWithDifferentSide",
+    "PyramidQueuedWhenPoolFull",
+    "PyramidUpdatesAverageEntry",
+    "PyramidNoPositionCreatesNew",
+    "PyramidRespectsMinimumSize",
+    "PyramidTimestampValidation",
+    # Exit scenarios (S-023 to S-035)
+    "ValidExitClosesPosition",
+    "ExitWithoutPositionIgnored",
+    "ExitCancelsOpenOrders",
+    "ExitCancelsQueuedSignals",
+    "ExitWithPartialFill",
+    "ExitWithWrongSide",
+    "ExitTriggersRiskRecalc",
+    "ExitAtLoss",
+    "ExitAtProfit",
+    "ExitMarketOrderImmediate",
+    "MultipleExitSignals",
+    "ExitDuringPyramid",
+    "ExitWithTimestamp",
+]
