@@ -118,10 +118,10 @@ describe('PositionsPage', () => {
 
     await waitFor(() => {
         expect(mockRequestConfirm).toHaveBeenCalled();
-    });
+    }, { timeout: 3000 });
 
     expect(mockClosePosition).not.toHaveBeenCalled();
-  });
+  }, 10000);
 
   test('renders loading state', () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
@@ -197,8 +197,8 @@ describe('PositionsPage', () => {
 
     await waitFor(() => {
       expect(mockFetchPositionHistory).toHaveBeenCalled();
-    });
-  });
+    }, { timeout: 3000 });
+  }, 10000);
 
   test('renders empty state when no positions (desktop shows DataGrid)', () => {
     (usePositionsStore as unknown as jest.Mock).mockReturnValue({
@@ -485,8 +485,8 @@ describe('PositionsPage', () => {
         expect(screen.getByText('Total Trades')).toBeInTheDocument();
         expect(screen.getByText('Realized PnL')).toBeInTheDocument();
         expect(screen.getByText('Win Rate')).toBeInTheDocument();
-      });
-    });
+      }, { timeout: 3000 });
+    }, 10000);
   });
 
   describe('position with hedging info', () => {

@@ -102,7 +102,8 @@ describe('RiskPage', () => {
   const mockForceStop = jest.fn();
 
   beforeEach(() => {
-    jest.useFakeTimers();
+    // Use modern fake timers
+    jest.useFakeTimers('modern' as any);
     mockUseMediaQuery.mockReturnValue(false); // Default to desktop view
     (useRiskStore as unknown as jest.Mock).mockReturnValue({
       status: mockRiskStatus,

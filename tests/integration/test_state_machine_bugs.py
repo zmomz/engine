@@ -301,16 +301,16 @@ async def test_pyramid_status_transitions():
             pytest.skip("Could not authenticate")
         cookies = r.cookies
 
-        # Create position
-        await set_mock_price("DOTUSDT", 5.00)
+        # Create position - using AVAX which has DCA config
+        await set_mock_price("AVAXUSDT", 35.00)
 
-        entry = make_entry_payload("DOT/USDT", 100, "pyramid_state_test", 5.00)
+        entry = make_entry_payload("AVAX/USDT", 100, "pyramid_state_test", 35.00)
         r = await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=entry)
 
         await asyncio.sleep(3)
 
         # Get initial pyramid states
-        pos = await get_position_details(client, cookies, "DOT")
+        pos = await get_position_details(client, cookies, "AVAX")
         if not pos:
             pytest.skip("Position not created")
 
@@ -324,11 +324,11 @@ async def test_pyramid_status_transitions():
             })
 
         # Trigger fills by dropping price
-        await set_mock_price("DOTUSDT", 4.50)
+        await set_mock_price("AVAXUSDT", 32.00)
         await asyncio.sleep(5)
 
         # Get updated states
-        pos = await get_position_details(client, cookies, "DOT")
+        pos = await get_position_details(client, cookies, "AVAX")
         if pos:
             for pyramid in pos.get("pyramids", []):
                 new_status = pyramid.get("status", "").lower()
@@ -353,7 +353,7 @@ async def test_pyramid_status_transitions():
                             f"Invalid pyramid transition: {old_status} -> {new_status}"
 
         # Cleanup
-        exit_payload = make_exit_payload("DOT/USDT")
+        exit_payload = make_exit_payload("AVAX/USDT")
         await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=exit_payload)
 
 
@@ -438,17 +438,17 @@ async def test_order_fill_monitor_state_sync():
             pytest.skip("Could not authenticate")
         cookies = r.cookies
 
-        # Create position at specific price
-        test_price = 25.0
-        await set_mock_price("UNIUSDT", test_price)
+        # Create position at specific price - using DOGE which has DCA config
+        test_price = 0.10
+        await set_mock_price("DOGEUSDT", test_price)
 
-        entry = make_entry_payload("UNI/USDT", 100, "sync_test", test_price)
+        entry = make_entry_payload("DOGE/USDT", 100, "sync_test", test_price)
         r = await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=entry)
 
         await asyncio.sleep(5)
 
         # Get DB state
-        pos = await get_position_details(client, cookies, "UNI")
+        pos = await get_position_details(client, cookies, "DOGE")
         if not pos:
             pytest.skip("Position not created")
 
@@ -459,11 +459,11 @@ async def test_order_fill_monitor_state_sync():
             r = await mock_client.get(f"{MOCK_URL}/admin/orders")
             if r.status_code == 200:
                 orders = r.json()
-                uni_orders = [o for o in orders if "UNI" in o.get("symbol", "")]
+                doge_orders = [o for o in orders if "DOGE" in o.get("symbol", "")]
 
                 exchange_filled_qty = sum(
                     float(o.get("filled", 0))
-                    for o in uni_orders
+                    for o in doge_orders
                     if o.get("status", "").upper() == "FILLED"
                 )
 
@@ -472,7 +472,7 @@ async def test_order_fill_monitor_state_sync():
                     # Could be timing - wait and check again
                     await asyncio.sleep(5)
 
-                    pos = await get_position_details(client, cookies, "UNI")
+                    pos = await get_position_details(client, cookies, "DOGE")
                     if pos:
                         db_qty = float(pos.get("total_filled_quantity", 0))
 
@@ -483,7 +483,7 @@ async def test_order_fill_monitor_state_sync():
                             )
 
         # Cleanup
-        exit_payload = make_exit_payload("UNI/USDT")
+        exit_payload = make_exit_payload("DOGE/USDT")
         await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=exit_payload)
 
 
@@ -511,10 +511,10 @@ async def test_position_close_cleans_all_orders():
             pytest.skip("Could not authenticate")
         cookies = r.cookies
 
-        # Create position
-        await set_mock_price("MATICUSDT", 1.00)
+        # Create position - using LINK which has DCA config
+        await set_mock_price("LINKUSDT", 15.00)
 
-        entry = make_entry_payload("MATIC/USDT", 100, "orphan_test", 1.00)
+        entry = make_entry_payload("LINK/USDT", 100, "orphan_test", 15.00)
         r = await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=entry)
 
         await asyncio.sleep(5)
@@ -523,13 +523,13 @@ async def test_position_close_cleans_all_orders():
         async with httpx.AsyncClient(timeout=30.0) as mock_client:
             r = await mock_client.get(f"{MOCK_URL}/admin/orders")
             orders_before = r.json() if r.status_code == 200 else []
-            matic_orders_before = [
+            link_orders_before = [
                 o for o in orders_before
-                if "MATIC" in o.get("symbol", "") and o.get("status", "").upper() == "OPEN"
+                if "LINK" in o.get("symbol", "") and o.get("status", "").upper() == "OPEN"
             ]
 
         # Close position
-        exit_payload = make_exit_payload("MATIC/USDT")
+        exit_payload = make_exit_payload("LINK/USDT")
         r = await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=exit_payload)
 
         await asyncio.sleep(5)
@@ -538,17 +538,17 @@ async def test_position_close_cleans_all_orders():
         async with httpx.AsyncClient(timeout=30.0) as mock_client:
             r = await mock_client.get(f"{MOCK_URL}/admin/orders")
             orders_after = r.json() if r.status_code == 200 else []
-            matic_orders_after = [
+            link_orders_after = [
                 o for o in orders_after
-                if "MATIC" in o.get("symbol", "") and o.get("status", "").upper() == "OPEN"
+                if "LINK" in o.get("symbol", "") and o.get("status", "").upper() == "OPEN"
             ]
 
         # Verify: No orphaned orders
-        if matic_orders_after:
-            orphaned_ids = [o.get("id") for o in matic_orders_after]
+        if link_orders_after:
+            orphaned_ids = [o.get("id") for o in link_orders_after]
             pytest.fail(
                 f"Orphaned orders after position close: {orphaned_ids}. "
-                f"Had {len(matic_orders_before)} open before, {len(matic_orders_after)} after."
+                f"Had {len(link_orders_before)} open before, {len(link_orders_after)} after."
             )
 
 
@@ -575,16 +575,16 @@ async def test_duplicate_fill_events_handling():
             pytest.skip("Could not authenticate")
         cookies = r.cookies
 
-        # Create position
-        await set_mock_price("ATOMUSDT", 10.00)
+        # Create position - using XRP which has DCA config
+        await set_mock_price("XRPUSDT", 0.50)
 
-        entry = make_entry_payload("ATOM/USDT", 100, "idempotent_test", 10.00)
+        entry = make_entry_payload("XRP/USDT", 100, "idempotent_test", 0.50)
         r = await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=entry)
 
         await asyncio.sleep(5)
 
         # Get position quantity
-        pos = await get_position_details(client, cookies, "ATOM")
+        pos = await get_position_details(client, cookies, "XRP")
         if not pos:
             pytest.skip("Position not created")
 
@@ -593,13 +593,13 @@ async def test_duplicate_fill_events_handling():
         # Wait for another fill monitor cycle (should be idempotent)
         await asyncio.sleep(5)
 
-        pos = await get_position_details(client, cookies, "ATOM")
+        pos = await get_position_details(client, cookies, "XRP")
         if pos:
             qty2 = float(pos.get("total_filled_quantity", 0))
 
             # Quantity should not have changed (no new fills)
             # Allow for price-based fills if price dropped
-            current_price_check = 10.00  # Same as entry, so no new fills expected
+            current_price_check = 0.50  # Same as entry, so no new fills expected
 
             # If quantity increased significantly without price change, that's suspicious
             if qty2 > qty1 * 1.5:  # 50% increase would be suspicious
@@ -609,5 +609,5 @@ async def test_duplicate_fill_events_handling():
                 )
 
         # Cleanup
-        exit_payload = make_exit_payload("ATOM/USDT")
+        exit_payload = make_exit_payload("XRP/USDT")
         await client.post(f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview", json=exit_payload)

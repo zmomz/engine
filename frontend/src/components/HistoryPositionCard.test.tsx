@@ -62,7 +62,7 @@ describe('HistoryPositionCard', () => {
 
     it('renders timeframe chip', () => {
       renderWithTheme(<HistoryPositionCard position={mockPosition} />);
-      expect(screen.getByText('60')).toBeInTheDocument();
+      expect(screen.getByText('60m')).toBeInTheDocument();
     });
 
     it('renders - when timeframe is null', () => {

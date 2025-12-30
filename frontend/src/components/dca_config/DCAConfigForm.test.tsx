@@ -628,10 +628,10 @@ describe('DCAConfigForm', () => {
       const p1Tab = screen.getByRole('tab', { name: /p1/i });
       fireEvent.click(p1Tab);
 
+      // Should show enable checkbox - text is "Enable P1 DCA levels"
       await waitFor(() => {
-        // Should show enable checkbox
-        expect(screen.getByText(/enable p1 dca levels/i)).toBeInTheDocument();
-      });
+        expect(screen.getByText(/Enable P1 DCA levels/i)).toBeInTheDocument();
+      }, { timeout: 3000 });
     });
 
     test('shows P2 tab for max_pyramids >= 2', () => {

@@ -139,8 +139,9 @@ describe('BackupRestoreCard', () => {
         <BackupRestoreCard settings={defaultSettings} onRestore={mockOnRestore} />
       );
 
+      // Backup schema only expects risk_config and dca_configurations
+      // Other fields like 'exchange' are stripped by zod validation
       const validBackup = JSON.stringify({
-        exchange: 'bybit',
         risk_config: {
           max_open_positions_global: 5,
         },
@@ -159,7 +160,6 @@ describe('BackupRestoreCard', () => {
 
       await waitFor(() => {
         expect(mockOnRestore).toHaveBeenCalledWith({
-          exchange: 'bybit',
           risk_config: {
             max_open_positions_global: 5,
           },

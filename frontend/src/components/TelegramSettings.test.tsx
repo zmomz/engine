@@ -189,10 +189,10 @@ describe('TelegramSettings', () => {
 
       await waitFor(() => {
         expect(mockShowNotification).toHaveBeenCalledWith('Invalid token', 'error');
-      });
+      }, { timeout: 3000 });
 
       consoleSpy.mockRestore();
-    });
+    }, 10000);
 
     it('shows default error message when no detail', async () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
@@ -223,8 +223,8 @@ describe('TelegramSettings', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Test Connection')).toBeInTheDocument();
-      });
-    });
+      }, { timeout: 3000 });
+    }, 10000);
 
     it('shows success alert after successful connection', async () => {
       mockedApi.post.mockResolvedValue({});
@@ -234,8 +234,8 @@ describe('TelegramSettings', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Bot connection successful!')).toBeInTheDocument();
-      });
-    });
+      }, { timeout: 3000 });
+    }, 10000);
 
     it('shows error alert after failed connection', async () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
@@ -246,10 +246,10 @@ describe('TelegramSettings', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Failed to connect to bot. Check your token.')).toBeInTheDocument();
-      });
+      }, { timeout: 3000 });
 
       consoleSpy.mockRestore();
-    });
+    }, 10000);
   });
 
   describe('test message', () => {

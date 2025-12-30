@@ -58,7 +58,7 @@ describe('QueueSignalCard', () => {
       renderWithTheme(
         <QueueSignalCard signal={mockSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
       );
-      expect(screen.getByText('60')).toBeInTheDocument();
+      expect(screen.getByText('60m')).toBeInTheDocument();
     });
 
     it('renders priority score', () => {
