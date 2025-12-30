@@ -28,14 +28,14 @@ const dcaConfigSchema = z.object({
 });
 
 const riskConfigSchema = z.object({
-  max_open_positions_global: z.number().min(0).optional(),
-  max_open_positions_per_symbol: z.number().min(0).optional(),
-  max_total_exposure_usd: z.number().min(0).optional(),
-  max_realized_loss_usd: z.number().optional(),
-  loss_threshold_percent: z.number().optional(),
-  required_pyramids_for_timer: z.number().min(0).optional(),
-  post_pyramids_wait_minutes: z.number().min(0).optional(),
-  max_winners_to_combine: z.number().min(0).optional(),
+  max_open_positions_global: z.coerce.number().min(0).optional(),
+  max_open_positions_per_symbol: z.coerce.number().min(0).optional(),
+  max_total_exposure_usd: z.coerce.number().min(0).optional(),
+  max_realized_loss_usd: z.coerce.number().optional(),
+  loss_threshold_percent: z.coerce.number().optional(),
+  required_pyramids_for_timer: z.coerce.number().min(0).optional(),
+  post_pyramids_wait_minutes: z.coerce.number().min(0).optional(),
+  max_winners_to_combine: z.coerce.number().min(0).optional(),
   priority_rules: z.object({
     priority_rules_enabled: z.object({
       same_pair_timeframe: z.boolean(),
