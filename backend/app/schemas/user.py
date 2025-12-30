@@ -11,7 +11,6 @@ class UserBase(BaseModel):
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
     webhook_secret: Optional[str] = None
-    exchange: Optional[str] = None # Added exchange to UserBase for update
     risk_config: Optional[RiskEngineConfig] = None
 
 class UserCreate(UserBase):
@@ -26,8 +25,7 @@ class UserUpdate(BaseModel):
     encrypted_api_keys: Optional[Dict[str, Any]] = None
     api_key: Optional[str] = None # Added for input
     secret_key: Optional[str] = None # Added for input
-    exchange: Optional[str] = None
-    key_target_exchange: Optional[str] = None # Explicit target for key updates
+    key_target_exchange: Optional[str] = None # Target exchange for key updates
     testnet: Optional[bool] = None # Added for input
     account_type: Optional[str] = None # Added for input
     risk_config: Optional[RiskEngineConfig] = None
@@ -51,7 +49,6 @@ class UserInDB(UserBase):
 
 class UserRead(UserBase):
     id: uuid.UUID
-    exchange: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
     telegram_config: Optional[Dict[str, Any]] = None
     encrypted_api_keys: Optional[Dict[str, Any]] = None # Explicitly include to pass to validator

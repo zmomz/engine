@@ -12,7 +12,6 @@ import SettingsSectionCard from './SettingsSectionCard';
 
 interface ApiKeysListCardProps {
   configuredExchanges: string[];
-  activeExchange: string;
   exchangeDetails?: Record<string, { testnet?: boolean; account_type?: string }>;
   onEdit: (exchange: string) => void;
   onDelete: (exchange: string) => void;
@@ -20,7 +19,6 @@ interface ApiKeysListCardProps {
 
 const ApiKeysListCard: React.FC<ApiKeysListCardProps> = ({
   configuredExchanges,
-  activeExchange,
   exchangeDetails = {},
   onEdit,
   onDelete,
@@ -35,7 +33,6 @@ const ApiKeysListCard: React.FC<ApiKeysListCardProps> = ({
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {configuredExchanges.map((exchange) => {
             const details = exchangeDetails[exchange];
-            const isActive = exchange === activeExchange;
 
             return (
               <Box
@@ -46,21 +43,16 @@ const ApiKeysListCard: React.FC<ApiKeysListCardProps> = ({
                   justifyContent: 'space-between',
                   p: 1,
                   borderRadius: 1,
-                  bgcolor: isActive ? 'action.selected' : 'background.default',
-                  borderLeft: isActive ? 3 : 0,
-                  borderColor: 'primary.main',
+                  bgcolor: 'background.default',
                 }}
               >
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                    <Typography variant="body2" fontWeight={isActive ? 600 : 400} sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" fontWeight={500} sx={{ fontSize: '0.85rem', textTransform: 'capitalize' }}>
                       {exchange}
                     </Typography>
-                    {isActive && (
-                      <Chip label="Active" size="small" color="primary" sx={{ height: 16, fontSize: '0.6rem' }} />
-                    )}
                     {details?.testnet && (
-                      <Chip label="Test" size="small" color="warning" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
+                      <Chip label="Testnet" size="small" color="warning" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
                     )}
                   </Box>
                   {details?.account_type && (

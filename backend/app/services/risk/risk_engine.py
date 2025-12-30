@@ -102,9 +102,18 @@ class RiskEngineService:
             Tuple of (is_allowed, rejection_reason)
         """
         # 0. Check if engine is paused or force stopped
-        if self.config.engine_paused_by_loss_limit:
+        # SECURITY: Always check from USER's config to ensure proper per-user isolation
+        # Do NOT rely on self.config as it may be a shared global instance
+        user_config = self.config
+        if self.user and self.user.risk_config:
+            try:
+                user_config = RiskEngineConfig(**self.user.risk_config)
+            except Exception:
+                pass  # Fall back to self.config
+
+        if user_config.engine_paused_by_loss_limit:
             return False, "Engine paused due to max realized loss limit"
-        if self.config.engine_force_stopped:
+        if user_config.engine_force_stopped:
             return False, "Engine force stopped by user"
 
         # 1. Max Open Positions Global
@@ -610,15 +619,17 @@ class RiskEngineService:
         """
         Returns the current state of the risk engine's evaluation without taking action.
         Identifies potential loser and winners based on current positions.
+
+        SECURITY: Requires user context to prevent cross-user data access.
         """
+        if not self.user:
+            raise ValueError("User context required for get_current_status to ensure proper isolation")
+
         async for session in self.session_factory():
             position_group_repo = self.position_group_repository_class(session)
             risk_action_repo = self.risk_action_repository_class(session)
 
-            if self.user:
-                all_positions = await position_group_repo.get_all_active_by_user(self.user.id)
-            else:
-                all_positions = await position_group_repo.get_all()
+            all_positions = await position_group_repo.get_all_active_by_user(self.user.id)
 
             loser, winners, required_usd = select_loser_and_winners(all_positions, self.config)
 
@@ -816,8 +827,9 @@ class RiskEngineService:
         )
         await session.commit()
 
+        # Update the user object's risk_config for this request context
+        # SECURITY: Do NOT update self.config as it may be shared across users
         user.risk_config = risk_config_data
-        self.config = RiskEngineConfig(**risk_config_data)
 
         logger.info(f"Engine force stopped by user {user.id}")
 
@@ -858,8 +870,9 @@ class RiskEngineService:
         )
         await session.commit()
 
+        # Update the user object's risk_config for this request context
+        # SECURITY: Do NOT update self.config as it may be shared across users
         user.risk_config = risk_config_data
-        self.config = RiskEngineConfig(**risk_config_data)
 
         logger.info(f"Engine force started by user {user.id}")
 
@@ -903,8 +916,9 @@ class RiskEngineService:
         )
         await session.commit()
 
+        # Update the user object's risk_config for this request context
+        # SECURITY: Do NOT update self.config as it may be shared across users
         user.risk_config = risk_config_data
-        self.config = RiskEngineConfig(**risk_config_data)
 
         logger.warning(f"Engine auto-paused for user {user.id} due to max realized loss ({realized_loss} USD)")
 

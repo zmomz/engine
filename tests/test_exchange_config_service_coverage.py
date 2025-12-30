@@ -17,7 +17,7 @@ def mock_user():
     """Create a mock user with various API key configurations."""
     user = MagicMock(spec=User)
     user.id = uuid.uuid4()
-    user.exchange = "binance"
+    # Note: User model no longer has 'exchange' field
     return user
 
 
@@ -36,7 +36,7 @@ def test_get_exchange_config_invalid_format(mock_user):
     mock_user.encrypted_api_keys = "just_a_string"  # Not a dict
 
     with pytest.raises(ExchangeConfigError, match="Invalid API keys format"):
-        ExchangeConfigService.get_exchange_config(mock_user)
+        ExchangeConfigService.get_exchange_config(mock_user, "binance")
 
 
 def test_get_exchange_config_multi_exchange_format(mock_user):
@@ -65,34 +65,35 @@ def test_get_exchange_config_target_exchange(mock_user):
     assert config == {"encrypted_data": "bybit_key"}
 
 
-def test_get_exchange_config_legacy_fallback(mock_user):
-    """Test get_exchange_config with legacy single-key format."""
-    mock_user.encrypted_api_keys = {"encrypted_data": "legacy_key"}
-    mock_user.exchange = "binance"
+def test_get_exchange_config_requires_target_exchange(mock_user):
+    """Test get_exchange_config raises error when target_exchange not specified."""
+    mock_user.encrypted_api_keys = {
+        "binance": {"encrypted_data": "binance_key"}
+    }
 
-    exchange_name, config = ExchangeConfigService.get_exchange_config(mock_user)
-
-    assert exchange_name == "binance"
-    assert config == {"encrypted_data": "legacy_key"}
+    with pytest.raises(ExchangeConfigError, match="Target exchange must be specified"):
+        ExchangeConfigService.get_exchange_config(mock_user)
 
 
-def test_get_exchange_config_legacy_with_matching_target(mock_user):
-    """Test get_exchange_config with legacy format and matching target."""
-    mock_user.encrypted_api_keys = {"encrypted_data": "legacy_key"}
-    mock_user.exchange = "binance"
+def test_get_exchange_config_with_target_exchange(mock_user):
+    """Test get_exchange_config with explicit target exchange."""
+    mock_user.encrypted_api_keys = {
+        "binance": {"encrypted_data": "binance_key"}
+    }
 
     exchange_name, config = ExchangeConfigService.get_exchange_config(mock_user, "binance")
 
     assert exchange_name == "binance"
-    assert config == {"encrypted_data": "legacy_key"}
+    assert config == {"encrypted_data": "binance_key"}
 
 
-def test_get_exchange_config_legacy_with_different_target(mock_user):
-    """Test get_exchange_config with legacy format but different target exchange."""
-    mock_user.encrypted_api_keys = {"encrypted_data": "legacy_key"}
-    mock_user.exchange = "binance"
+def test_get_exchange_config_exchange_not_in_config(mock_user):
+    """Test get_exchange_config when requested exchange not in config."""
+    mock_user.encrypted_api_keys = {
+        "binance": {"encrypted_data": "binance_key"}
+    }
 
-    # Requesting bybit but only legacy binance config exists
+    # Requesting bybit but only binance config exists
     with pytest.raises(ExchangeConfigError, match="No API keys configured for exchange: bybit"):
         ExchangeConfigService.get_exchange_config(mock_user, "bybit")
 
@@ -139,29 +140,29 @@ def test_get_exchange_config_invalid_config_type(mock_user):
         ExchangeConfigService.get_exchange_config(mock_user, "binance")
 
 
-def test_get_exchange_config_default_exchange(mock_user):
-    """Test get_exchange_config uses user.exchange as default."""
-    mock_user.exchange = "bybit"
-    mock_user.encrypted_api_keys = {
-        "bybit": {"encrypted_data": "bybit_key"}
-    }
-
-    # No target exchange specified, should use user.exchange
-    exchange_name, config = ExchangeConfigService.get_exchange_config(mock_user)
-
-    assert exchange_name == "bybit"
-
-
-def test_get_exchange_config_default_binance(mock_user):
-    """Test get_exchange_config defaults to binance when no exchange set."""
-    mock_user.exchange = None
+def test_get_exchange_config_case_insensitive(mock_user):
+    """Test get_exchange_config normalizes exchange name to lowercase."""
     mock_user.encrypted_api_keys = {
         "binance": {"encrypted_data": "binance_key"}
     }
 
-    exchange_name, config = ExchangeConfigService.get_exchange_config(mock_user)
+    # Uppercase should work
+    exchange_name, config = ExchangeConfigService.get_exchange_config(mock_user, "BINANCE")
 
     assert exchange_name == "binance"
+    assert config == {"encrypted_data": "binance_key"}
+
+
+def test_get_exchange_config_mixed_case(mock_user):
+    """Test get_exchange_config with mixed case exchange name."""
+    mock_user.encrypted_api_keys = {
+        "bybit": {"encrypted_data": "bybit_key"}
+    }
+
+    exchange_name, config = ExchangeConfigService.get_exchange_config(mock_user, "ByBit")
+
+    assert exchange_name == "bybit"
+    assert config == {"encrypted_data": "bybit_key"}
 
 
 # --- Tests for get_connector ---
@@ -193,23 +194,14 @@ def test_get_connector_invalid_config(mock_user):
         ExchangeConfigService.get_connector(mock_user)
 
 
-def test_get_connector_uses_default_exchange(mock_user):
-    """Test get_connector uses default exchange when not specified."""
-    mock_user.exchange = "bybit"
+def test_get_connector_requires_target_exchange(mock_user):
+    """Test get_connector raises error when target_exchange not specified."""
     mock_user.encrypted_api_keys = {
         "bybit": {"encrypted_data": "bybit_key"}
     }
 
-    with patch("app.services.exchange_config_service.get_exchange_connector") as mock_get_connector:
-        mock_connector = MagicMock()
-        mock_get_connector.return_value = mock_connector
-
-        result = ExchangeConfigService.get_connector(mock_user)
-
-        mock_get_connector.assert_called_once_with(
-            exchange_type="bybit",
-            exchange_config={"encrypted_data": "bybit_key"}
-        )
+    with pytest.raises(ExchangeConfigError, match="Target exchange must be specified"):
+        ExchangeConfigService.get_connector(mock_user)
 
 
 # --- Tests for get_all_configured_exchanges ---
@@ -247,25 +239,29 @@ def test_get_all_configured_exchanges_multi_exchange(mock_user):
     assert result["bybit"] == {"encrypted_data": "bybit_key"}
 
 
-def test_get_all_configured_exchanges_legacy_format(mock_user):
-    """Test get_all_configured_exchanges with legacy single-key format."""
-    mock_user.exchange = "binance"
-    mock_user.encrypted_api_keys = {"encrypted_data": "legacy_key"}
+def test_get_all_configured_exchanges_single_exchange(mock_user):
+    """Test get_all_configured_exchanges with single exchange config."""
+    mock_user.encrypted_api_keys = {
+        "binance": {"encrypted_data": "binance_key"}
+    }
 
     result = ExchangeConfigService.get_all_configured_exchanges(mock_user)
 
     assert "binance" in result
-    assert result["binance"] == {"encrypted_data": "legacy_key"}
+    assert result["binance"] == {"encrypted_data": "binance_key"}
+    assert len(result) == 1
 
 
-def test_get_all_configured_exchanges_legacy_default_exchange(mock_user):
-    """Test get_all_configured_exchanges with legacy format uses default exchange."""
-    mock_user.exchange = None  # No exchange set
-    mock_user.encrypted_api_keys = {"encrypted_data": "legacy_key"}
+def test_get_all_configured_exchanges_empty_valid_config(mock_user):
+    """Test get_all_configured_exchanges returns empty dict for invalid inner configs."""
+    mock_user.encrypted_api_keys = {
+        "binance": {"api_key": "no_encrypted_data"}  # Missing encrypted_data
+    }
 
     result = ExchangeConfigService.get_all_configured_exchanges(mock_user)
 
-    assert "binance" in result  # Defaults to binance
+    assert "binance" not in result  # Skipped because no encrypted_data
+    assert len(result) == 0
 
 
 def test_get_all_configured_exchanges_string_value(mock_user):

@@ -46,7 +46,6 @@ async def user_id_fixture(db_session: AsyncMock): # Use AsyncMock for db_session
             username="testuser_pm",
             email="test_pm@example.com",
             hashed_password="hashedpassword",
-            exchange="binance",
             risk_config=convert_decimals_to_str(risk_config_data),
             encrypted_api_keys={'binance': {'encrypted_data': 'test_encrypted_key'}}
         )
@@ -187,7 +186,6 @@ async def position_manager_service(
         username="testuser_pm_service",
         email="test_pm_service@example.com",
         hashed_password="hashedpassword",
-        exchange="binance",
         webhook_secret="mock_secret",
         risk_config=convert_decimals_to_str(risk_config_data),
         encrypted_api_keys={'binance': {'encrypted_data': 'test_encrypted_key'}}

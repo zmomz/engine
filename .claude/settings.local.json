@@ -99,7 +99,16 @@
       "Bash(timeout 700 docker compose exec app python -m pytest:*)",
       "Bash(timeout 300 docker compose exec app python -m pytest:*)",
       "Bash(timeout 120 docker compose exec app python:*)",
-      "Bash(timeout 180 docker compose exec app python:*)"
+      "Bash(timeout 180 docker compose exec app python:*)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
+      "Bash(git stash:*)",
+      "Bash(timeout 25 bash -c 'for i in {1..25}; do curl -s http://127.0.0.1:8000/health > /dev/null && echo \"\"App ready\"\" && exit 0; sleep 1; done; echo \"\"Timeout\"\"')",
+      "Bash(timeout 60 docker exec:*)",
+      "Bash(timeout 90 docker exec:*)",
+      "Bash(timeout 700 docker exec:*)",
+      "Bash(timeout 20 bash -c 'for i in {1..20}; do curl -s http://127.0.0.1:9000/health > /dev/null && echo \"\"Mock exchange ready\"\" && exit 0; sleep 1; done; echo \"\"Timeout\"\"')",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

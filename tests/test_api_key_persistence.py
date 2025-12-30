@@ -13,8 +13,7 @@ async def test_api_key_persistence(db_session: AsyncSession):
     user_in = User(
         username="test_persistence",
         email="test_p@example.com",
-        hashed_password="hashed_secret",
-        exchange="binance"
+        hashed_password="hashed_secret"
     )
     db_session.add(user_in)
     await db_session.commit()
@@ -44,7 +43,7 @@ async def test_api_key_persistence(db_session: AsyncSession):
         new_encrypted_keys = encryption_service.encrypt_keys(update_payload.api_key, update_payload.secret_key)
         
         current_keys = dict(user_in.encrypted_api_keys or {})
-        target_exchange = update_payload.key_target_exchange or update_payload.exchange or user_in.exchange
+        target_exchange = update_payload.key_target_exchange or update_payload.exchange or "binance"
         current_keys[target_exchange] = new_encrypted_keys
         
         # This is where we simulate the update_data preparation

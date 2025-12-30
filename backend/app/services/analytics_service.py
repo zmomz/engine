@@ -114,7 +114,8 @@ class AnalyticsService:
         # Group positions by exchange
         exchanges_needed = set()
         for pos in active_positions:
-            exchanges_needed.add(pos.exchange or self.user.exchange or "binance")
+            if pos.exchange:
+                exchanges_needed.add(pos.exchange)
 
         # Add all configured exchanges for balance fetching
         exchanges_needed.update(configured_exchanges.keys())
@@ -174,8 +175,8 @@ class AnalyticsService:
         # Calculate unrealized PnL from active positions
         total_unrealized_pnl = 0.0
         for group in active_positions:
-            ex = group.exchange or self.user.exchange or "binance"
-            if ex in exchange_data:
+            ex = group.exchange
+            if ex and ex in exchange_data:
                 try:
                     current_price = self._get_price_from_cache(
                         group.symbol,
@@ -247,6 +248,39 @@ class AnalyticsService:
                         if asset_value >= MIN_BALANCE_THRESHOLD:
                             total_tvl += asset_value
 
+        # Calculate per-exchange balances
+        exchange_balances = {}
+        for exchange_name, data in exchange_data.items():
+            balances = data['balances']
+            tickers = data['tickers']
+
+            total_balances = balances.get('total', balances)
+            free_balances = balances.get('free', {})
+
+            exchange_tvl = 0.0
+            exchange_free_usdt = float(free_balances.get("USDT", total_balances.get("USDT", Decimal(0))))
+
+            for asset, amount_decimal in total_balances.items():
+                amount = float(amount_decimal) if isinstance(amount_decimal, Decimal) else float(amount_decimal)
+
+                if amount <= 0 or asset == exchange_name:
+                    continue
+
+                if asset == "USDT":
+                    exchange_tvl += amount
+                else:
+                    symbol = f"{asset}/USDT"
+                    price = self._get_price_from_cache(symbol, tickers)
+                    if price:
+                        asset_value = amount * price
+                        if asset_value >= MIN_BALANCE_THRESHOLD:
+                            exchange_tvl += asset_value
+
+            exchange_balances[exchange_name] = {
+                "tvl": exchange_tvl,
+                "free_usdt": exchange_free_usdt
+            }
+
         return {
             "total_active_position_groups": total_active_groups,
             "queued_signals_count": queued_signals_count,
@@ -260,6 +294,7 @@ class AnalyticsService:
             "win_rate": win_rate,
             "tvl": total_tvl,
             "free_usdt": total_free_usdt,
+            "exchange_balances": exchange_balances,
             "last_webhook_timestamp": last_webhook_time.isoformat() if last_webhook_time else None,
             "engine_status": "running",  # TODO: Get from actual engine status
             "risk_engine_status": "active"  # TODO: Get from risk engine
@@ -276,8 +311,8 @@ class AnalyticsService:
         # Calculate unrealized PnL for open positions
         total_unrealized_pnl = 0.0
         for group in active_positions:
-            ex = group.exchange or self.user.exchange or "binance"
-            if ex in exchange_data:
+            ex = group.exchange
+            if ex and ex in exchange_data:
                 try:
                     current_price = self._get_price_from_cache(
                         group.symbol,

@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import api from '../services/api';
 
+interface ExchangeBalance {
+  tvl: number;
+  free_usdt: number;
+}
+
 interface LiveDashboard {
   total_active_position_groups: number;
   queued_signals_count: number;
@@ -14,6 +19,7 @@ interface LiveDashboard {
   win_rate: number;
   tvl: number;
   free_usdt: number;
+  exchange_balances?: Record<string, ExchangeBalance>;
   last_webhook_timestamp: string | null;
   engine_status: string;
   risk_engine_status: string;

@@ -7,7 +7,6 @@ const createMockUser = (overrides: Partial<User> = {}): User => ({
   id: '123',
   username: 'testuser',
   email: 'test@example.com',
-  exchange: 'binance',
   webhook_secret: 'secret123',
   configured_exchanges: ['binance'],
   risk_config: {

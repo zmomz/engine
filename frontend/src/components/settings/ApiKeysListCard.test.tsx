@@ -23,7 +23,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={[]}
-          activeExchange=""
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -36,7 +35,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={[]}
-          activeExchange=""
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -51,7 +49,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance', 'bybit']}
-          activeExchange="binance"
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -65,7 +62,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance', 'bybit', 'kucoin']}
-          activeExchange="binance"
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -73,68 +69,39 @@ describe('ApiKeysListCard', () => {
 
       expect(screen.getByText('3 exchange(s) configured')).toBeInTheDocument();
     });
-
-    test('shows Active chip for active exchange', () => {
-      renderWithTheme(
-        <ApiKeysListCard
-          configuredExchanges={['binance', 'bybit']}
-          activeExchange="binance"
-          onEdit={mockOnEdit}
-          onDelete={mockOnDelete}
-        />
-      );
-
-      expect(screen.getByText('Active')).toBeInTheDocument();
-    });
-
-    test('does not show Active chip for inactive exchanges', () => {
-      renderWithTheme(
-        <ApiKeysListCard
-          configuredExchanges={['binance']}
-          activeExchange="bybit"
-          onEdit={mockOnEdit}
-          onDelete={mockOnDelete}
-        />
-      );
-
-      expect(screen.queryByText('Active')).not.toBeInTheDocument();
-    });
   });
 
   describe('Exchange Details', () => {
-    test('shows Test chip when exchange is testnet', () => {
+    test('shows Testnet chip when exchange is testnet', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance']}
-          activeExchange="binance"
           exchangeDetails={{ binance: { testnet: true } }}
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
       );
 
-      expect(screen.getByText('Test')).toBeInTheDocument();
+      expect(screen.getByText('Testnet')).toBeInTheDocument();
     });
 
-    test('does not show Test chip when testnet is false', () => {
+    test('does not show Testnet chip when testnet is false', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance']}
-          activeExchange="binance"
           exchangeDetails={{ binance: { testnet: false } }}
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
       );
 
-      expect(screen.queryByText('Test')).not.toBeInTheDocument();
+      expect(screen.queryByText('Testnet')).not.toBeInTheDocument();
     });
 
     test('displays account type when provided', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance']}
-          activeExchange="binance"
           exchangeDetails={{ binance: { account_type: 'futures' } }}
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
@@ -148,7 +115,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance', 'bybit']}
-          activeExchange="binance"
           exchangeDetails={{ binance: { testnet: true } }}
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
@@ -166,7 +132,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance', 'bybit']}
-          activeExchange="binance"
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -182,7 +147,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance', 'bybit']}
-          activeExchange="binance"
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -198,7 +162,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance', 'bybit', 'kucoin']}
-          activeExchange="binance"
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />
@@ -217,7 +180,6 @@ describe('ApiKeysListCard', () => {
       renderWithTheme(
         <ApiKeysListCard
           configuredExchanges={['binance']}
-          activeExchange="binance"
           onEdit={mockOnEdit}
           onDelete={mockOnDelete}
         />

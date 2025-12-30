@@ -1,6 +1,5 @@
 export { default as SettingsSectionCard } from './SettingsSectionCard';
 export { default as SettingsPageSkeleton } from './SettingsPageSkeleton';
-export { default as ExchangeConnectionCard } from './ExchangeConnectionCard';
 export { default as ApiKeysListCard } from './ApiKeysListCard';
 export { default as ApiKeysFormCard } from './ApiKeysFormCard';
 export { default as RiskLimitsSection } from './RiskLimitsSection';

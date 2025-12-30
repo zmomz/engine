@@ -32,13 +32,10 @@ def create_risk_engine_service(session: AsyncSession, user: User) -> RiskEngineS
     # Decrypt keys
     if not user.encrypted_api_keys:
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Exchange API keys are missing.")
-    
-    # Validate keys exist (optional but good check)
-    exchange_name = user.exchange
+
     if not isinstance(user.encrypted_api_keys, dict):
-         # Support legacy single key format if needed or fail
-         pass 
-    
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid API keys format.")
+
     # We don't need to instantiate the connector here as RiskEngineService does it dynamically per position
 
     try:

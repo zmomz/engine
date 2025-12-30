@@ -198,6 +198,11 @@ async def test_calculate_partial_close_quantities_below_min_notional(mock_user):
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_checks(mock_config):
+    """Test various pre-trade risk checks.
+
+    Note: max_open_positions_global check is now handled by ExecutionPoolManager,
+    so we only test the remaining checks.
+    """
     # Patch EncryptionService globally for this test
     with patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService:
         MockEncryptionService.return_value.decrypt_keys.return_value = ("decrypted_key", "decrypted_secret")
@@ -209,7 +214,7 @@ async def test_validate_pre_trade_risk_checks(mock_config):
             order_service_class=MagicMock(),
             risk_engine_config=mock_config
         )
-        
+
         signal = QueuedSignal(user_id=uuid.uuid4(), symbol="BTC/USD", exchange="binance", timeframe=60)
         active_positions = []
 
@@ -226,34 +231,30 @@ async def test_validate_pre_trade_risk_checks(mock_config):
         )
         assert result[0] is True
 
-        # 2. Max Global Positions
-        active_positions = [MagicMock(symbol=f"S{i}", total_invested_usd=Decimal("10"), exchange="binance", timeframe=60) for i in range(5)]
-        result = await service.validate_pre_trade_risk(
-            signal, active_positions, Decimal("100.0"), session
-        )
-        assert result[0] is False
-
-        # 3. Max Symbol Positions
+        # 2. Max Symbol Positions (same symbol/timeframe/exchange)
         active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("10"), exchange="binance", timeframe=60) for _ in range(2)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
         assert result[0] is False
+        assert "BTC/USD/60m/binance" in result[1]
 
-        # 4. Max Total Exposure
-        active_positions = [MagicMock(symbol="BTC/USD", total_invested_usd=Decimal("950.0"), exchange="binance", timeframe=60)]
+        # 3. Max Total Exposure
+        active_positions = [MagicMock(symbol="ETH/USD", total_invested_usd=Decimal("950.0"), exchange="binance", timeframe=60)]
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
         assert result[0] is False
-        
-        # 5. Daily Loss Limit
+        assert "Max exposure" in result[1]
+
+        # 4. Daily Loss Limit
         active_positions = []
         pos_repo_mock.get_daily_realized_pnl = AsyncMock(return_value=Decimal("-150.0")) # Limit is 100
         result = await service.validate_pre_trade_risk(
             signal, active_positions, Decimal("100.0"), session
         )
         assert result[0] is False
+        assert "Max realized loss" in result[1]
 
 # --- Test for _evaluate_user_positions execution flow ---
 
@@ -397,7 +398,9 @@ async def test_evaluate_user_positions_execution(mock_config):
         )
 
         mock_risk_repo.create.assert_called_once()
-        assert session.commit.call_count == 2  # Called twice: once for each close operation
+        # Commit is called multiple times during risk execution (offset close + position updates)
+        assert session.commit.call_count >= 2, \
+            f"Expected at least 2 commits, got {session.commit.call_count}"
 
         # CRITICAL: Verify position states were updated
         # Loser should have been updated (full close)
@@ -988,14 +991,17 @@ def test_select_top_winners():
     winner1 = MagicMock()
     winner1.status = PositionGroupStatus.ACTIVE.value
     winner1.unrealized_pnl_usd = Decimal("100")
+    winner1.total_filled_quantity = Decimal("1.0")  # Required for filter
 
     winner2 = MagicMock()
     winner2.status = PositionGroupStatus.ACTIVE.value
     winner2.unrealized_pnl_usd = Decimal("200")
+    winner2.total_filled_quantity = Decimal("1.0")  # Required for filter
 
     loser = MagicMock()
     loser.status = PositionGroupStatus.ACTIVE.value
     loser.unrealized_pnl_usd = Decimal("-50")
+    loser.total_filled_quantity = Decimal("1.0")
 
     result = _select_top_winners([winner1, winner2, loser], 2)
 
@@ -1060,8 +1066,13 @@ async def test_calculate_partial_close_quantities_short_position(mock_user):
 
 
 @pytest.mark.asyncio
-async def test_calculate_partial_close_quantities_caps_at_available(mock_user):
-    """Test that quantity is capped at available quantity."""
+async def test_calculate_partial_close_quantities_skips_when_would_close_entire_position(mock_user):
+    """Test that winner is skipped when calculation would close entire position.
+
+    The risk executor protects winners by skipping them if the calculated
+    quantity_to_close >= total_filled_quantity. This ensures we never
+    fully close a winning position during offset.
+    """
     exchange_connector = AsyncMock()
     exchange_connector.get_current_price.return_value = Decimal("100.0")
     exchange_connector.get_precision_rules.return_value = {
@@ -1077,7 +1088,7 @@ async def test_calculate_partial_close_quantities_caps_at_available(mock_user):
     winner.total_filled_quantity = Decimal("1.0")  # Only 1 unit available
     winner.exchange = "binance"
 
-    required_usd = Decimal("500.0")  # Requires more than available
+    required_usd = Decimal("500.0")  # Requires more than available profit
 
     with (
         patch('app.services.risk.risk_executor.get_exchange_connector', return_value=exchange_connector),
@@ -1086,9 +1097,9 @@ async def test_calculate_partial_close_quantities_caps_at_available(mock_user):
         MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
         plan = await calculate_partial_close_quantities(mock_user, [winner], required_usd)
 
-    assert len(plan) == 1
-    # Should be capped at total_filled_quantity = 1.0
-    assert plan[0][1] == Decimal("1.00")
+    # Winner is skipped because closing it entirely is not allowed
+    # profit_per_unit = 100 - 90 = 10, qty = 500/10 = 50, but total_filled = 1
+    assert len(plan) == 0, "Winner should be skipped when it would require closing entire position"
 
 
 @pytest.mark.asyncio

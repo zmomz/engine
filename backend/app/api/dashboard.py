@@ -178,10 +178,10 @@ async def get_pnl(
 
         groups_by_exchange = {}
         for group in active_groups:
-            ex = group.exchange or current_user.exchange or "binance"
-            if ex not in groups_by_exchange:
-                groups_by_exchange[ex] = []
-            groups_by_exchange[ex].append(group)
+            if group.exchange:
+                if group.exchange not in groups_by_exchange:
+                    groups_by_exchange[group.exchange] = []
+                groups_by_exchange[group.exchange].append(group)
 
         # Iterate over exchanges that have active positions
         for exchange_name, groups in groups_by_exchange.items():

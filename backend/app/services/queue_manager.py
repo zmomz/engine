@@ -71,8 +71,9 @@ class QueueManagerService:
         async with self.session_factory() as session:
             repo = self.queued_signal_repository_class(session)
             
-            # Check for existing signal
+            # Check for existing signal (SECURITY: user_id required to prevent cross-user replacement)
             existing_signal = await repo.get_by_symbol_timeframe_side(
+                user_id=str(self.user.id),
                 symbol=payload.tv.symbol,
                 timeframe=payload.tv.timeframe,
                 side=payload.tv.action, # Assuming action maps to side

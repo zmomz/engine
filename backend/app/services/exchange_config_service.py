@@ -37,7 +37,7 @@ class ExchangeConfigService:
 
         Args:
             user: The user model with encrypted_api_keys
-            target_exchange: The exchange to get config for. If None, uses user.exchange.
+            target_exchange: The exchange to get config for (required).
 
         Returns:
             Tuple of (exchange_name, exchange_config_dict)
@@ -48,7 +48,10 @@ class ExchangeConfigService:
         if not user.encrypted_api_keys:
             raise ExchangeConfigError("No API keys configured for this user.")
 
-        exchange_name = (target_exchange or user.exchange or "binance").lower()
+        if not target_exchange:
+            raise ExchangeConfigError("Target exchange must be specified.")
+
+        exchange_name = target_exchange.lower()
         encrypted_keys_map = user.encrypted_api_keys
 
         if not isinstance(encrypted_keys_map, dict):
@@ -59,11 +62,6 @@ class ExchangeConfigService:
         # Try to find config for the target exchange
         if exchange_name in encrypted_keys_map:
             exchange_config = encrypted_keys_map[exchange_name]
-        elif "encrypted_data" in encrypted_keys_map:
-            # Legacy fallback: single key format
-            # Only use if target matches user's default exchange or no specific target
-            if target_exchange is None or target_exchange == user.exchange:
-                exchange_config = encrypted_keys_map
 
         if not exchange_config:
             raise ExchangeConfigError(
@@ -96,7 +94,7 @@ class ExchangeConfigService:
 
         Args:
             user: The user model with encrypted_api_keys
-            target_exchange: The exchange to connect to. If None, uses user.exchange.
+            target_exchange: The exchange to connect to (required).
 
         Returns:
             Initialized ExchangeInterface
@@ -135,17 +133,11 @@ class ExchangeConfigService:
         result = {}
 
         for key, value in encrypted_keys_map.items():
-            if key == "encrypted_data":
-                # Legacy single-key format - use user's default exchange
-                exchange_name = (user.exchange or "binance").lower()
-                result[exchange_name] = encrypted_keys_map
-                break
-            else:
-                # Multi-exchange format
-                if isinstance(value, str):
-                    result[key.lower()] = {"encrypted_data": value}
-                elif isinstance(value, dict) and "encrypted_data" in value:
-                    result[key.lower()] = value
+            # Multi-exchange format
+            if isinstance(value, str):
+                result[key.lower()] = {"encrypted_data": value}
+            elif isinstance(value, dict) and "encrypted_data" in value:
+                result[key.lower()] = value
 
         return result
 

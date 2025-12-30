@@ -27,7 +27,6 @@ import TelegramSettings from '../components/TelegramSettings';
 import { MetricCard } from '../components/MetricCard';
 import {
   SettingsPageSkeleton,
-  ExchangeConnectionCard,
   ApiKeysListCard,
   ApiKeysFormCard,
   RiskLimitsSection,
@@ -76,7 +75,6 @@ interface BackupDCAConfig {
 }
 
 interface BackupData {
-  exchange?: string;
   risk_config?: Record<string, unknown>;
   dca_configurations?: BackupDCAConfig[];
 }
@@ -122,7 +120,6 @@ const telegramConfigSchema = z.object({
 });
 
 const exchangeSettingsSchema = z.object({
-  exchange: z.string().min(1, 'Exchange is required'),
   key_target_exchange: z.string().min(1, 'Target exchange is required'),
   api_key: z.string().optional(),
   secret_key: z.string().optional(),
@@ -225,8 +222,7 @@ const SettingsPage: React.FC = () => {
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
     defaultValues: {
       exchangeSettings: {
-        exchange: settings?.exchange || '',
-        key_target_exchange: settings?.exchange || '',
+        key_target_exchange: '',
         api_key: '',
         secret_key: '',
         testnet: false,
@@ -288,15 +284,13 @@ const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     if (settings) {
-      const currentExchangeDetails = settings.configured_exchange_details?.[settings.exchange] || {};
       reset({
         exchangeSettings: {
-          exchange: settings.exchange,
-          key_target_exchange: settings.exchange,
+          key_target_exchange: '',
           api_key: '',
           secret_key: '',
-          testnet: currentExchangeDetails.testnet || false,
-          account_type: currentExchangeDetails.account_type || '',
+          testnet: false,
+          account_type: '',
         },
         riskEngineConfig: {
           ...settings.risk_config,
@@ -355,7 +349,6 @@ const SettingsPage: React.FC = () => {
 
   const onSubmit = async (data: FormValues) => {
     const payload: SettingsUpdatePayload = {
-      exchange: data.exchangeSettings.exchange,
       risk_config: data.riskEngineConfig,
       username: data.appSettings.username,
       email: data.appSettings.email,
@@ -434,7 +427,6 @@ const SettingsPage: React.FC = () => {
   const handleRestore = async (parsed: BackupData) => {
     // Cast risk_config to the expected type (validated by Zod schema in BackupRestoreCard)
     const payload: SettingsUpdatePayload = {
-      exchange: parsed.exchange,
       risk_config: parsed.risk_config as UserSettings['risk_config'],
     };
 
@@ -557,7 +549,7 @@ const SettingsPage: React.FC = () => {
           Settings
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          {settings?.exchange ? `Connected to ${settings.exchange}` : 'No exchange configured'}
+          {configuredExchanges.length > 0 ? `${configuredExchanges.length} exchange(s) configured` : 'No exchanges configured'}
         </Typography>
       </Box>
 
@@ -607,48 +599,18 @@ const SettingsPage: React.FC = () => {
         </Box>
             {/* Tab 1: Trading */}
             <TabPanel value={currentTab} index={0}>
-              {/* Summary Cards */}
-              <Grid container spacing={{ xs: 1.5, sm: 3 }} sx={{ mb: 2 }}>
-                <Grid size={{ xs: 6, sm: 6, md: 3 }}>
-                  <MetricCard
-                    label="Active Exchange"
-                    value={settings?.exchange || '-'}
-                    colorScheme={configuredExchanges.includes(settings?.exchange || '') ? 'bullish' : 'neutral'}
-                    variant="small"
-                  />
-                </Grid>
-                <Grid size={{ xs: 6, sm: 6, md: 3 }}>
-                  <MetricCard
-                    label="Configured Exchanges"
-                    value={configuredExchanges.length}
-                    subtitle="with API keys"
-                    variant="small"
-                  />
-                </Grid>
-              </Grid>
-
-              {/* Exchange Connection */}
-              <Grid container spacing={{ xs: 1.5, sm: 3 }}>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <ExchangeConnectionCard
-                    control={control}
-                    supportedExchanges={supportedExchanges}
-                    configuredExchanges={configuredExchanges}
-                    activeExchange={settings?.exchange || ''}
-                  />
-                </Grid>
-
-                <Grid size={{ xs: 12, sm: 6 }}>
+              {/* Exchange Configuration - Side by Side */}
+              <Grid container spacing={{ xs: 1.5, sm: 3 }} sx={{ mb: { xs: 1.5, sm: 3 } }}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <ApiKeysListCard
                     configuredExchanges={configuredExchanges}
-                    activeExchange={settings?.exchange || ''}
                     exchangeDetails={settings?.configured_exchange_details || {}}
                     onEdit={handleEditKey}
                     onDelete={handleDeleteKey}
                   />
                 </Grid>
 
-                <Grid size={12}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <ApiKeysFormCard
                     control={control}
                     watch={watch}
@@ -658,7 +620,10 @@ const SettingsPage: React.FC = () => {
                     errors={errors}
                   />
                 </Grid>
+              </Grid>
 
+              {/* DCA Configurations */}
+              <Grid container spacing={{ xs: 1.5, sm: 3 }}>
                 <Grid size={12}>
                   <SettingsSectionCard
                     title="DCA Configurations"

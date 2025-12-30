@@ -187,11 +187,12 @@ def test_select_loser_and_winners(default_risk_config):
     loser.risk_timer_expires = now - timedelta(minutes=1)
     loser.created_at = now - timedelta(hours=1)
 
-    # Winner
+    # Winner - must include total_filled_quantity for _select_top_winners filter
     winner = MagicMock()
     winner.id = uuid.uuid4()
     winner.status = PositionGroupStatus.ACTIVE.value
     winner.unrealized_pnl_usd = Decimal("150")
+    winner.total_filled_quantity = Decimal("1.0")  # Required for winner selection
 
     selected_loser, selected_winners, required_usd = select_loser_and_winners(
         [loser, winner], default_risk_config
@@ -226,27 +227,32 @@ async def test_validate_pre_trade_risk_pass(mock_risk_engine_service):
 
 
 @pytest.mark.asyncio
-async def test_validate_pre_trade_risk_fail_max_global(mock_risk_engine_service):
+async def test_validate_pre_trade_risk_fail_max_exposure(mock_risk_engine_service):
+    """Test that max exposure limit is enforced by validate_pre_trade_risk.
+
+    Note: max_open_positions_global check is now handled by ExecutionPoolManager,
+    so we test max_total_exposure_usd instead.
+    """
     signal = QueuedSignal(symbol="BTCUSDT", side="long", user_id=uuid.uuid4())
-    # Mock 2 active positions (limit is 2, so 3rd should fail)
+    # Mock active positions with exposure near the limit (1000)
     active_positions = [
-        PositionGroup(symbol="ETHUSDT", total_invested_usd=Decimal("100")),
-        PositionGroup(symbol="SOLUSDT", total_invested_usd=Decimal("100"))
+        PositionGroup(symbol="ETHUSDT", total_invested_usd=Decimal("900")),
     ]
-    allocated_capital = Decimal("100")
+    # This would exceed the 1000 limit
+    allocated_capital = Decimal("200")
     session = AsyncMock()
 
     result, reason = await mock_risk_engine_service.validate_pre_trade_risk(
         signal, active_positions, allocated_capital, session
     )
     assert result is False
-    assert "Max global positions" in reason
+    assert "Max exposure" in reason
 
-    # CRITICAL: Verify the actual position count was checked
-    actual_count = len(active_positions)
-    max_allowed = mock_risk_engine_service.config.max_open_positions_global
-    assert actual_count >= max_allowed, \
-        f"Test precondition: active positions ({actual_count}) must be >= max ({max_allowed})"
+    # CRITICAL: Verify exposure calculation
+    current_exposure = sum(p.total_invested_usd for p in active_positions)
+    max_allowed = mock_risk_engine_service.config.max_total_exposure_usd
+    assert (current_exposure + allocated_capital) > max_allowed, \
+        f"Test precondition: exposure ({current_exposure + allocated_capital}) must exceed max ({max_allowed})"
 
 
 @pytest.mark.asyncio

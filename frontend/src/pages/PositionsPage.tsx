@@ -283,6 +283,16 @@ const PositionsPage: React.FC = () => {
       )
     },
     {
+      field: 'timeframe',
+      headerName: 'TF',
+      width: 55,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={cellStyle}>{params.value}m</Typography>
+      )
+    },
+    {
       field: 'exchange',
       headerName: 'Exchange',
       width: 85,
@@ -488,6 +498,14 @@ const PositionsPage: React.FC = () => {
       headerAlign: 'center',
       renderCell: (params: GridRenderCellParams<PositionGroup>) => (
         <Typography sx={cellStyle}>{params.value}m</Typography>
+      )
+    },
+    {
+      field: 'exchange',
+      headerName: 'Exchange',
+      width: 85,
+      renderCell: (params: GridRenderCellParams<PositionGroup>) => (
+        <Typography sx={cellStyle}>{params.value}</Typography>
       )
     },
     {

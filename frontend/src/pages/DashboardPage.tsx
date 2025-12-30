@@ -18,6 +18,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import SyncIcon from '@mui/icons-material/Sync';
 import PauseIcon from '@mui/icons-material/Pause';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import useDashboardStore, { startDashboardPolling, stopDashboardPolling } from '../store/dashboardStore';
 import useRiskStore from '../store/riskStore';
 import { LiveDashboardSkeleton } from '../components/DashboardSkeleton';
@@ -350,6 +351,46 @@ const DashboardPage: React.FC = () => {
                   </Typography>
                 </Box>
               </Box>
+
+              {/* Per-Exchange Balances */}
+              {live.exchange_balances && Object.keys(live.exchange_balances).length > 0 && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <AccountBalanceWalletIcon fontSize="small" />
+                    Exchange Balances
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    {Object.entries(live.exchange_balances).map(([exchangeName, balance]) => (
+                      <Box
+                        key={exchangeName}
+                        sx={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          p: 1.5,
+                          bgcolor: 'background.default',
+                          borderRadius: 1,
+                          borderLeft: 3,
+                          borderColor: 'primary.main'
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="body2" fontWeight={600} sx={{ textTransform: 'capitalize' }}>
+                            {exchangeName}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Free: {formatCurrency(balance.free_usdt)}
+                          </Typography>
+                        </Box>
+                        <Typography variant="body1" fontWeight={600} color="primary.main">
+                          {formatCurrency(balance.tvl)}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </>
+              )}
             </CardContent>
           </Card>
         </Grid>

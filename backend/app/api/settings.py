@@ -65,8 +65,7 @@ async def update_settings(
             exchange_config["account_type"] = user_update.account_type
 
         current_keys = dict(current_user.encrypted_api_keys or {})
-        raw_target = user_update.key_target_exchange or user_update.exchange or current_user.exchange
-        target_exchange = raw_target.lower() if raw_target else None
+        target_exchange = user_update.key_target_exchange.lower() if user_update.key_target_exchange else None
 
         if target_exchange:
             # Update the config for this specific exchange
@@ -80,10 +79,6 @@ async def update_settings(
     update_data.pop("key_target_exchange", None)
     update_data.pop("testnet", None) # Added to remove from update_data
     update_data.pop("account_type", None) # Added to remove from update_data
-    
-    # Normalize 'exchange' field if present in update
-    if "exchange" in update_data and update_data["exchange"]:
-        update_data["exchange"] = update_data["exchange"].lower()
 
     # Apply updates to the current_user instance
     for field, value in update_data.items():

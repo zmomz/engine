@@ -13,12 +13,17 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
     def __init__(self, session: AsyncSession):
         super().__init__(PositionGroup, session)
 
-    async def get_by_symbol(self, symbol: str) -> list[PositionGroup]:
+    async def get_by_symbol(self, user_id: uuid.UUID, symbol: str) -> list[PositionGroup]:
         """
-        Retrieves all position groups for a given symbol.
+        Retrieves all position groups for a given user and symbol.
+
+        SECURITY: user_id is required to prevent cross-user data access.
         """
         result = await self.session.execute(
-            select(self.model).where(self.model.symbol == symbol)
+            select(self.model).where(
+                self.model.user_id == user_id,
+                self.model.symbol == symbol
+            )
         )
         return result.scalars().all()
 
@@ -40,11 +45,21 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         result = await self.session.execute(query)
         return result.scalars().first()
 
-    async def get_active_position_groups(self, for_update: bool = False) -> list[PositionGroup]:
+    async def get_active_position_groups(self, user_id: uuid.UUID, for_update: bool = False) -> list[PositionGroup]:
         """
-        Retrieves all position groups with status 'active'.
+        Retrieves all active position groups for a specific user.
+
+        SECURITY: user_id is now required to prevent cross-user data access.
+        Use get_active_position_groups_for_user for full status set (live, partially_filled, active, closing).
         """
-        return await self.get_by_status(["active"], for_update=for_update)
+        query = select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.status == "active"
+        )
+        if for_update:
+            query = query.with_for_update()
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def get_active_position_groups_for_user(self, user_id: uuid.UUID, for_update: bool = False) -> list[PositionGroup]:
         """

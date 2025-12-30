@@ -46,7 +46,6 @@ async def order_service(db_session: AsyncMock, user_id_fixture, mock_exchange_co
             username="testuser_om_service",
             email="test_om_service@example.com",
             hashed_password="hashedpassword",
-            exchange="mock",
             webhook_secret="mock_secret"
         )
         db_session.add(user)

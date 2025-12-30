@@ -126,7 +126,6 @@ async def test_get_position_group_integration(position_group_repo: PositionGroup
         username="testuser_group",
         email="test_group@example.com",
         hashed_password="hashedpassword",
-        exchange="binance",
         webhook_secret="secret",
         risk_config={}
     )
@@ -321,7 +320,6 @@ async def test_block_risk_for_group_integration(position_group_repo: PositionGro
         username="testuser_block_risk",
         email="test_block_risk@example.com",
         hashed_password="hashedpassword",
-        exchange="MOCK",
         webhook_secret="secret",
         encrypted_api_keys=get_encrypted_keys("MOCK")
     )
@@ -379,7 +377,6 @@ async def test_unblock_risk_for_group_integration(position_group_repo: PositionG
         username="testuser_unblock_risk",
         email="test_unblock_risk@example.com",
         hashed_password="hashedpassword",
-        exchange="MOCK",
         webhook_secret="secret",
         encrypted_api_keys=get_encrypted_keys("MOCK")
     )
@@ -437,7 +434,6 @@ async def test_skip_next_risk_evaluation_integration(position_group_repo: Positi
         username="testuser_skip_risk",
         email="test_skip_risk@example.com",
         hashed_password="hashedpassword",
-        exchange="MOCK",
         webhook_secret="secret",
         encrypted_api_keys=get_encrypted_keys("MOCK")
     )

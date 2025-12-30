@@ -36,10 +36,7 @@ async def test_exchange_api_timeout_on_order_submission(
     """
     Test that the system handles an exchange API timeout gracefully during order submission.
     """
-    # Ensure user exchange is set correctly
-    test_user.exchange = "MOCK"
-    db_session.add(test_user)
-    await db_session.commit()
+    # Note: User's encrypted_api_keys already includes mock exchange from conftest
 
     # Create DCA configuration for the signal (required for promotion)
     dca_config = DCAConfiguration(

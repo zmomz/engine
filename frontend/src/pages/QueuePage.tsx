@@ -263,27 +263,23 @@ const QueuePage: React.FC = () => {
       }
     },
     {
+      field: 'id',
+      headerName: 'ID',
+      width: 75,
+      renderCell: (params: GridRenderCellParams) => (
+        <Tooltip title={params.value}>
+          <Typography sx={monoStyle}>
+            {params.value?.slice(0, 8)}
+          </Typography>
+        </Tooltip>
+      ),
+    },
+    {
       field: 'symbol',
       headerName: 'Symbol',
       width: 100,
       renderCell: (params: GridRenderCellParams) => (
         <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
-      )
-    },
-    {
-      field: 'side',
-      headerName: 'Side',
-      width: 75,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params: GridRenderCellParams) => (
-        <Chip
-          label={params.value?.toUpperCase()}
-          color={params.value === 'long' ? 'success' : 'error'}
-          size="small"
-          variant="outlined"
-          sx={{ fontSize: '0.7rem', height: 22 }}
-        />
       )
     },
     {
@@ -302,6 +298,22 @@ const QueuePage: React.FC = () => {
       width: 85,
       renderCell: (params) => (
         <Typography sx={cellStyle}>{params.value}</Typography>
+      )
+    },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 22 }}
+        />
       )
     },
     {
@@ -394,27 +406,23 @@ const QueuePage: React.FC = () => {
 
   const historyColumns: GridColDef[] = [
     {
+      field: 'id',
+      headerName: 'ID',
+      width: 75,
+      renderCell: (params: GridRenderCellParams) => (
+        <Tooltip title={params.value}>
+          <Typography sx={monoStyle}>
+            {params.value?.slice(0, 8)}
+          </Typography>
+        </Tooltip>
+      ),
+    },
+    {
       field: 'symbol',
       headerName: 'Symbol',
       width: 100,
       renderCell: (params: GridRenderCellParams) => (
         <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
-      )
-    },
-    {
-      field: 'side',
-      headerName: 'Side',
-      width: 75,
-      align: 'center',
-      headerAlign: 'center',
-      renderCell: (params: GridRenderCellParams) => (
-        <Chip
-          label={params.value?.toUpperCase()}
-          color={params.value === 'long' ? 'success' : 'error'}
-          size="small"
-          variant="outlined"
-          sx={{ fontSize: '0.7rem', height: 22 }}
-        />
       )
     },
     {
@@ -433,6 +441,22 @@ const QueuePage: React.FC = () => {
       width: 85,
       renderCell: (params) => (
         <Typography sx={cellStyle}>{params.value}</Typography>
+      )
+    },
+    {
+      field: 'side',
+      headerName: 'Side',
+      width: 75,
+      align: 'center',
+      headerAlign: 'center',
+      renderCell: (params: GridRenderCellParams) => (
+        <Chip
+          label={params.value?.toUpperCase()}
+          color={params.value === 'long' ? 'success' : 'error'}
+          size="small"
+          variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 22 }}
+        />
       )
     },
     {
@@ -732,7 +756,7 @@ const QueuePage: React.FC = () => {
                                 sx={{ height: 18, fontSize: '0.6rem' }}
                               />
                               <Chip
-                                label={signal.timeframe}
+                                label={`${signal.timeframe}m`}
                                 size="small"
                                 variant="outlined"
                                 sx={{ height: 18, fontSize: '0.6rem' }}

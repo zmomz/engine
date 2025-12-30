@@ -21,7 +21,6 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
-    exchange = Column(String, default="binance", nullable=False)
     webhook_secret = Column(String, nullable=False, default=generate_webhook_secret)
     encrypted_api_keys = Column(JSON, nullable=True)
     

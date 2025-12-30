@@ -9,6 +9,7 @@ class QueueStatus(str, Enum):
     QUEUED = "queued"
     PROMOTED = "promoted"
     CANCELLED = "cancelled"
+    REJECTED = "rejected"
 
 class QueuedSignalSchema(BaseModel):
     id: UUID

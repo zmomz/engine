@@ -48,14 +48,12 @@ const riskConfigSchema = z.object({
 }).optional();
 
 const backupDataSchema = z.object({
-  exchange: z.string().optional(),
   risk_config: riskConfigSchema,
   dca_configurations: z.array(dcaConfigSchema).optional(),
 });
 
 // Type for settings prop (matches UserSettings from authStore)
 interface SettingsType {
-  exchange?: string;
   risk_config?: Record<string, unknown>;
 }
 
@@ -76,7 +74,6 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
       const dcaConfigs = await dcaConfigApi.getAll();
 
       const backupData = {
-        exchange: settings?.exchange,
         risk_config: settings?.risk_config,
         dca_configurations: dcaConfigs.map((config: DCAConfiguration) => ({
           pair: config.pair,

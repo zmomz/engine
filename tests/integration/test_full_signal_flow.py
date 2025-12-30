@@ -36,10 +36,7 @@ async def test_full_signal_flow_new_position(
         pytest.skip("Mock exchange service not available at http://mock-exchange:9000")
 
     # 1. Send a valid webhook payload
-    # Update user to use mock exchange to avoid real API calls/errors
-    test_user.exchange = "MOCK"
-    db_session.add(test_user)
-    await db_session.commit()
+    # Note: User's encrypted_api_keys already includes mock exchange from conftest
 
     # Create DCA configuration for the test signal
     # Note: JSON fields need plain Python types (not Decimal)

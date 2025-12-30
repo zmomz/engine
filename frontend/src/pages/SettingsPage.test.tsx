@@ -33,9 +33,6 @@ jest.mock('../components/settings', () => ({
   SettingsPageSkeleton: function MockSkeleton() {
     return <div data-testid="settings-skeleton">Loading...</div>;
   },
-  ExchangeConnectionCard: function MockExchangeCard({ activeExchange }: { activeExchange: string }) {
-    return <div data-testid="exchange-connection-card">Exchange: {activeExchange}</div>;
-  },
   ApiKeysListCard: function MockApiKeysList({
     onEdit,
     onDelete,
@@ -86,7 +83,6 @@ jest.mock('../components/settings', () => ({
   }) {
     const handleRestore = () => {
       onRestore({
-        exchange: 'binance',
         risk_config: {
           max_open_positions_global: 10,
           max_open_positions_per_symbol: 2,
@@ -101,7 +97,6 @@ jest.mock('../components/settings', () => ({
     };
     const handleRestoreWithDCA = () => {
       onRestore({
-        exchange: 'bybit',
         risk_config: {
           max_open_positions_global: 5,
         },
@@ -176,7 +171,6 @@ const renderWithProviders = (component: React.ReactElement) => {
 
 const defaultSettings = {
   id: 'user-123',
-  exchange: 'binance',
   encrypted_api_keys: { binance: { apiKey: 'pk_123' } },
   risk_config: {
     max_open_positions_global: 5,
@@ -340,7 +334,7 @@ describe('SettingsPage', () => {
       renderWithProviders(<SettingsPage />);
 
       // Initially on Trading tab
-      expect(screen.getByTestId('exchange-connection-card')).toBeInTheDocument();
+      expect(screen.getByTestId('api-keys-list-card')).toBeInTheDocument();
 
       // Switch to Risk tab
       fireEvent.click(screen.getByRole('tab', { name: /risk/i }));
@@ -351,13 +345,6 @@ describe('SettingsPage', () => {
   });
 
   describe('Trading Tab Content', () => {
-    test('renders exchange connection card', () => {
-      renderWithProviders(<SettingsPage />);
-
-      expect(screen.getByTestId('exchange-connection-card')).toBeInTheDocument();
-      expect(screen.getByText('Exchange: binance')).toBeInTheDocument();
-    });
-
     test('renders API keys list card', () => {
       renderWithProviders(<SettingsPage />);
 
@@ -376,17 +363,17 @@ describe('SettingsPage', () => {
       expect(screen.getByTestId('dca-config-list')).toBeInTheDocument();
     });
 
-    test('displays connected exchange in header', () => {
+    test('displays configured exchanges count in header', () => {
       renderWithProviders(<SettingsPage />);
 
-      expect(screen.getByText(/connected to binance/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 exchange\(s\) configured/i)).toBeInTheDocument();
     });
 
-    test('displays no exchange configured when no exchange set', () => {
-      setupMocks({ settings: { ...defaultSettings, exchange: '' } });
+    test('displays no exchanges configured when none set', () => {
+      setupMocks({ settings: { ...defaultSettings, configured_exchanges: [] } });
       renderWithProviders(<SettingsPage />);
 
-      expect(screen.getByText(/no exchange configured/i)).toBeInTheDocument();
+      expect(screen.getByText(/no exchanges configured/i)).toBeInTheDocument();
     });
   });
 
@@ -568,7 +555,6 @@ describe('SettingsPage', () => {
 
       await waitFor(() => {
         expect(mockUpdateSettings).toHaveBeenCalledWith({
-          exchange: 'binance',
           risk_config: expect.objectContaining({
             max_open_positions_global: 10,
           }),
@@ -651,16 +637,10 @@ describe('SettingsPage', () => {
   });
 
   describe('Metric Cards', () => {
-    test('displays active exchange metric card', () => {
-      renderWithProviders(<SettingsPage />);
-
-      // MetricCard is not mocked, should render actual component
-      expect(screen.getByText('Active Exchange')).toBeInTheDocument();
-    });
-
     test('displays configured exchanges count', () => {
       renderWithProviders(<SettingsPage />);
 
+      // MetricCard is not mocked, should render actual component
       expect(screen.getByText('Configured Exchanges')).toBeInTheDocument();
     });
 
@@ -796,7 +776,6 @@ describe('SettingsPage', () => {
         }) {
           const handleRestoreWithPyramid = () => {
             onRestore({
-              exchange: 'bybit',
               risk_config: { max_open_positions_global: 5 },
               dca_configurations: [
                 {
@@ -848,7 +827,7 @@ describe('SettingsPage', () => {
       });
       renderWithProviders(<SettingsPage />);
 
-      expect(screen.getByTestId('exchange-connection-card')).toBeInTheDocument();
+      expect(screen.getByTestId('api-keys-list-card')).toBeInTheDocument();
     });
   });
 

@@ -66,7 +66,7 @@ const HistoryPositionCard: React.FC<HistoryPositionCardProps> = ({ position }) =
                 sx={{ height: 20, fontSize: '0.65rem' }}
               />
               <Chip
-                label={position.timeframe || '-'}
+                label={position.timeframe ? `${position.timeframe}m` : '-'}
                 size="small"
                 variant="outlined"
                 sx={{ height: 20, fontSize: '0.65rem' }}

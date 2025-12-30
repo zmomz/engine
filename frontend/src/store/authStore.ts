@@ -6,7 +6,6 @@ export interface User {
   id: string;
   username: string;
   email: string;
-  exchange: string;
   webhook_secret: string;
   configured_exchanges: string[];
   risk_config: {

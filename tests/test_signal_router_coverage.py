@@ -133,7 +133,6 @@ def sample_user():
         username="test",
         email="test@example.com",
         hashed_password="hash",
-        exchange="binance",
         encrypted_api_keys={"binance": {"encrypted_data": "dummy"}},
         risk_config={
             "max_open_positions_global": 5,

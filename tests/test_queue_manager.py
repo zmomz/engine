@@ -156,7 +156,6 @@ async def queue_manager_service(
             username="testuser_qm_service",
             email="test_qm_service@example.com",
             hashed_password="hashedpassword",
-            exchange="mock",
             webhook_secret="mock_secret",
             risk_config=json.dumps(risk_config_data, default=decimal_default)
         )
@@ -337,8 +336,9 @@ async def test_add_to_queue_new_signal(queue_manager_service, mock_queued_signal
     assert created_signal.side == "long"
     assert created_signal.entry_price == Decimal("100.0")
     assert created_signal.status == QueueStatus.QUEUED
+    # SECURITY FIX: user_id is now required to prevent cross-user signal replacement
     mock_queued_signal_repository_class.return_value.get_by_symbol_timeframe_side.assert_called_once_with(
-        symbol="LTCUSDT", timeframe=60, side="long", exchange="binance"
+        user_id=str(user_id_fixture), symbol="LTCUSDT", timeframe=60, side="long", exchange="binance"
     )
 
 @pytest.mark.asyncio
@@ -389,8 +389,9 @@ async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queue
     
     assert original_signal.entry_price == Decimal("105.0")
     assert original_signal.replacement_count == 1
+    # SECURITY FIX: user_id is now required to prevent cross-user signal replacement
     mock_queued_signal_repository_class.return_value.get_by_symbol_timeframe_side.assert_called_once_with(
-        symbol="LTCUSDT", timeframe=60, side="long", exchange="binance"
+        user_id=str(user_id_fixture), symbol="LTCUSDT", timeframe=60, side="long", exchange="binance"
     )
     mock_queued_signal_repository_class.return_value.update.assert_called_once_with(original_signal)
 

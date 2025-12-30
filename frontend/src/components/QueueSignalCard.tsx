@@ -117,7 +117,7 @@ const QueueSignalCard: React.FC<QueueSignalCardProps> = ({ signal, onPromote, on
                 sx={{ height: 20, fontSize: '0.65rem' }}
               />
               <Chip
-                label={signal.timeframe}
+                label={`${signal.timeframe}m`}
                 size="small"
                 variant="outlined"
                 sx={{ height: 20, fontSize: '0.65rem' }}

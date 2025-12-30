@@ -216,7 +216,7 @@ async def test_calculate_position_pnl_short_position():
 
 @pytest.mark.asyncio
 async def test_calculate_position_pnl_zero_qty():
-    """Test _calculate_position_pnl with zero quantity (no calculation)."""
+    """Test _calculate_position_pnl with zero quantity sets PnL to zero."""
     from app.api.positions import _calculate_position_pnl
 
     pos = MagicMock()
@@ -226,15 +226,15 @@ async def test_calculate_position_pnl_zero_qty():
     pos.weighted_avg_entry = Decimal("50000")
     pos.total_invested_usd = Decimal("0")
     pos.side = "long"
-    pos.unrealized_pnl_usd = None
 
     all_tickers = {"BTCUSDT": {"last": 52000}}
     connector = AsyncMock()
 
     await _calculate_position_pnl(pos, all_tickers, connector)
 
-    # Should not set unrealized_pnl_usd since qty is 0
-    assert pos.unrealized_pnl_usd is None
+    # With zero qty, PnL should be set to 0
+    assert pos.unrealized_pnl_usd == Decimal("0")
+    assert pos.unrealized_pnl_percent == Decimal("0")
 
 
 @pytest.mark.asyncio

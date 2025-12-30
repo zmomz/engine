@@ -90,7 +90,7 @@ async def create_user_with_configs(db_session: AsyncSession):
         return obj
 
     async def _factory(username: str = "testuser", email: str = "test@example.com",
-                       exchange: str = "binance", webhook_secret: str = "secret") -> User:
+                       webhook_secret: str = "secret") -> User:
         hashed_pwd = get_password_hash(TEST_PASSWORD)
 
         # Generate valid encrypted keys
@@ -110,7 +110,6 @@ async def create_user_with_configs(db_session: AsyncSession):
             username=username,
             email=email,
             hashed_password=hashed_pwd,
-            exchange=exchange,
             webhook_secret=webhook_secret,
             is_active=True,
             encrypted_api_keys=valid_encrypted_keys,

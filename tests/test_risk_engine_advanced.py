@@ -98,17 +98,24 @@ def mock_positions():
 # --- Test Cases: Pre-Trade Risk Validation ---
 
 @pytest.mark.asyncio
-async def test_validate_pre_trade_risk_max_global(risk_service, mock_config):
-    """Test rejection when max global positions are exceeded."""
-    active_positions = [MagicMock(), MagicMock()] # 2 positions
-    # Config max is 2
-    
+async def test_validate_pre_trade_risk_max_exposure(risk_service, mock_config):
+    """Test rejection when max total exposure is exceeded.
+
+    Note: max_open_positions_global check is now handled by ExecutionPoolManager,
+    so we test max_total_exposure_usd instead.
+    """
+    # Position with high exposure
+    p1 = MagicMock(total_invested_usd=Decimal("950"))
+    active_positions = [p1]
+    # Config max exposure is 1000, so 950 + 100 = 1050 > 1000
+
     signal = QueuedSignal(symbol="SOL/USD", user_id=uuid.uuid4())
-    
+
     result = await risk_service.validate_pre_trade_risk(
         signal, active_positions, Decimal("100"), AsyncMock(), is_pyramid_continuation=False
     )
     assert result[0] is False
+    assert "Max exposure" in result[1]
 
 @pytest.mark.asyncio
 async def test_validate_pre_trade_risk_max_per_symbol(risk_service):
@@ -206,19 +213,29 @@ def test_select_loser_respects_blocked_flag(mock_config, mock_positions):
 
 def test_select_loser_sorting_logic(mock_config):
     """Verify losers are sorted by Loss % -> Loss $ -> Age."""
+    now = datetime.utcnow()
+    expired_timer = now - timedelta(minutes=1)
+
     p1 = PositionGroup(
         id=uuid.uuid4(), symbol="A", status="active", unrealized_pnl_percent=Decimal("-7.0"), unrealized_pnl_usd=Decimal("-50"),
-        created_at=datetime.utcnow(), risk_timer_expires=datetime.min, risk_blocked=False, risk_skip_once=False,
+        created_at=now, risk_timer_expires=expired_timer, risk_blocked=False, risk_skip_once=False,
         pyramid_count=3, filled_dca_legs=3, total_dca_legs=3
     )
     p2 = PositionGroup(
         id=uuid.uuid4(), symbol="B", status="active", unrealized_pnl_percent=Decimal("-8.0"), unrealized_pnl_usd=Decimal("-40"),
-        created_at=datetime.utcnow(), risk_timer_expires=datetime.min, risk_blocked=False, risk_skip_once=False,
+        created_at=now, risk_timer_expires=expired_timer, risk_blocked=False, risk_skip_once=False,
         pyramid_count=3, filled_dca_legs=3, total_dca_legs=3
     )
-    
+    # Add a winner so the check passes
+    winner = PositionGroup(
+        id=uuid.uuid4(), symbol="W", status="active", unrealized_pnl_percent=Decimal("10.0"), unrealized_pnl_usd=Decimal("100"),
+        created_at=now, risk_timer_expires=None, risk_blocked=False, risk_skip_once=False,
+        pyramid_count=1, filled_dca_legs=1, total_dca_legs=1, total_filled_quantity=Decimal("1.0")
+    )
+
     # P2 has higher loss % (-8 vs -7)
-    loser, _, _ = select_loser_and_winners([p1, p2], mock_config)
+    loser, _, _ = select_loser_and_winners([p1, p2, winner], mock_config)
+    assert loser is not None, "Loser should be identified when conditions are met"
     assert loser.symbol == "B"
 
 # --- Test Cases: Offset Calculation ---

@@ -14,9 +14,17 @@ class QueuedSignalRepository(BaseRepository[QueuedSignal]):
     async def get_by_id(self, model_id: str) -> QueuedSignal | None:
         return await self.get(model_id)
 
-    async def get_by_symbol_timeframe_side(self, symbol: str, timeframe: int, side: str, exchange: str) -> QueuedSignal | None:
+    async def get_by_symbol_timeframe_side(
+        self, user_id: str, symbol: str, timeframe: int, side: str, exchange: str
+    ) -> QueuedSignal | None:
+        """
+        Get a queued signal for a specific user matching symbol/timeframe/side/exchange.
+
+        SECURITY: user_id is required to prevent cross-user signal access/replacement.
+        """
         result = await self.session.execute(
             select(self.model).where(
+                self.model.user_id == user_id,
                 self.model.symbol == symbol,
                 self.model.timeframe == timeframe,
                 self.model.side == side,

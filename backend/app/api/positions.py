@@ -154,10 +154,10 @@ async def get_current_user_active_positions(
     # Group positions by exchange for efficient price fetching
     groups_by_exchange: Dict[str, List] = {}
     for pos in positions:
-        ex = pos.exchange or current_user.exchange or "binance"
-        if ex not in groups_by_exchange:
-            groups_by_exchange[ex] = []
-        groups_by_exchange[ex].append(pos)
+        if pos.exchange:
+            if pos.exchange not in groups_by_exchange:
+                groups_by_exchange[pos.exchange] = []
+            groups_by_exchange[pos.exchange].append(pos)
 
     cache = await get_cache()
 
@@ -256,10 +256,10 @@ async def get_all_positions(
     # Group positions by exchange for efficient price fetching
     groups_by_exchange: Dict[str, List] = {}
     for pos in positions:
-        ex = pos.exchange or current_user.exchange or "binance"
-        if ex not in groups_by_exchange:
-            groups_by_exchange[ex] = []
-        groups_by_exchange[ex].append(pos)
+        if pos.exchange:
+            if pos.exchange not in groups_by_exchange:
+                groups_by_exchange[pos.exchange] = []
+            groups_by_exchange[pos.exchange].append(pos)
 
     cache = await get_cache()
 
