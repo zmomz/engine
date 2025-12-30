@@ -33,11 +33,12 @@ export const PriorityScoreBreakdown: React.FC<PriorityScoreBreakdownProps> = ({
 
   const open = Boolean(anchorEl);
 
-  // Determine score tier and color
+  // Determine score tier and color based on backend priority tiers
+  // Tier 0: 10M+ (pyramid), Tier 1: 1M+ (deep loss), Tier 2: 10K+ (replacements), Tier 3: 1K+ (FIFO)
   const getScoreTier = (score: number) => {
-    if (score >= 80) return { label: 'Very High', color: 'error' as const, bgColor: '#ef444420' };
-    if (score >= 60) return { label: 'High', color: 'warning' as const, bgColor: '#f59e0b20' };
-    if (score >= 40) return { label: 'Medium', color: 'info' as const, bgColor: '#3b82f620' };
+    if (score >= 1_000_000) return { label: 'Critical', color: 'error' as const, bgColor: '#ef444420' };
+    if (score >= 10_000) return { label: 'High', color: 'warning' as const, bgColor: '#f59e0b20' };
+    if (score >= 1_000) return { label: 'Medium', color: 'info' as const, bgColor: '#3b82f620' };
     return { label: 'Low', color: 'default' as const, bgColor: '#6b728020' };
   };
 
@@ -145,7 +146,7 @@ export const PriorityScoreBreakdown: React.FC<PriorityScoreBreakdownProps> = ({
 
           <LinearProgress
             variant="determinate"
-            value={Math.min(score, 100)}
+            value={Math.min((Math.log10(Math.max(score, 1)) / 7) * 100, 100)}
             sx={{
               height: 8,
               borderRadius: 4,

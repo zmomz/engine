@@ -162,16 +162,16 @@ const QueuePage: React.FC = () => {
   };
 
   const getPriorityColor = (score: number) => {
-    if (score >= 80) return '#ef4444'; // Red - Very High
-    if (score >= 60) return '#f59e0b'; // Amber - High
-    if (score >= 40) return '#3b82f6'; // Blue - Medium
+    if (score >= 1_000_000) return '#ef4444'; // Red - Critical (Tier 0-1: pyramid or deep loss)
+    if (score >= 10_000) return '#f59e0b'; // Amber - High (Tier 2: replacements)
+    if (score >= 1_000) return '#3b82f6'; // Blue - Medium (Tier 3: FIFO)
     return '#6b7280'; // Gray - Low
   };
 
   // Calculate metrics for Active tab
   const activeMetrics = useMemo(() => {
     const count = queuedSignals.length;
-    const highPriorityCount = queuedSignals.filter(s => s.priority_score >= 60).length;
+    const highPriorityCount = queuedSignals.filter(s => s.priority_score >= 10_000).length;
     const avgScore = count > 0
       ? queuedSignals.reduce((sum, s) => sum + (s.priority_score || 0), 0) / count
       : 0;
@@ -237,22 +237,25 @@ const QueuePage: React.FC = () => {
     {
       field: 'priority_indicator',
       headerName: '',
-      width: 40,
+      width: 32,
+      minWidth: 32,
+      maxWidth: 32,
       sortable: false,
       filterable: false,
       align: 'center',
+      headerAlign: 'center',
       renderCell: (params: GridRenderCellParams) => {
         const score = Number(params.row.priority_score);
         const color = getPriorityColor(score);
         return (
           <Box
             sx={{
-              width: 8,
-              height: 8,
+              width: 10,
+              height: 10,
               borderRadius: '50%',
               bgcolor: color,
               boxShadow: `0 0 8px ${color}60`,
-              animation: score >= 80 ? 'pulse 2s ease-in-out infinite' : 'none',
+              animation: score >= 1_000_000 ? 'pulse 2s ease-in-out infinite' : 'none',
               '@keyframes pulse': {
                 '0%, 100%': { opacity: 1, transform: 'scale(1)' },
                 '50%': { opacity: 0.7, transform: 'scale(1.2)' },
@@ -265,10 +268,13 @@ const QueuePage: React.FC = () => {
     {
       field: 'id',
       headerName: 'ID',
-      width: 75,
+      width: 80,
+      minWidth: 80,
+      align: 'left',
+      headerAlign: 'left',
       renderCell: (params: GridRenderCellParams) => (
         <Tooltip title={params.value}>
-          <Typography sx={monoStyle}>
+          <Typography sx={{ ...monoStyle, letterSpacing: '-0.02em' }}>
             {params.value?.slice(0, 8)}
           </Typography>
         </Tooltip>
@@ -277,7 +283,10 @@ const QueuePage: React.FC = () => {
     {
       field: 'symbol',
       headerName: 'Symbol',
-      width: 100,
+      width: 110,
+      minWidth: 100,
+      align: 'left',
+      headerAlign: 'left',
       renderCell: (params: GridRenderCellParams) => (
         <Typography sx={{ ...cellStyle, fontWeight: 600 }}>{params.value}</Typography>
       )
@@ -285,25 +294,30 @@ const QueuePage: React.FC = () => {
     {
       field: 'timeframe',
       headerName: 'TF',
-      width: 55,
+      width: 60,
+      minWidth: 60,
       align: 'center',
       headerAlign: 'center',
       renderCell: (params: GridRenderCellParams) => (
-        <Typography sx={cellStyle}>{params.value}m</Typography>
+        <Typography sx={{ ...monoStyle, textAlign: 'center' }}>{params.value}m</Typography>
       )
     },
     {
       field: 'exchange',
       headerName: 'Exchange',
-      width: 85,
+      width: 90,
+      minWidth: 85,
+      align: 'left',
+      headerAlign: 'left',
       renderCell: (params) => (
-        <Typography sx={cellStyle}>{params.value}</Typography>
+        <Typography sx={{ ...cellStyle, textTransform: 'capitalize' }}>{params.value}</Typography>
       )
     },
     {
       field: 'side',
       headerName: 'Side',
-      width: 75,
+      width: 80,
+      minWidth: 75,
       align: 'center',
       headerAlign: 'center',
       renderCell: (params: GridRenderCellParams) => (
@@ -312,14 +326,17 @@ const QueuePage: React.FC = () => {
           color={params.value === 'long' ? 'success' : 'error'}
           size="small"
           variant="outlined"
-          sx={{ fontSize: '0.7rem', height: 22 }}
+          sx={{ fontSize: '0.7rem', height: 22, minWidth: 55 }}
         />
       )
     },
     {
       field: 'priority_score',
       headerName: 'Priority',
-      width: 160,
+      width: 165,
+      minWidth: 160,
+      align: 'left',
+      headerAlign: 'left',
       type: 'number',
       renderCell: (params: GridRenderCellParams) => (
         <PriorityScoreBreakdown
@@ -334,20 +351,22 @@ const QueuePage: React.FC = () => {
     {
       field: 'queued_at',
       headerName: 'Wait',
-      width: 75,
+      width: 85,
+      minWidth: 80,
       align: 'center',
       headerAlign: 'center',
       renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, width: '100%' }}>
           <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-          <Typography sx={cellStyle}>{formatWaitTime(params.value)}</Typography>
+          <Typography sx={{ ...monoStyle, minWidth: 40 }}>{formatWaitTime(params.value)}</Typography>
         </Box>
       )
     },
     {
       field: 'current_loss_percent',
       headerName: 'Loss',
-      width: 65,
+      width: 75,
+      minWidth: 70,
       align: 'right',
       headerAlign: 'right',
       renderCell: (params) => (
@@ -355,7 +374,10 @@ const QueuePage: React.FC = () => {
           sx={{
             ...monoStyle,
             color: getPnlColor(params.value),
-            fontWeight: params.value && params.value < 0 ? 600 : 400
+            fontWeight: params.value && params.value < 0 ? 600 : 400,
+            textAlign: 'right',
+            width: '100%',
+            pr: 1
           }}
         >
           {formatCompactPercent(params.value)}
@@ -365,28 +387,31 @@ const QueuePage: React.FC = () => {
     {
       field: 'replacement_count',
       headerName: 'Repl',
-      width: 50,
+      width: 55,
+      minWidth: 50,
       align: 'center',
       headerAlign: 'center',
       type: 'number',
       renderCell: (params) => (
-        <Typography sx={cellStyle}>{params.value || 0}</Typography>
+        <Typography sx={{ ...monoStyle, textAlign: 'center' }}>{params.value || 0}</Typography>
       )
     },
     {
       field: 'actions',
       headerName: '',
-      width: 155,
+      width: 160,
+      minWidth: 155,
       sortable: false,
       align: 'center',
+      headerAlign: 'center',
       renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
           <Button
             variant="contained"
             color="primary"
             size="small"
             onClick={() => handlePromote(params.row.id)}
-            sx={{ fontSize: '0.75rem', minWidth: 65 }}
+            sx={{ fontSize: '0.75rem', minWidth: 70, px: 1.5 }}
           >
             Promote
           </Button>
@@ -395,7 +420,7 @@ const QueuePage: React.FC = () => {
             color="error"
             size="small"
             onClick={() => handleRemove(params.row.id)}
-            sx={{ fontSize: '0.75rem', minWidth: 65 }}
+            sx={{ fontSize: '0.75rem', minWidth: 70, px: 1.5 }}
           >
             Remove
           </Button>
@@ -581,7 +606,7 @@ const QueuePage: React.FC = () => {
               <MetricCard
                 label="High Priority"
                 value={activeMetrics.highPriorityCount.toString()}
-                subtitle="Score ≥ 60"
+                subtitle="Score ≥ 10K"
                 icon={<WarningIcon />}
                 colorScheme={activeMetrics.highPriorityCount > 0 ? 'bearish' : 'neutral'}
                 variant="small"

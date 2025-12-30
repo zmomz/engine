@@ -42,16 +42,16 @@ const QueueSignalCard: React.FC<QueueSignalCardProps> = ({ signal, onPromote, on
   const [expanded, setExpanded] = useState(false);
 
   const getPriorityColor = (score: number) => {
-    if (score >= 80) return '#ef4444'; // Red - Very High
-    if (score >= 60) return '#f59e0b'; // Amber - High
-    if (score >= 40) return '#3b82f6'; // Blue - Medium
+    if (score >= 1_000_000) return '#ef4444'; // Red - Critical (Tier 0-1: pyramid or deep loss)
+    if (score >= 10_000) return '#f59e0b'; // Amber - High (Tier 2: replacements)
+    if (score >= 1_000) return '#3b82f6'; // Blue - Medium (Tier 3: FIFO)
     return '#6b7280'; // Gray - Low
   };
 
   const getPriorityLabel = (score: number) => {
-    if (score >= 80) return 'CRITICAL';
-    if (score >= 60) return 'HIGH';
-    if (score >= 40) return 'MEDIUM';
+    if (score >= 1_000_000) return 'CRITICAL';
+    if (score >= 10_000) return 'HIGH';
+    if (score >= 1_000) return 'MEDIUM';
     return 'LOW';
   };
 
@@ -141,11 +141,11 @@ const QueueSignalCard: React.FC<QueueSignalCardProps> = ({ signal, onPromote, on
           </Box>
         </Box>
 
-        {/* Priority Progress Bar */}
+        {/* Priority Progress Bar - log scale for 1K to 10M range */}
         <Box sx={{ mb: 1.5 }}>
           <LinearProgress
             variant="determinate"
-            value={signal.priority_score || 0}
+            value={Math.min((Math.log10(Math.max(signal.priority_score || 1, 1)) / 7) * 100, 100)}
             sx={{
               height: 6,
               borderRadius: 3,

@@ -27,7 +27,7 @@ describe('QueueSignalCard', () => {
     side: 'long',
     timeframe: 60,
     exchange: 'binance',
-    priority_score: 75,
+    priority_score: 1_050_000, // Tier 1: deep loss with replacements and time in queue
     priority_explanation: 'High priority due to loss recovery',
     current_loss_percent: -5.5,
     replacement_count: 2,
@@ -65,7 +65,7 @@ describe('QueueSignalCard', () => {
       renderWithTheme(
         <QueueSignalCard signal={mockSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
       );
-      expect(screen.getByText('75')).toBeInTheDocument();
+      expect(screen.getByText('1050000')).toBeInTheDocument();
       expect(screen.getByText('Priority Score')).toBeInTheDocument();
     });
 
@@ -78,31 +78,32 @@ describe('QueueSignalCard', () => {
   });
 
   describe('priority labels', () => {
-    it('shows CRITICAL for score >= 80', () => {
-      const criticalSignal = { ...mockSignal, priority_score: 85 };
+    it('shows CRITICAL for score >= 1M (pyramid/deep loss tier)', () => {
+      const criticalSignal = { ...mockSignal, priority_score: 1_500_000 };
       renderWithTheme(
         <QueueSignalCard signal={criticalSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
       );
       expect(screen.getByText('CRITICAL')).toBeInTheDocument();
     });
 
-    it('shows HIGH for score >= 60', () => {
+    it('shows HIGH for score >= 10K (replacement tier)', () => {
+      const highSignal = { ...mockSignal, priority_score: 50_000 };
       renderWithTheme(
-        <QueueSignalCard signal={mockSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
+        <QueueSignalCard signal={highSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
       );
       expect(screen.getByText('HIGH')).toBeInTheDocument();
     });
 
-    it('shows MEDIUM for score >= 40', () => {
-      const mediumSignal = { ...mockSignal, priority_score: 50 };
+    it('shows MEDIUM for score >= 1K (FIFO tier)', () => {
+      const mediumSignal = { ...mockSignal, priority_score: 5_000 };
       renderWithTheme(
         <QueueSignalCard signal={mediumSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
       );
       expect(screen.getByText('MEDIUM')).toBeInTheDocument();
     });
 
-    it('shows LOW for score < 40', () => {
-      const lowSignal = { ...mockSignal, priority_score: 30 };
+    it('shows LOW for score < 1K', () => {
+      const lowSignal = { ...mockSignal, priority_score: 500 };
       renderWithTheme(
         <QueueSignalCard signal={lowSignal} onPromote={mockOnPromote} onRemove={mockOnRemove} />
       );

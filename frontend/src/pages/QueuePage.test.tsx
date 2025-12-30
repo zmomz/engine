@@ -60,7 +60,7 @@ describe('QueuePage', () => {
       timeframe: 60,
       exchange: 'binance',
       signal_type: 'grid_entry',
-      priority_score: 75,
+      priority_score: 1_050_000, // Tier 1: deep loss (>= 1M is Critical)
       current_loss_percent: -3.5,
       replacement_count: 2,
       queued_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
@@ -74,7 +74,7 @@ describe('QueuePage', () => {
       timeframe: 15,
       exchange: 'binance',
       signal_type: 'dca_leg',
-      priority_score: 45,
+      priority_score: 5_000, // Tier 3: FIFO (>= 1K is Medium)
       current_loss_percent: -1.2,
       replacement_count: 0,
       queued_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago
@@ -450,7 +450,7 @@ describe('QueuePage', () => {
     });
 
     it('shows high priority count correctly', () => {
-      // mockSignals has one with score 75 (>= 60)
+      // mockSignals has one with score 1_050_000 (>= 10K is High priority)
       renderWithRouter(<QueuePage />);
 
       expect(screen.getByText('High Priority')).toBeInTheDocument();
