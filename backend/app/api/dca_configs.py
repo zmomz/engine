@@ -64,12 +64,16 @@ async def create_dca_config(
         entry_order_type=config_in.entry_order_type,
         dca_levels=[level.model_dump(mode='json') for level in config_in.dca_levels],
         pyramid_specific_levels={
-            k: [l.model_dump(mode='json') for l in v] 
+            k: [l.model_dump(mode='json') for l in v]
             for k, v in (config_in.pyramid_specific_levels or {}).items()
         },
         tp_mode=config_in.tp_mode,
         tp_settings=config_in.tp_settings,
-        max_pyramids=config_in.max_pyramids
+        max_pyramids=config_in.max_pyramids,
+        # Capital Override Settings
+        use_custom_capital=config_in.use_custom_capital if config_in.use_custom_capital is not None else False,
+        custom_capital_usd=float(config_in.custom_capital_usd) if config_in.custom_capital_usd is not None else 200.0,
+        pyramid_custom_capitals={k: float(v) for k, v in (config_in.pyramid_custom_capitals or {}).items()}
     )
     
     created = await repo.create(new_config)
@@ -101,7 +105,7 @@ async def update_dca_config(
         config.dca_levels = [level.model_dump(mode='json') for level in config_update.dca_levels]
     if config_update.pyramid_specific_levels is not None:
         config.pyramid_specific_levels = {
-            k: [l.model_dump(mode='json') for l in v] 
+            k: [l.model_dump(mode='json') for l in v]
             for k, v in config_update.pyramid_specific_levels.items()
         }
     if config_update.tp_mode:
@@ -110,6 +114,13 @@ async def update_dca_config(
         config.tp_settings = config_update.tp_settings
     if config_update.max_pyramids is not None:
         config.max_pyramids = config_update.max_pyramids
+    # Capital Override Settings
+    if config_update.use_custom_capital is not None:
+        config.use_custom_capital = config_update.use_custom_capital
+    if config_update.custom_capital_usd is not None:
+        config.custom_capital_usd = float(config_update.custom_capital_usd)
+    if config_update.pyramid_custom_capitals is not None:
+        config.pyramid_custom_capitals = {k: float(v) for k, v in config_update.pyramid_custom_capitals.items()}
 
     await db.commit()
     await db.refresh(config)

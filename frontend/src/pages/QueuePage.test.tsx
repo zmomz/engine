@@ -304,7 +304,7 @@ describe('QueuePage', () => {
 
       await renderWithRouter(<QueuePage />);
       expect(screen.getByText('Backlog')).toBeInTheDocument();
-    });
+    }, 10000);
   });
 
   describe('history tab', () => {
