@@ -512,8 +512,12 @@
                         <div class="form-group">
                             <label>Timeframe</label>
                             <select id="webhook-timeframe">
+                                <option value="1">1m</option>
+                                <option value="5">5m</option>
                                 <option value="15">15m</option>
+                                <option value="30">30m</option>
                                 <option value="60" selected>1h</option>
+                                <option value="120">2h</option>
                                 <option value="240">4h</option>
                                 <option value="1440">1D</option>
                             </select>
@@ -855,6 +859,7 @@
                 user_id: document.getElementById('webhook-user-id').value,
                 secret: document.getElementById('webhook-secret').value,
                 source: 'tradingview',
+                timestamp: new Date().toISOString(),
                 tv: {
                     exchange: document.getElementById('webhook-exchange').value,
                     symbol: document.getElementById('webhook-symbol').value,

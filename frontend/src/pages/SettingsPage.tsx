@@ -120,12 +120,24 @@ const telegramConfigSchema = z.object({
 });
 
 const exchangeSettingsSchema = z.object({
-  key_target_exchange: z.string().min(1, 'Target exchange is required'),
+  key_target_exchange: z.string(),
   api_key: z.string().optional(),
   secret_key: z.string().optional(),
   testnet: z.boolean().optional(),
   account_type: z.string().optional(),
-});
+}).refine(
+  (data) => {
+    // Only require key_target_exchange when api_key and secret_key are provided
+    if (data.api_key && data.secret_key) {
+      return data.key_target_exchange.length > 0;
+    }
+    return true;
+  },
+  {
+    message: 'Target exchange is required when setting API keys',
+    path: ['key_target_exchange']
+  }
+);
 
 const priorityRulesSchema = z.object({
   priority_rules_enabled: z.object({
@@ -348,8 +360,14 @@ const SettingsPage: React.FC = () => {
   };
 
   const onSubmit = async (data: FormValues) => {
+    // Merge form risk_config with existing settings to preserve unedited fields
+    const mergedRiskConfig = {
+      ...settings?.risk_config,  // Preserve existing fields not in form
+      ...data.riskEngineConfig,  // Override with form values
+    };
+
     const payload: SettingsUpdatePayload = {
-      risk_config: data.riskEngineConfig,
+      risk_config: mergedRiskConfig,
       username: data.appSettings.username,
       email: data.appSettings.email,
       webhook_secret: data.appSettings.webhook_secret,
@@ -360,6 +378,13 @@ const SettingsPage: React.FC = () => {
       payload.api_key = data.exchangeSettings.api_key;
       payload.secret_key = data.exchangeSettings.secret_key;
       payload.key_target_exchange = data.exchangeSettings.key_target_exchange;
+      // Include testnet and account_type if provided
+      if (data.exchangeSettings.testnet !== undefined) {
+        payload.testnet = data.exchangeSettings.testnet;
+      }
+      if (data.exchangeSettings.account_type) {
+        payload.account_type = data.exchangeSettings.account_type;
+      }
     }
 
     await updateSettings(payload);

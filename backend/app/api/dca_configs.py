@@ -18,6 +18,18 @@ from app.schemas.grid_config import (
 
 router = APIRouter()
 
+
+def normalize_pair(pair: str) -> str:
+    """Normalize pair format: BTCUSDT -> BTC/USDT"""
+    if '/' in pair:
+        return pair
+    if len(pair) > 3:
+        if pair.endswith('USDT'):
+            return pair[:-4] + '/' + pair[-4:]
+        elif pair.endswith(('USD', 'BTC', 'ETH', 'BNB')):
+            return pair[:-3] + '/' + pair[-3:]
+    return pair
+
 @router.get("/", response_model=List[DCAConfigurationSchema])
 async def get_my_dca_configs(
     current_user: User = Depends(get_current_user),
@@ -42,23 +54,26 @@ async def create_dca_config(
     Create a new DCA configuration.
     """
     repo = DCAConfigurationRepository(db)
-    
+
+    # Normalize pair format (BTCUSDT -> BTC/USDT)
+    normalized_pair = normalize_pair(config_in.pair)
+
     # Check if exists
     existing = await repo.get_specific_config(
         user_id=current_user.id,
-        pair=config_in.pair,
+        pair=normalized_pair,
         timeframe=config_in.timeframe,
         exchange=config_in.exchange
     )
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Configuration already exists for {config_in.pair} {config_in.timeframe} on {config_in.exchange}"
+            detail=f"Configuration already exists for {normalized_pair} {config_in.timeframe} on {config_in.exchange}"
         )
 
     new_config = DCAConfiguration(
         user_id=current_user.id,
-        pair=config_in.pair,
+        pair=normalized_pair,
         timeframe=config_in.timeframe,
         exchange=config_in.exchange,
         entry_order_type=config_in.entry_order_type,

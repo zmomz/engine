@@ -6,6 +6,8 @@ from slowapi.middleware import SlowAPIMiddleware
 import os
 import logging
 import sys
+import uuid
+import asyncio
 
 from app.api import health, webhooks, risk, positions, queue, users, settings as api_settings, dashboard, logs, dca_configs, telegram
 from app.rate_limiter import limiter
@@ -23,10 +25,14 @@ from app.services.risk_engine import RiskEngineService
 from app.schemas.grid_config import RiskEngineConfig
 from app.core.logging_config import setup_logging
 from app.core.config import settings
+from app.core.cache import get_cache
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 logger = logging.getLogger(__name__)
+
+# Unique ID for this worker instance
+WORKER_ID = str(uuid.uuid4())[:8]
 
 # Validate CORS for production
 if settings.ENVIRONMENT == "production":
@@ -59,66 +65,131 @@ if os.getenv("TESTING") != "true":
 
 
 
+async def try_become_leader() -> bool:
+    """
+    Try to become the leader worker for running background tasks.
+    Uses Redis distributed lock to ensure only one worker runs background tasks.
+    """
+    try:
+        cache = await get_cache()
+        # Try to acquire leader lock with 60 second TTL
+        # The lock will be renewed by a background task
+        acquired = await cache.acquire_lock("background_task_leader", WORKER_ID, ttl_seconds=60)
+        return acquired
+    except Exception as e:
+        logger.warning(f"Failed to check leader status: {e}. Assuming not leader.")
+        return False
+
+
+async def renew_leader_lock():
+    """Background task to renew the leader lock periodically."""
+    cache = await get_cache()
+    while app.state.is_leader:
+        try:
+            # Re-acquire lock every 30 seconds (before 60s TTL expires)
+            await asyncio.sleep(30)
+            if app.state.is_leader:
+                acquired = await cache.acquire_lock("background_task_leader", WORKER_ID, ttl_seconds=60)
+                if not acquired:
+                    # Lost leadership
+                    logger.warning(f"Worker {WORKER_ID} lost leader status")
+                    app.state.is_leader = False
+                    break
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Failed to renew leader lock: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     # Setup Logging
     setup_logging()
-    
-    logger.info(f"Starting up in {settings.ENVIRONMENT} mode")
+
+    logger.info(f"Worker {WORKER_ID} starting up in {settings.ENVIRONMENT} mode")
     logger.info(f"CORS Allowed Origins: {settings.CORS_ORIGINS}")
 
-    # OrderFillMonitorService
-    # Now initialized without specific exchange connector, it handles multi-user iteration internally.
-    app.state.order_fill_monitor = OrderFillMonitorService(
-        session_factory=AsyncSessionLocal,
-        dca_order_repository_class=DCAOrderRepository,
-        position_group_repository_class=PositionGroupRepository,
-        order_service_class=OrderService,
-        position_manager_service_class=PositionManagerService
-    )
-    await app.state.order_fill_monitor.start_monitoring_task()
+    # Try to become the leader worker for background tasks
+    app.state.is_leader = await try_become_leader()
+    app.state.leader_renewal_task = None
 
+    # These services are needed by all workers for request handling
     # GridCalculatorService is stateless, so it can be initialized at startup
     app.state.grid_calculator_service = GridCalculatorService()
 
-    # ExecutionPoolManager
+    # ExecutionPoolManager - needed before QueueManagerService
     app.state.execution_pool_manager = ExecutionPoolManager(
         session_factory=AsyncSessionLocal,
         position_group_repository_class=PositionGroupRepository
     )
 
-    # QueueManagerService
-    app.state.queue_manager_service = QueueManagerService(
-        session_factory=AsyncSessionLocal,
-        execution_pool_manager=app.state.execution_pool_manager
-    )
-    await app.state.queue_manager_service.start_promotion_task()
+    if app.state.is_leader:
+        logger.info(f"Worker {WORKER_ID} elected as LEADER - will run background tasks")
 
-    # RiskEngineService - Background monitoring task for automatic risk management
-    app.state.risk_engine_service = RiskEngineService(
-        session_factory=get_db_session,  # Use async generator function
-        position_group_repository_class=PositionGroupRepository,
-        risk_action_repository_class=RiskActionRepository,
-        dca_order_repository_class=DCAOrderRepository,
-        order_service_class=OrderService,
-        risk_engine_config=RiskEngineConfig(),  # Uses default config; user-specific configs loaded per evaluation
-        polling_interval_seconds=60  # Check positions every 60 seconds
-    )
-    await app.state.risk_engine_service.start_monitoring_task()
-    logger.info("Risk Engine monitoring task started (polling every 60 seconds)")
+        # Start leader lock renewal task
+        app.state.leader_renewal_task = asyncio.create_task(renew_leader_lock())
+
+        # OrderFillMonitorService
+        # Now initialized without specific exchange connector, it handles multi-user iteration internally.
+        app.state.order_fill_monitor = OrderFillMonitorService(
+            session_factory=AsyncSessionLocal,
+            dca_order_repository_class=DCAOrderRepository,
+            position_group_repository_class=PositionGroupRepository,
+            order_service_class=OrderService,
+            position_manager_service_class=PositionManagerService
+        )
+        await app.state.order_fill_monitor.start_monitoring_task()
+
+        # QueueManagerService
+        app.state.queue_manager_service = QueueManagerService(
+            session_factory=AsyncSessionLocal,
+            execution_pool_manager=app.state.execution_pool_manager
+        )
+        await app.state.queue_manager_service.start_promotion_task()
+
+        # RiskEngineService - Background monitoring task for automatic risk management
+        app.state.risk_engine_service = RiskEngineService(
+            session_factory=get_db_session,  # Use async generator function
+            position_group_repository_class=PositionGroupRepository,
+            risk_action_repository_class=RiskActionRepository,
+            dca_order_repository_class=DCAOrderRepository,
+            order_service_class=OrderService,
+            risk_engine_config=RiskEngineConfig(),  # Uses default config; user-specific configs loaded per evaluation
+            polling_interval_seconds=60  # Check positions every 60 seconds
+        )
+        await app.state.risk_engine_service.start_monitoring_task()
+        logger.info("Risk Engine monitoring task started (polling every 60 seconds)")
+    else:
+        logger.info(f"Worker {WORKER_ID} is a FOLLOWER - background tasks will be handled by leader")
 
     # PositionManagerService is now instantiated per-request.
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    if hasattr(app.state, "order_fill_monitor"):
-        await app.state.order_fill_monitor.stop_monitoring_task()
-    if hasattr(app.state, "queue_manager_service"):
-        await app.state.queue_manager_service.stop_promotion_task()
-    if hasattr(app.state, "risk_engine_service"):
-        await app.state.risk_engine_service.stop_monitoring_task()
-        logger.info("Risk Engine monitoring task stopped")
+    logger.info(f"Worker {WORKER_ID} shutting down (is_leader={getattr(app.state, 'is_leader', False)})")
+
+    # Only stop background tasks if this worker was the leader
+    if getattr(app.state, 'is_leader', False):
+        if hasattr(app.state, "order_fill_monitor"):
+            await app.state.order_fill_monitor.stop_monitoring_task()
+        if hasattr(app.state, "queue_manager_service"):
+            await app.state.queue_manager_service.stop_promotion_task()
+        if hasattr(app.state, "risk_engine_service"):
+            await app.state.risk_engine_service.stop_monitoring_task()
+            logger.info("Risk Engine monitoring task stopped")
+
+        # Cancel leader renewal task
+        if hasattr(app.state, "leader_renewal_task") and app.state.leader_renewal_task:
+            app.state.leader_renewal_task.cancel()
+
+        # Release leader lock
+        try:
+            cache = await get_cache()
+            await cache.release_lock("background_task_leader", WORKER_ID)
+            logger.info(f"Worker {WORKER_ID} released leader lock")
+        except Exception as e:
+            logger.warning(f"Failed to release leader lock: {e}")
 
 
 app.include_router(health.router, prefix="/api/v1/health", tags=["Health Check"])

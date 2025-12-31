@@ -81,8 +81,20 @@ async def update_settings(
     update_data.pop("account_type", None) # Added to remove from update_data
 
     # Apply updates to the current_user instance
+    # For nested config fields, merge instead of replace to preserve unedited fields
+    nested_config_fields = {"risk_config", "telegram_config"}
+
     for field, value in update_data.items():
-        setattr(current_user, field, value)
+        if field in nested_config_fields and value is not None:
+            # Merge with existing config instead of replacing
+            existing_config = getattr(current_user, field, None) or {}
+            if isinstance(existing_config, dict) and isinstance(value, dict):
+                merged_config = {**existing_config, **value}
+                setattr(current_user, field, merged_config)
+            else:
+                setattr(current_user, field, value)
+        else:
+            setattr(current_user, field, value)
 
     # Use the repository to save the updated instance
     updated_user = await user_repo.update(current_user)

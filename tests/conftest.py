@@ -50,16 +50,32 @@ async def test_db_engine():
         )
 
     engine = create_async_engine(DATABASE_URL, echo=False)
-    async with engine.begin() as conn:
-        from sqlalchemy import text
+
+    # Create ENUM types in a separate transaction - they persist even if already exist
+    from sqlalchemy import text
+    from sqlalchemy.exc import ProgrammingError
+
+    # Create each ENUM type in its own transaction to avoid failed transaction state
+    enum_types = [
+        "CREATE TYPE group_status_enum AS ENUM ('waiting', 'live', 'partially_filled', 'active', 'closing', 'closed', 'failed')",
+        "CREATE TYPE position_side_enum AS ENUM ('long', 'short')",
+        "CREATE TYPE tp_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid')"
+    ]
+
+    for enum_sql in enum_types:
         try:
-            await conn.execute(text("CREATE TYPE group_status_enum AS ENUM ('waiting', 'live', 'partially_filled', 'active', 'closing', 'closed', 'failed')"))
-            await conn.execute(text("CREATE TYPE position_side_enum AS ENUM ('long', 'short')"))
-            await conn.execute(text("CREATE TYPE tp_mode_enum AS ENUM ('per_leg', 'aggregate', 'hybrid')"))
-        except Exception:
-            pass # Type might already exist
+            async with engine.begin() as conn:
+                await conn.execute(text(enum_sql))
+        except (ProgrammingError, Exception):
+            # Type already exists - this is fine, each failed transaction is isolated
+            pass
+
+    # Create tables in a fresh transaction
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
     yield engine
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
@@ -69,8 +85,13 @@ async def db_session(test_db_engine):
         test_db_engine, class_=AsyncSession, expire_on_commit=False
     )
     async with async_session() as session:
-        yield session
-        await session.close() # Ensure the session is closed after the test
+        try:
+            yield session
+        finally:
+            # Always rollback to clean up any failed transactions
+            # This prevents "InFailedSQLTransactionError" from cascading to other tests
+            await session.rollback()
+            await session.close()
 
 
 @pytest.fixture(scope="function")

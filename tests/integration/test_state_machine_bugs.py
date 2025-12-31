@@ -44,6 +44,22 @@ TEST_SYMBOLS = {
     "XRPUSDT": 0.50,
 }
 
+# Default DCA config for test symbols
+DEFAULT_DCA_CONFIG = {
+    "entry_order_type": "limit",
+    "dca_levels": [
+        {"gap_percent": 0, "weight_percent": 20, "tp_percent": 2},
+        {"gap_percent": -1, "weight_percent": 20, "tp_percent": 1.5},
+        {"gap_percent": -2, "weight_percent": 20, "tp_percent": 1},
+        {"gap_percent": -3, "weight_percent": 20, "tp_percent": 0.5},
+        {"gap_percent": -5, "weight_percent": 20, "tp_percent": 0.5}
+    ],
+    "pyramid_specific_levels": {},
+    "tp_mode": "per_leg",
+    "tp_settings": {},
+    "max_pyramids": 3
+}
+
 
 @pytest.fixture(scope="function")
 async def check_services_available():
@@ -70,6 +86,113 @@ async def check_services_available():
         pytest.skip("Mock exchange not available at " + MOCK_URL)
 
     return True
+
+
+@pytest.fixture(scope="function")
+async def clear_test_queue(check_services_available):
+    """
+    Clears any stale queued signals for test symbols before running tests.
+    This prevents 'Duplicate signal rejected' errors from previous test runs.
+    """
+    async with httpx.AsyncClient(timeout=30.0, base_url=BASE_URL) as client:
+        # Login
+        r = await client.post(
+            "/api/v1/users/login",
+            data={"username": TEST_USER, "password": TEST_PASSWORD}
+        )
+        if r.status_code != 200:
+            return  # Skip if can't login
+
+        cookies = r.cookies
+
+        # Get all queued signals
+        try:
+            r = await client.get("/api/v1/queue/", cookies=cookies)
+            if r.status_code == 200:
+                signals = r.json()
+                test_pairs = {f"{s[:-4]}/USDT" for s in TEST_SYMBOLS.keys()}
+
+                for sig in signals:
+                    if sig.get("symbol") in test_pairs:
+                        sig_id = sig.get("id")
+                        if sig_id:
+                            try:
+                                await client.delete(f"/api/v1/queue/{sig_id}", cookies=cookies)
+                            except httpx.HTTPError:
+                                pass
+        except httpx.HTTPError:
+            pass
+
+    yield
+
+
+@pytest.fixture(scope="function")
+async def setup_dca_configs(check_services_available):
+    """
+    Creates DCA configurations for all test symbols before running tests.
+    Cleans up created configs after test completion.
+    """
+    created_config_ids = []
+
+    async with httpx.AsyncClient(timeout=30.0, base_url=BASE_URL) as client:
+        # Login
+        r = await client.post(
+            "/api/v1/users/login",
+            data={"username": TEST_USER, "password": TEST_PASSWORD}
+        )
+        if r.status_code != 200:
+            pytest.skip("Could not authenticate for DCA config setup")
+        cookies = r.cookies
+
+        # Get existing configs to avoid duplicates
+        r = await client.get("/api/v1/dca-configs/", cookies=cookies)
+        existing_configs = r.json() if r.status_code == 200 else []
+        existing_pairs = {c.get("pair") for c in existing_configs}
+
+        # Create DCA config for each test symbol
+        for symbol_raw in TEST_SYMBOLS.keys():
+            # Convert TRXUSDT -> TRX/USDT
+            if symbol_raw.endswith("USDT"):
+                pair = symbol_raw[:-4] + "/USDT"
+            else:
+                pair = symbol_raw
+
+            # Skip if already exists
+            if pair in existing_pairs:
+                continue
+
+            config_payload = {
+                **DEFAULT_DCA_CONFIG,
+                "pair": pair,
+                "timeframe": 60,
+                "exchange": "mock"
+            }
+
+            r = await client.post(
+                "/api/v1/dca-configs/",
+                json=config_payload,
+                cookies=cookies
+            )
+            if r.status_code == 200:
+                config_id = r.json().get("id")
+                if config_id:
+                    created_config_ids.append(config_id)
+
+    yield created_config_ids
+
+    # Cleanup: Delete created configs
+    async with httpx.AsyncClient(timeout=30.0, base_url=BASE_URL) as client:
+        r = await client.post(
+            "/api/v1/users/login",
+            data={"username": TEST_USER, "password": TEST_PASSWORD}
+        )
+        if r.status_code == 200:
+            cookies = r.cookies
+            for config_id in created_config_ids:
+                try:
+                    await client.delete(f"/api/v1/dca-configs/{config_id}", cookies=cookies)
+                except httpx.HTTPError:
+                    pass  # Ignore cleanup errors
 
 
 @pytest.fixture(scope="function")
@@ -122,12 +245,58 @@ async def setup_mock_prices(check_services_available):
 
 
 @pytest.fixture(scope="function")
-async def cleanup_test_positions(authenticated_client):
+async def cleanup_test_positions(authenticated_client, clear_test_queue):
     """
     Function-scoped fixture to clean up any test positions after each test.
+    Also clears stale queue signals before the test runs.
     Gets list of active positions before test, then only cleans those specific positions after.
     This prevents race conditions where cleanup from one test affects positions in the next test.
     """
+    # Close any existing test symbol positions BEFORE the test
+    # This ensures a clean slate for each test
+    test_pairs = {f"{s[:-4]}/USDT" for s in TEST_SYMBOLS.keys()}
+    try:
+        r = await authenticated_client.get("/api/v1/positions/active")
+        if r.status_code == 200:
+            for p in r.json():
+                if p.get("symbol") in test_pairs:
+                    # Send exit signal to close the position
+                    exit_payload = {
+                        "user_id": WEBHOOK_ID,
+                        "secret": WEBHOOK_SECRET,
+                        "source": "tradingview",
+                        "timestamp": datetime.now().isoformat(),
+                        "tv": {
+                            "exchange": "mock", "symbol": p.get("symbol"), "timeframe": 60,
+                            "action": "sell", "market_position": "flat",
+                            "market_position_size": 0, "prev_market_position": "long",
+                            "prev_market_position_size": 100, "entry_price": 100,
+                            "close_price": 100, "order_size": 100
+                        },
+                        "strategy_info": {
+                            "trade_id": f"pre_cleanup_{datetime.now().strftime('%H%M%S%f')}",
+                            "alert_name": "Pre-Cleanup",
+                            "alert_message": "Clean before test"
+                        },
+                        "execution_intent": {
+                            "type": "exit", "side": "sell",
+                            "position_size_type": "quote", "precision_mode": "auto"
+                        },
+                        "risk": {"max_slippage_percent": 1.0}
+                    }
+                    try:
+                        await authenticated_client.post(
+                            f"/api/v1/webhooks/{WEBHOOK_ID}/tradingview",
+                            json=exit_payload
+                        )
+                    except httpx.HTTPError:
+                        pass
+    except httpx.HTTPError:
+        pass
+
+    # Wait for cleanup to complete
+    await asyncio.sleep(2)
+
     # Get list of position IDs that exist BEFORE the test
     positions_before = []
     try:
@@ -285,7 +454,7 @@ async def get_order_states(client, position_id: str):
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_order_status_after_hedge_execution(
-    authenticated_client, setup_mock_prices, cleanup_test_positions
+    authenticated_client, setup_mock_prices, cleanup_test_positions, setup_dca_configs
 ):
     """
     BUG: Order status incorrect after hedge execution
@@ -368,7 +537,7 @@ async def test_order_status_after_hedge_execution(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_position_status_after_partial_tp(
-    authenticated_client, setup_mock_prices, cleanup_test_positions
+    authenticated_client, setup_mock_prices, cleanup_test_positions, setup_dca_configs
 ):
     """
     BUG: Position status incorrect after partial take profit
@@ -418,7 +587,7 @@ async def test_position_status_after_partial_tp(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_pyramid_status_transitions(
-    authenticated_client, setup_mock_prices, cleanup_test_positions
+    authenticated_client, setup_mock_prices, cleanup_test_positions, setup_dca_configs
 ):
     """
     BUG: Pyramid status not updating correctly
@@ -535,7 +704,7 @@ async def test_risk_timer_state_transitions(authenticated_client, setup_mock_pri
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_order_fill_monitor_state_sync(
-    authenticated_client, setup_mock_prices, cleanup_test_positions
+    authenticated_client, setup_mock_prices, cleanup_test_positions, setup_dca_configs
 ):
     """
     BUG: Order fill monitor not syncing state with exchange
@@ -618,7 +787,7 @@ async def test_order_fill_monitor_state_sync(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_position_close_cleans_all_orders(
-    authenticated_client, setup_mock_prices, cleanup_test_positions
+    authenticated_client, setup_mock_prices, cleanup_test_positions, setup_dca_configs
 ):
     """
     BUG: Position close doesn't cancel all remaining orders
@@ -677,7 +846,7 @@ async def test_position_close_cleans_all_orders(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_duplicate_fill_events_handling(
-    authenticated_client, setup_mock_prices, cleanup_test_positions
+    authenticated_client, setup_mock_prices, cleanup_test_positions, setup_dca_configs
 ):
     """
     BUG: Duplicate fill events cause incorrect state
