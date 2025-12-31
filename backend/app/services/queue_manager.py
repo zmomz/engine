@@ -58,20 +58,61 @@ class QueueManagerService:
         self._promotion_task = None
         self._encryption_service = EncryptionService()
 
+    def _is_within_same_timeframe_period(self, existing_queued_at: datetime, timeframe_minutes: int) -> bool:
+        """
+        Check if the existing signal was queued within the same timeframe period as the current signal.
+
+        A signal is considered a "duplicate" if it was received within the same candle period.
+        For example, with a 5m timeframe:
+        - If existing signal was queued at 10:02 and new signal arrives at 10:04, it's a duplicate (same 10:00-10:05 candle)
+        - If existing signal was queued at 10:02 and new signal arrives at 10:07, it's a replacement (new 10:05-10:10 candle)
+        """
+        now = datetime.utcnow()
+
+        # Calculate the start of the current timeframe period
+        # Floor the current time to the nearest timeframe boundary
+        current_period_start = now.replace(
+            minute=(now.minute // timeframe_minutes) * timeframe_minutes,
+            second=0,
+            microsecond=0
+        )
+
+        # For timeframes >= 60 minutes (1h, 4h, 1d, etc.), also need to handle hours/days
+        if timeframe_minutes >= 60:
+            hours_per_period = timeframe_minutes // 60
+            current_period_start = current_period_start.replace(
+                hour=(now.hour // hours_per_period) * hours_per_period,
+                minute=0
+            )
+        if timeframe_minutes >= 1440:  # Daily or longer
+            current_period_start = current_period_start.replace(hour=0, minute=0)
+
+        # Check if the existing signal was queued in the current period
+        return existing_queued_at >= current_period_start
+
     async def add_signal_to_queue(self, payload: WebhookPayload) -> QueuedSignal:
         """
-        Adds a new signal to the queue or updates an existing one (replacement).
+        Adds a new signal to the queue.
+
+        Duplicate handling:
+        - If a signal for the same symbol/timeframe/side/exchange exists AND was received
+          within the SAME timeframe period (candle), it's rejected as a duplicate.
+        - If the existing signal was received in a PREVIOUS timeframe period, the signal
+          is treated as a replacement (updates entry_price and increments replacement_count).
+
+        Raises:
+            ValueError: If a duplicate signal exists within the same timeframe period.
         """
         if not self.user:
             logger.error("User context required to add signal to queue, but self.user is None.")
             raise ValueError("User context required to add signal to queue.")
 
-        logger.debug(f"Attempting to add/update signal for user {self.user.id} symbol {payload.tv.symbol}.")
+        logger.debug(f"Attempting to add signal for user {self.user.id} symbol {payload.tv.symbol}.")
 
         async with self.session_factory() as session:
             repo = self.queued_signal_repository_class(session)
-            
-            # Check for existing signal (SECURITY: user_id required to prevent cross-user replacement)
+
+            # Check for existing signal (SECURITY: user_id required to prevent cross-user access)
             existing_signal = await repo.get_by_symbol_timeframe_side(
                 user_id=str(self.user.id),
                 symbol=payload.tv.symbol,
@@ -79,19 +120,38 @@ class QueueManagerService:
                 side=payload.tv.action, # Assuming action maps to side
                 exchange=payload.tv.exchange.lower()
             )
-            
+
             if existing_signal:
-                logger.debug(f"Existing signal found for {existing_signal.symbol}. Applying replacement logic.")
-                # Replacement Logic
-                existing_signal.entry_price = Decimal(str(payload.tv.entry_price))
-                existing_signal.replacement_count += 1
-                # Keep original queued_at to respect FIFO tiebreak based on first intent
-                existing_signal.signal_payload = payload.model_dump(mode='json')
-                
-                await repo.update(existing_signal)
-                await session.commit()
-                logger.info(f"Replaced queued signal for {existing_signal.symbol}, count: {existing_signal.replacement_count}")
-                return existing_signal
+                # Check if signal was received within the same timeframe period
+                is_duplicate = self._is_within_same_timeframe_period(
+                    existing_signal.queued_at,
+                    payload.tv.timeframe
+                )
+
+                if is_duplicate:
+                    # Reject duplicate - signal already exists within same candle period
+                    logger.warning(
+                        f"Duplicate signal rejected for {payload.tv.symbol} "
+                        f"(timeframe: {payload.tv.timeframe}m, exchange: {payload.tv.exchange}). "
+                        f"Signal already queued at {existing_signal.queued_at} (same candle period)."
+                    )
+                    raise ValueError(
+                        f"Duplicate signal rejected: Signal for {payload.tv.symbol} "
+                        f"(timeframe: {payload.tv.timeframe}m) already exists in queue for current candle."
+                    )
+                else:
+                    # Different candle period - treat as replacement
+                    logger.debug(f"Existing signal found for {existing_signal.symbol} from previous candle. Applying replacement logic.")
+                    existing_signal.entry_price = Decimal(str(payload.tv.entry_price))
+                    existing_signal.replacement_count += 1
+                    # Update queued_at to new time since it's a new candle
+                    existing_signal.queued_at = datetime.utcnow()
+                    existing_signal.signal_payload = payload.model_dump(mode='json')
+
+                    await repo.update(existing_signal)
+                    await session.commit()
+                    logger.info(f"Replaced queued signal for {existing_signal.symbol}, count: {existing_signal.replacement_count}")
+                    return existing_signal
             else:
                 logger.debug(f"No existing signal found for {payload.tv.symbol}. Creating new signal.")
                 # New Signal
@@ -541,6 +601,18 @@ class QueueManagerService:
             )
 
             if not is_allowed:
+                # Check if this is a circuit breaker rejection - keep signal queued
+                is_circuit_breaker = (
+                    "Engine paused" in rejection_reason or
+                    "Engine force stopped" in rejection_reason or
+                    "max realized loss limit reached" in rejection_reason.lower()
+                )
+
+                if is_circuit_breaker:
+                    # Circuit breaker active - keep signal in queue, don't execute or reject
+                    logger.info(f"Queue promotion paused by circuit breaker: {rejection_reason}. Signal kept in queue.")
+                    continue  # Try next user's signals without changing status
+
                 logger.warning(f"Queue promotion blocked by risk validation: {rejection_reason}")
                 best_signal.status = QueueStatus.REJECTED
                 best_signal.rejection_reason = rejection_reason

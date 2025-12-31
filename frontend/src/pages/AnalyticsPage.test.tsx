@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, RenderResult } from '@testing-library/react';
 import { ThemeProvider } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import AnalyticsPage from './AnalyticsPage';
@@ -54,7 +54,7 @@ jest.mock('../components/DataFreshnessIndicator', () => ({
 
 // Helper to render and wait for async updates to complete
 const renderWithProviders = async (component: React.ReactElement) => {
-  let result;
+  let result: RenderResult;
   await act(async () => {
     result = render(
       <ThemeProvider theme={darkTheme}>

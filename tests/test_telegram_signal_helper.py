@@ -489,3 +489,891 @@ class TestBroadcastExitSignal:
 
         # Should not raise
         await broadcast_exit_signal(sample_position_group, Decimal("51000"), mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_exit_signal_zero_entry_price(self, sample_user, sample_position_group):
+        """Test exit signal with zero entry price"""
+        sample_position_group.user_id = sample_user.id
+        sample_position_group.weighted_avg_entry = Decimal("0")
+        sample_position_group.realized_pnl_usd = Decimal("100")
+        sample_position_group.filled_dca_legs = 1
+        sample_position_group.total_dca_legs = 3
+
+        mock_session = AsyncMock()
+        call_count = [0]
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                mock_result.scalar_one_or_none.return_value = sample_user
+            else:
+                mock_result.scalar_one_or_none.return_value = None
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_exit_signal = AsyncMock(return_value=12345)
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_exit_signal(sample_position_group, Decimal("51000"), mock_session)
+
+            call_kwargs = mock_broadcaster.send_exit_signal.call_args.kwargs
+            assert call_kwargs["pnl_percent"] == Decimal("0")
+
+    @pytest.mark.asyncio
+    async def test_broadcast_exit_signal_with_duration(self, sample_user, sample_position_group):
+        """Test exit signal calculates duration correctly"""
+        from datetime import datetime, timedelta
+        sample_position_group.user_id = sample_user.id
+        sample_position_group.created_at = datetime.utcnow() - timedelta(hours=5)
+        sample_position_group.closed_at = datetime.utcnow()
+        sample_position_group.filled_dca_legs = 1
+        sample_position_group.total_dca_legs = 3
+
+        mock_session = AsyncMock()
+        call_count = [0]
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                mock_result.scalar_one_or_none.return_value = sample_user
+            else:
+                mock_result.scalar_one_or_none.return_value = None
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_exit_signal = AsyncMock(return_value=12345)
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_exit_signal(sample_position_group, Decimal("51000"), mock_session)
+
+            call_kwargs = mock_broadcaster.send_exit_signal.call_args.kwargs
+            # Duration should be approximately 5 hours
+            assert 4.9 < call_kwargs["duration_hours"] < 5.1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestHelperFunctions:
+    """Tests for helper functions in telegram_signal_helper"""
+
+    def test_extract_weights_from_levels(self):
+        """Test extracting weights from DCA levels"""
+        from app.services.telegram_signal_helper import _extract_weights_from_levels
+
+        levels = [
+            {"weight_percent": 20.5},
+            {"weight_percent": 30},
+            {"weight_percent": 49.5}
+        ]
+        weights = _extract_weights_from_levels(levels)
+        assert weights == [20, 30, 49]
+
+    def test_extract_weights_from_levels_empty(self):
+        """Test extracting weights from empty levels"""
+        from app.services.telegram_signal_helper import _extract_weights_from_levels
+
+        weights = _extract_weights_from_levels([])
+        assert weights == []
+
+    def test_extract_weights_from_levels_missing_weight(self):
+        """Test extracting weights when weight_percent is missing"""
+        from app.services.telegram_signal_helper import _extract_weights_from_levels
+
+        levels = [{"other_field": 10}, {"weight_percent": 50}]
+        weights = _extract_weights_from_levels(levels)
+        assert weights == [0, 50]
+
+    def test_calculate_tp_prices_per_leg(self):
+        """Test calculating TP prices for per_leg mode"""
+        from app.services.telegram_signal_helper import _calculate_tp_prices
+
+        entry_prices = [Decimal("50000"), Decimal("49500"), None]
+        dca_levels = [
+            {"tp_percent": 2.0},
+            {"tp_percent": 1.5},
+            {"tp_percent": 1.0}
+        ]
+        tp_prices = _calculate_tp_prices(entry_prices, dca_levels, "per_leg")
+
+        assert tp_prices[0] == Decimal("50000") * Decimal("1.02")
+        assert tp_prices[1] == Decimal("49500") * Decimal("1.015")
+        assert tp_prices[2] is None  # Entry price was None
+
+    def test_calculate_tp_prices_not_per_leg(self):
+        """Test that non per_leg modes return empty list"""
+        from app.services.telegram_signal_helper import _calculate_tp_prices
+
+        entry_prices = [Decimal("50000")]
+        dca_levels = [{"tp_percent": 2.0}]
+
+        assert _calculate_tp_prices(entry_prices, dca_levels, "aggregate") == []
+        assert _calculate_tp_prices(entry_prices, dca_levels, "hybrid") == []
+
+    def test_calculate_tp_prices_no_tp_percent(self):
+        """Test when level has no tp_percent"""
+        from app.services.telegram_signal_helper import _calculate_tp_prices
+
+        entry_prices = [Decimal("50000")]
+        dca_levels = [{"weight_percent": 50}]  # No tp_percent
+        tp_prices = _calculate_tp_prices(entry_prices, dca_levels, "per_leg")
+
+        assert tp_prices[0] is None
+
+    def test_calculate_aggregate_tp(self):
+        """Test aggregate TP calculation"""
+        from app.services.telegram_signal_helper import _calculate_aggregate_tp
+
+        avg_entry = Decimal("50000")
+        tp_percent = Decimal("2")
+
+        result = _calculate_aggregate_tp(avg_entry, tp_percent)
+        assert result == Decimal("51000")
+
+    def test_calculate_aggregate_tp_none_values(self):
+        """Test aggregate TP with None values"""
+        from app.services.telegram_signal_helper import _calculate_aggregate_tp
+
+        assert _calculate_aggregate_tp(None, Decimal("2")) is None
+        assert _calculate_aggregate_tp(Decimal("50000"), None) is None
+        assert _calculate_aggregate_tp(None, None) is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DCA FILL TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBroadcastDcaFill:
+    """Tests for broadcast_dca_fill function"""
+
+    @pytest.fixture
+    def sample_dca_order(self, sample_pyramid):
+        order = MagicMock(spec=DCAOrder)
+        order.id = uuid.uuid4()
+        order.pyramid_id = sample_pyramid.id
+        order.leg_index = 1
+        order.price = Decimal("49500")
+        order.quantity = Decimal("0.2")
+        order.status = OrderStatus.FILLED
+        return order
+
+    @pytest.mark.asyncio
+    async def test_broadcast_dca_fill_user_not_found(self, sample_position_group, sample_dca_order, sample_pyramid):
+        """Test broadcast when user is not found"""
+        from app.services.telegram_signal_helper import broadcast_dca_fill
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_dca_fill(sample_position_group, sample_dca_order, sample_pyramid, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_dca_fill_disabled(self, sample_user, sample_position_group, sample_dca_order, sample_pyramid):
+        """Test broadcast when DCA fill updates are disabled"""
+        from app.services.telegram_signal_helper import broadcast_dca_fill
+
+        sample_user.telegram_config["send_dca_fill_updates"] = False
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_dca_fill(sample_position_group, sample_dca_order, sample_pyramid, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_dca_fill_success(self, sample_user, sample_position_group, sample_dca_order, sample_pyramid):
+        """Test successful DCA fill broadcast"""
+        from app.services.telegram_signal_helper import broadcast_dca_fill
+
+        sample_user.telegram_config["send_dca_fill_updates"] = True
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        call_count = [0]
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                mock_result.scalar_one_or_none.return_value = sample_user
+            elif call_count[0] == 2:
+                # Filled orders query
+                mock_result.scalars.return_value.all.return_value = [sample_dca_order]
+            else:
+                # All orders query
+                mock_result.scalars.return_value.all.return_value = [sample_dca_order, MagicMock(), MagicMock()]
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_dca_fill = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_dca_fill(sample_position_group, sample_dca_order, sample_pyramid, mock_session)
+
+            mock_broadcaster.send_dca_fill.assert_called_once()
+            call_kwargs = mock_broadcaster.send_dca_fill.call_args.kwargs
+            assert call_kwargs["filled_count"] == 1
+            assert call_kwargs["total_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_broadcast_dca_fill_exception(self, sample_position_group, sample_dca_order, sample_pyramid):
+        """Test DCA fill handles exceptions gracefully"""
+        from app.services.telegram_signal_helper import broadcast_dca_fill
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        await broadcast_dca_fill(sample_position_group, sample_dca_order, sample_pyramid, mock_session)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STATUS CHANGE TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBroadcastStatusChange:
+    """Tests for broadcast_status_change function"""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_status_change_user_not_found(self, sample_position_group, sample_pyramid):
+        """Test broadcast when user is not found"""
+        from app.services.telegram_signal_helper import broadcast_status_change
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_status_change(
+            sample_position_group,
+            PositionGroupStatus.PARTIALLY_FILLED,
+            PositionGroupStatus.ACTIVE,
+            sample_pyramid,
+            mock_session
+        )
+
+    @pytest.mark.asyncio
+    async def test_broadcast_status_change_disabled(self, sample_user, sample_position_group, sample_pyramid):
+        """Test broadcast when status updates are disabled"""
+        from app.services.telegram_signal_helper import broadcast_status_change
+
+        sample_user.telegram_config["send_status_updates"] = False
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_status_change(
+            sample_position_group,
+            PositionGroupStatus.PARTIALLY_FILLED,
+            PositionGroupStatus.ACTIVE,
+            sample_pyramid,
+            mock_session
+        )
+
+    @pytest.mark.asyncio
+    async def test_broadcast_status_change_success(self, sample_user, sample_position_group, sample_pyramid, sample_dca_config):
+        """Test successful status change broadcast"""
+        from app.services.telegram_signal_helper import broadcast_status_change
+
+        sample_user.telegram_config["send_status_updates"] = True
+        sample_position_group.user_id = sample_user.id
+        sample_position_group.filled_dca_legs = 2
+        sample_position_group.total_dca_legs = 5
+
+        mock_session = AsyncMock()
+        call_count = [0]
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                mock_result.scalar_one_or_none.return_value = sample_user
+            else:
+                mock_result.scalar_one_or_none.return_value = sample_dca_config
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_status_change = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_status_change(
+                sample_position_group,
+                PositionGroupStatus.PARTIALLY_FILLED,
+                PositionGroupStatus.ACTIVE,
+                sample_pyramid,
+                mock_session
+            )
+
+            mock_broadcaster.send_status_change.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_status_change_exception(self, sample_position_group, sample_pyramid):
+        """Test status change handles exceptions gracefully"""
+        from app.services.telegram_signal_helper import broadcast_status_change
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        await broadcast_status_change(
+            sample_position_group,
+            PositionGroupStatus.PARTIALLY_FILLED,
+            PositionGroupStatus.ACTIVE,
+            sample_pyramid,
+            mock_session
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TP HIT TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBroadcastTpHit:
+    """Tests for broadcast_tp_hit function"""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_tp_hit_user_not_found(self, sample_position_group, sample_pyramid):
+        """Test broadcast when user is not found"""
+        from app.services.telegram_signal_helper import broadcast_tp_hit
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_tp_hit(
+            sample_position_group,
+            sample_pyramid,
+            "per_leg",
+            Decimal("51000"),
+            Decimal("2.0"),
+            mock_session
+        )
+
+    @pytest.mark.asyncio
+    async def test_broadcast_tp_hit_disabled(self, sample_user, sample_position_group, sample_pyramid):
+        """Test broadcast when TP hit updates are disabled"""
+        from app.services.telegram_signal_helper import broadcast_tp_hit
+
+        sample_user.telegram_config["send_tp_hit_updates"] = False
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_tp_hit(
+            sample_position_group,
+            sample_pyramid,
+            "per_leg",
+            Decimal("51000"),
+            Decimal("2.0"),
+            mock_session
+        )
+
+    @pytest.mark.asyncio
+    async def test_broadcast_tp_hit_success(self, sample_user, sample_position_group, sample_pyramid):
+        """Test successful TP hit broadcast"""
+        from app.services.telegram_signal_helper import broadcast_tp_hit
+
+        sample_user.telegram_config["send_tp_hit_updates"] = True
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_tp_hit = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_tp_hit(
+                sample_position_group,
+                sample_pyramid,
+                "per_leg",
+                Decimal("51000"),
+                Decimal("2.0"),
+                mock_session,
+                pnl_usd=Decimal("100"),
+                closed_quantity=Decimal("0.1"),
+                remaining_pyramids=2,
+                leg_index=1
+            )
+
+            mock_broadcaster.send_tp_hit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_tp_hit_exception(self, sample_position_group, sample_pyramid):
+        """Test TP hit handles exceptions gracefully"""
+        from app.services.telegram_signal_helper import broadcast_tp_hit
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        await broadcast_tp_hit(
+            sample_position_group,
+            sample_pyramid,
+            "aggregate",
+            Decimal("51000"),
+            Decimal("2.0"),
+            mock_session
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RISK EVENT TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBroadcastRiskEvent:
+    """Tests for broadcast_risk_event function"""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_risk_event_user_not_found(self, sample_position_group):
+        """Test broadcast when user is not found"""
+        from app.services.telegram_signal_helper import broadcast_risk_event
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_risk_event(sample_position_group, "timer_started", mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_risk_event_disabled(self, sample_user, sample_position_group):
+        """Test broadcast when risk alerts are disabled"""
+        from app.services.telegram_signal_helper import broadcast_risk_event
+
+        sample_user.telegram_config["send_risk_alerts"] = False
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_risk_event(sample_position_group, "timer_started", mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_risk_event_success(self, sample_user, sample_position_group):
+        """Test successful risk event broadcast"""
+        from app.services.telegram_signal_helper import broadcast_risk_event
+
+        sample_user.telegram_config["send_risk_alerts"] = True
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_risk_event = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_risk_event(
+                sample_position_group,
+                "timer_started",
+                mock_session,
+                loss_percent=Decimal("5.0"),
+                loss_usd=Decimal("500"),
+                timer_minutes=30
+            )
+
+            mock_broadcaster.send_risk_event.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_risk_event_offset_executed(self, sample_user, sample_position_group):
+        """Test risk event for offset execution"""
+        from app.services.telegram_signal_helper import broadcast_risk_event
+
+        sample_user.telegram_config["send_risk_alerts"] = True
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_risk_event = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_risk_event(
+                sample_position_group,
+                "offset_executed",
+                mock_session,
+                offset_position="ETHUSDT",
+                offset_profit=Decimal("200"),
+                net_result=Decimal("-300")
+            )
+
+            mock_broadcaster.send_risk_event.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_risk_event_exception(self, sample_position_group):
+        """Test risk event handles exceptions gracefully"""
+        from app.services.telegram_signal_helper import broadcast_risk_event
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        await broadcast_risk_event(sample_position_group, "timer_started", mock_session)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FAILURE TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBroadcastFailure:
+    """Tests for broadcast_failure function"""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_failure_user_not_found(self, sample_position_group):
+        """Test broadcast when user is not found"""
+        from app.services.telegram_signal_helper import broadcast_failure
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_failure(sample_position_group, "order_failed", "Test error", mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_failure_disabled(self, sample_user, sample_position_group):
+        """Test broadcast when failure alerts are disabled"""
+        from app.services.telegram_signal_helper import broadcast_failure
+
+        sample_user.telegram_config["send_failure_alerts"] = False
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_failure(sample_position_group, "order_failed", "Test error", mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_failure_success(self, sample_user, sample_position_group, sample_pyramid):
+        """Test successful failure broadcast"""
+        from app.services.telegram_signal_helper import broadcast_failure
+
+        sample_user.telegram_config["send_failure_alerts"] = True
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        mock_order = MagicMock(spec=DCAOrder)
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_failure = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_failure(
+                sample_position_group,
+                "order_failed",
+                "Insufficient balance",
+                mock_session,
+                pyramid=sample_pyramid,
+                order=mock_order
+            )
+
+            mock_broadcaster.send_failure.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_failure_exception(self, sample_position_group):
+        """Test failure broadcast handles exceptions gracefully"""
+        from app.services.telegram_signal_helper import broadcast_failure
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        await broadcast_failure(sample_position_group, "order_failed", "Test error", mock_session)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PYRAMID ADDED TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBroadcastPyramidAdded:
+    """Tests for broadcast_pyramid_added function"""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_pyramid_added_user_not_found(self, sample_position_group, sample_pyramid):
+        """Test broadcast when user is not found"""
+        from app.services.telegram_signal_helper import broadcast_pyramid_added
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_pyramid_added(sample_position_group, sample_pyramid, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_pyramid_added_disabled(self, sample_user, sample_position_group, sample_pyramid):
+        """Test broadcast when pyramid updates are disabled"""
+        from app.services.telegram_signal_helper import broadcast_pyramid_added
+
+        sample_user.telegram_config["send_pyramid_updates"] = False
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        await broadcast_pyramid_added(sample_position_group, sample_pyramid, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_pyramid_added_success_with_config(
+        self, sample_user, sample_position_group, sample_pyramid, sample_dca_config, sample_dca_orders
+    ):
+        """Test successful pyramid added broadcast with DCA config"""
+        from app.services.telegram_signal_helper import broadcast_pyramid_added
+
+        sample_user.telegram_config["send_pyramid_updates"] = True
+        sample_position_group.user_id = sample_user.id
+        sample_dca_config.tp_settings = {"pyramid_tp_percents": {"0": 2.0}}
+
+        mock_session = AsyncMock()
+        call_count = [0]
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                mock_result.scalar_one_or_none.return_value = sample_user
+            elif call_count[0] == 2:
+                mock_result.scalar_one_or_none.return_value = sample_dca_config
+            else:
+                mock_result.scalars.return_value.all.return_value = sample_dca_orders
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_pyramid_added = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_pyramid_added(sample_position_group, sample_pyramid, mock_session)
+
+            mock_broadcaster.send_pyramid_added.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_pyramid_added_success_without_config(
+        self, sample_user, sample_position_group, sample_pyramid, sample_dca_orders
+    ):
+        """Test successful pyramid added broadcast without DCA config"""
+        from app.services.telegram_signal_helper import broadcast_pyramid_added
+
+        sample_user.telegram_config["send_pyramid_updates"] = True
+        sample_position_group.user_id = sample_user.id
+
+        mock_session = AsyncMock()
+        call_count = [0]
+
+        def execute_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                mock_result.scalar_one_or_none.return_value = sample_user
+            elif call_count[0] == 2:
+                mock_result.scalar_one_or_none.return_value = None  # No DCA config
+            else:
+                mock_result.scalars.return_value.all.return_value = sample_dca_orders
+            return mock_result
+
+        mock_session.execute.side_effect = execute_side_effect
+
+        with patch('app.services.telegram_signal_helper.TelegramBroadcaster') as MockBroadcaster:
+            mock_broadcaster = MagicMock()
+            mock_broadcaster.send_pyramid_added = AsyncMock()
+            MockBroadcaster.return_value = mock_broadcaster
+
+            await broadcast_pyramid_added(sample_position_group, sample_pyramid, mock_session)
+
+            mock_broadcaster.send_pyramid_added.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_pyramid_added_exception(self, sample_position_group, sample_pyramid):
+        """Test pyramid added handles exceptions gracefully"""
+        from app.services.telegram_signal_helper import broadcast_pyramid_added
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        await broadcast_pyramid_added(sample_position_group, sample_pyramid, mock_session)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GET USER TELEGRAM CONFIG TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestGetUserTelegramConfig:
+    """Tests for _get_user_telegram_config function"""
+
+    @pytest.mark.asyncio
+    async def test_get_user_telegram_config_success(self, sample_user):
+        """Test getting telegram config successfully"""
+        from app.services.telegram_signal_helper import _get_user_telegram_config
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_user_telegram_config(sample_user.id, mock_session)
+
+        assert config is not None
+        assert config.enabled is True
+
+    @pytest.mark.asyncio
+    async def test_get_user_telegram_config_user_not_found(self):
+        """Test getting config when user not found"""
+        from app.services.telegram_signal_helper import _get_user_telegram_config
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_user_telegram_config(uuid.uuid4(), mock_session)
+
+        assert config is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_telegram_config_no_config(self, sample_user_no_config):
+        """Test getting config when user has no config"""
+        from app.services.telegram_signal_helper import _get_user_telegram_config
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user_no_config
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_user_telegram_config(sample_user_no_config.id, mock_session)
+
+        assert config is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_telegram_config_disabled(self, sample_user_disabled):
+        """Test getting config when telegram is disabled"""
+        from app.services.telegram_signal_helper import _get_user_telegram_config
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_user_disabled
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_user_telegram_config(sample_user_disabled.id, mock_session)
+
+        assert config is None
+
+    @pytest.mark.asyncio
+    async def test_get_user_telegram_config_exception(self):
+        """Test getting config handles exceptions"""
+        from app.services.telegram_signal_helper import _get_user_telegram_config
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        config = await _get_user_telegram_config(uuid.uuid4(), mock_session)
+
+        assert config is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GET DCA CONFIG TESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestGetDcaConfig:
+    """Tests for _get_dca_config function"""
+
+    @pytest.mark.asyncio
+    async def test_get_dca_config_success(self, sample_position_group, sample_dca_config):
+        """Test getting DCA config successfully"""
+        from app.services.telegram_signal_helper import _get_dca_config
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_dca_config
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_dca_config(sample_position_group, mock_session)
+
+        assert config == sample_dca_config
+
+    @pytest.mark.asyncio
+    async def test_get_dca_config_not_found(self, sample_position_group):
+        """Test getting DCA config when not found"""
+        from app.services.telegram_signal_helper import _get_dca_config
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_dca_config(sample_position_group, mock_session)
+
+        assert config is None
+
+    @pytest.mark.asyncio
+    async def test_get_dca_config_exception(self, sample_position_group):
+        """Test getting DCA config handles exceptions"""
+        from app.services.telegram_signal_helper import _get_dca_config
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        config = await _get_dca_config(sample_position_group, mock_session)
+
+        assert config is None
+
+    @pytest.mark.asyncio
+    async def test_get_dca_config_non_usdt_symbol(self, sample_position_group, sample_dca_config):
+        """Test getting DCA config for non-USDT symbol"""
+        from app.services.telegram_signal_helper import _get_dca_config
+
+        sample_position_group.symbol = "ETHBTC"
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = sample_dca_config
+        mock_session.execute.return_value = mock_result
+
+        config = await _get_dca_config(sample_position_group, mock_session)
+
+        assert config == sample_dca_config

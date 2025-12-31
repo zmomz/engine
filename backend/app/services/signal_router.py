@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from threading import Thread
 import json
 from decimal import Decimal
+from datetime import datetime
 
 from redis import Redis
 from sqlalchemy.orm import Session
@@ -20,6 +21,35 @@ from app.models.user import User
 from app.models.queued_signal import QueuedSignal
 from app.schemas.webhook_payloads import WebhookPayload
 
+
+def is_within_same_candle_period(timestamp: datetime, timeframe_minutes: int) -> bool:
+    """
+    Check if the given timestamp is within the current candle period.
+
+    Used to detect duplicate signals within the same candle.
+    """
+    now = datetime.utcnow()
+
+    # Calculate the start of the current timeframe period
+    current_period_start = now.replace(
+        minute=(now.minute // timeframe_minutes) * timeframe_minutes,
+        second=0,
+        microsecond=0
+    )
+
+    # For timeframes >= 60 minutes (1h, 4h, etc.), also floor the hour
+    if timeframe_minutes >= 60:
+        hours_per_period = timeframe_minutes // 60
+        current_period_start = current_period_start.replace(
+            hour=(now.hour // hours_per_period) * hours_per_period,
+            minute=0
+        )
+    # For daily or longer timeframes
+    if timeframe_minutes >= 1440:
+        current_period_start = current_period_start.replace(hour=0, minute=0)
+
+    return timestamp >= current_period_start
+
 from app.services.position_manager import PositionManagerService, DuplicatePositionException
 from app.services.execution_pool_manager import ExecutionPoolManager
 from app.services.exchange_config_service import ExchangeConfigService, ExchangeConfigError
@@ -32,6 +62,7 @@ from app.services.grid_calculator import GridCalculatorService
 
 
 from app.repositories.position_group import PositionGroupRepository
+from app.repositories.pyramid import PyramidRepository
 from app.models.position_group import PositionGroupStatus
 from app.models.dca_order import OrderType
 
@@ -377,10 +408,15 @@ class SignalRouterService:
 
                 # Define Helper for Queuing
                 async def queue_signal(msg_prefix="Pool full."):
-                    signal.tv.action = signal_side 
-                    await queue_service.add_signal_to_queue(signal)
-                    logger.info(f"{msg_prefix} Signal queued for {signal.tv.symbol}")
-                    return f"{msg_prefix} Signal queued for {signal.tv.symbol}"
+                    signal.tv.action = signal_side
+                    try:
+                        await queue_service.add_signal_to_queue(signal)
+                        logger.info(f"{msg_prefix} Signal queued for {signal.tv.symbol}")
+                        return f"{msg_prefix} Signal queued for {signal.tv.symbol}"
+                    except ValueError as e:
+                        # Duplicate signal rejection
+                        logger.warning(f"Signal queuing failed: {e}")
+                        return str(e)
 
                 # --- Pre-Trade Risk Validation ---
                 # Create RiskEngineService and validate before any position execution
@@ -420,6 +456,20 @@ class SignalRouterService:
 
                 if not is_allowed:
                     logger.warning(f"Pre-trade risk validation failed for {signal.tv.symbol}: {rejection_reason}")
+
+                    # Check if this is a circuit breaker rejection - still save to queue
+                    is_circuit_breaker = (
+                        "Engine paused" in rejection_reason or
+                        "Engine force stopped" in rejection_reason or
+                        "max realized loss limit reached" in rejection_reason.lower()
+                    )
+
+                    if is_circuit_breaker:
+                        # Circuit breaker active - save signal to queue but don't execute
+                        logger.info(f"Circuit breaker active. Queuing signal for {signal.tv.symbol} without execution.")
+                        response_message = await queue_signal(f"Circuit breaker active ({rejection_reason}).")
+                        return response_message
+
                     return f"Risk validation failed: {rejection_reason}"
 
                 if existing_group:
@@ -427,6 +477,19 @@ class SignalRouterService:
                     # pyramid_count starts at 0 for initial entry
                     # max_pyramids is the maximum pyramid_count value allowed
                     if existing_group.pyramid_count < dca_config.max_pyramids:
+                        # --- DUPLICATE PYRAMID CHECK ---
+                        # Check if a pyramid was already added within the same candle period
+                        pyramid_repo = PyramidRepository(db_session)
+                        latest_pyramid = await pyramid_repo.get_latest_pyramid_for_group(existing_group.id)
+
+                        if latest_pyramid is not None and is_within_same_candle_period(latest_pyramid.entry_timestamp, signal.tv.timeframe):
+                            logger.warning(
+                                f"Duplicate pyramid signal rejected for {signal.tv.symbol} "
+                                f"(timeframe: {signal.tv.timeframe}m). "
+                                f"Pyramid already added at {latest_pyramid.entry_timestamp} (same candle period)."
+                            )
+                            return f"Duplicate pyramid rejected: Pyramid for {signal.tv.symbol} already added in current candle."
+
                         # Check Priority Rules for Bypass
                         priority_rules = risk_config.priority_rules
                         bypass_enabled = priority_rules.priority_rules_enabled.get("same_pair_timeframe", False)

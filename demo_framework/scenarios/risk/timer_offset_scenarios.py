@@ -14,6 +14,7 @@ from ...utils.payload_builder import build_entry_payload, build_pyramid_payload,
 from ...utils.polling import (
     wait_for_position_count,
     wait_for_position_exists,
+    wait_for_position_filled,
     wait_for_queued_signal,
     wait_for_condition,
 )
@@ -340,7 +341,9 @@ class OffsetCalculatesCorrectAmount(BaseScenario):
             position_size=500,  # $500 in SOL
             entry_price=200.0,
         ))
-        await asyncio.sleep(2)
+
+        # Wait for SOL position to be filled before creating BTC
+        await wait_for_position_filled(self.engine, "SOL/USDT", min_quantity=0, timeout=15)
 
         await self.engine.send_webhook(build_entry_payload(
             user_id=self.config.user_id,
@@ -350,18 +353,16 @@ class OffsetCalculatesCorrectAmount(BaseScenario):
             entry_price=95000.0,
         ))
 
-        await wait_for_position_count(self.engine, 2, timeout=20)
-
-        # Wait a moment for orders to be submitted
-        await asyncio.sleep(2)
+        # Wait for BTC position to be filled
+        await wait_for_position_filled(self.engine, "BTC/USDT", min_quantity=0, timeout=15)
 
         # Make SOL very profitable (+20%)
         await self.mock.set_price("SOLUSDT", 240.0)
         # Make BTC a loser (-10%)
         await self.mock.set_price("BTCUSDT", 85500.0)
 
-        # Wait for positions to get filled and PnL to update
-        await asyncio.sleep(4)
+        # Wait for PnL to update
+        await asyncio.sleep(2)
 
         positions = await self.engine.get_active_positions()
         self.presenter.show_positions_table(positions)
@@ -379,15 +380,14 @@ class OffsetCalculatesCorrectAmount(BaseScenario):
             self.presenter.show_info(f"SOL P&L: ${sol_pnl:.2f} (qty={sol_qty:.4f})")
             self.presenter.show_info(f"BTC P&L: ${btc_pnl:.2f} (qty={btc_qty:.6f})")
 
-            # If quantities are filled, we can check PnL
-            # If not filled yet, we verify positions exist and prices changed
-            positions_exist = sol_qty > 0 or btc_qty > 0
+            # Verify positions are filled and have PnL
+            positions_filled = sol_qty > 0 and btc_qty > 0
             can_offset = sol_pnl > 0 and btc_pnl < 0
 
             return await self.verify(
                 "Offset calculation valid",
-                can_offset or positions_exist,
-                expected="SOL profit > BTC loss (or positions exist)",
+                can_offset or positions_filled,
+                expected="SOL profit, BTC loss (or both filled)",
                 actual=f"SOL=${sol_pnl:.2f}, BTC=${btc_pnl:.2f}",
             )
 

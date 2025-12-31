@@ -40,6 +40,21 @@ async def tradingview_webhook(
     except ValidationError as e:
         raise RequestValidationError(e.errors())
 
+    # SPOT TRADING: Reject short signals early
+    # Short signals (sell action without exit intent) are not supported in spot trading
+    intent_type = webhook_payload.execution_intent.type.lower() if webhook_payload.execution_intent else "signal"
+    action = webhook_payload.tv.action.lower()
+
+    if action == "sell" and intent_type != "exit":
+        logger.warning(
+            f"Short signal rejected for {webhook_payload.tv.symbol} "
+            f"(user: {user.id}). Spot trading does not support short positions."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Signal rejected: Spot trading does not support short positions. Use execution_intent.type='exit' to close a long position."
+        )
+
     # Create a lock key based on user + symbol + timeframe + side
     # This prevents race conditions for the same position
     # For SPOT trading: All positions are "long" (we buy to enter, sell to exit)

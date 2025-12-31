@@ -21,6 +21,7 @@ from .scenarios.base import DemoConfig
 def load_scenarios():
     """Load all scenario modules to populate registry."""
     # Import scenario modules to trigger registration
+
     # Signal scenarios
     try:
         from .scenarios.signal import entry_scenarios
@@ -59,6 +60,36 @@ def load_scenarios():
     except ImportError:
         pass
 
+    # Order Execution scenarios
+    try:
+        from .scenarios.order import execution_scenarios
+    except ImportError:
+        pass
+
+    # Error Handling scenarios
+    try:
+        from .scenarios.error import handling_scenarios
+    except ImportError:
+        pass
+
+    # Edge Case scenarios
+    try:
+        from .scenarios.edge import boundary_scenarios
+    except ImportError:
+        pass
+
+    # Lifecycle scenarios
+    try:
+        from .scenarios.lifecycle import complete_scenarios
+    except ImportError:
+        pass
+
+    # Configuration scenarios
+    try:
+        from .scenarios.config import validation_scenarios as config_validation
+    except ImportError:
+        pass
+
 
 if CLICK_AVAILABLE:
 
@@ -71,7 +102,11 @@ if CLICK_AVAILABLE:
     @cli.command()
     @click.option(
         "--category", "-c",
-        type=click.Choice(["signal", "queue", "risk", "dca", "all"]),
+        type=click.Choice([
+            "signal", "queue", "risk",  # existing
+            "order", "error", "edge", "lifecycle", "config",  # new
+            "all"
+        ]),
         default=None,
         help="Run all scenarios in category",
     )

@@ -108,7 +108,21 @@
       "Bash(timeout 700 docker exec:*)",
       "Bash(timeout 20 bash -c 'for i in {1..20}; do curl -s http://127.0.0.1:9000/health > /dev/null && echo \"\"Mock exchange ready\"\" && exit 0; sleep 1; done; echo \"\"Timeout\"\"')",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(wc:*)",
+      "Bash(timeout 180 python:*)",
+      "Bash(timeout 60 python:*)",
+      "Bash(timeout 120 python:*)",
+      "Bash(timeout 60 docker compose:*)",
+      "Bash(CI=true npm test -- --testPathPattern=\"QueuePage.test.tsx\" --no-coverage)",
+      "Bash(timeout 600 python:*)",
+      "Bash(timeout 300 python:*)",
+      "Bash(timeout 150 python:*)",
+      "Bash(timeout 450 python:*)",
+      "Bash(timeout:*)",
+      "Bash(git checkout:*)",
+      "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"def test_\"\" {} | wc -l')",
+      "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"async def\\\\|^def \"\" {} | head -15')"
     ]
   }
 }

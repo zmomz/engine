@@ -14,6 +14,7 @@ from app.services.position_manager import PositionManagerService # Import for pa
 @pytest.fixture
 def mock_deps():
     with patch("app.services.signal_router.PositionGroupRepository") as MockRepo, \
+         patch("app.services.signal_router.PyramidRepository") as MockPyramidRepo, \
          patch("app.services.signal_router.ExecutionPoolManager") as MockPool, \
          patch("app.services.signal_router.QueueManagerService") as MockQueue, \
          patch("app.services.signal_router.EncryptionService") as MockEnc, \
@@ -64,6 +65,10 @@ def mock_deps():
         mock_repo_instance.get_active_position_group_for_signal = AsyncMock(return_value=None)
         mock_repo_instance.get_daily_realized_pnl = AsyncMock(return_value=Decimal("0"))
 
+        # Mock PyramidRepository - default to no existing pyramid (allows new pyramids)
+        mock_pyramid_repo_instance = MockPyramidRepo.return_value
+        mock_pyramid_repo_instance.get_latest_pyramid_for_group = AsyncMock(return_value=None)
+
         mock_pos_manager_instance = MockPosManager.return_value  # Get the instance mock
 
         # Configure return value for create_position_group_from_signal
@@ -79,6 +84,7 @@ def mock_deps():
 
         yield {
             "repo": MockRepo,
+            "pyramid_repo": MockPyramidRepo,
             "pool": MockPool,
             "queue": MockQueue,
             "enc": MockEnc,

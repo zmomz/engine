@@ -285,12 +285,26 @@ class DemoRunner:
         for a quick health check.
         """
         quick_scenarios = [
+            # Signal scenarios
             "S-001",  # Valid entry creates position
             "S-013",  # Valid pyramid adds to position
             "S-023",  # Valid exit closes position
+            # Queue scenarios
             "Q-001",  # Signal queued when pool full
             "Q-016",  # Pyramid gets highest priority
+            # Risk scenarios
             "R-011",  # Timer starts when conditions met
+            # Order scenarios
+            "O-001",  # Market order immediate fill
+            "O-009",  # Full fill TP placement
+            # Error scenarios
+            "E-001",  # Duplicate signal detection
+            # Edge scenarios
+            "X-001",  # Minimum order size boundary
+            # Lifecycle scenarios
+            "L-001",  # Complete trade entry to exit
+            # Config scenarios
+            "C-004",  # DCA 3 levels
         ]
 
         self.presenter.announce_phase(0, "Quick Smoke Test")

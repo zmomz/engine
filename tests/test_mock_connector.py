@@ -188,3 +188,306 @@ async def test_fetch_balance_error(connector, mock_client):
     mock_client.get.side_effect = Exception("Error")
     with pytest.raises(APIError):
         await connector.fetch_balance()
+
+
+@pytest.mark.asyncio
+async def test_get_all_tickers(connector, mock_client):
+    resp = create_mock_response(200, [
+        {"symbol": "BTCUSDT", "price": "50000.0"},
+        {"symbol": "ETHUSDT", "price": "3000.0"}
+    ])
+    mock_client.get.return_value = resp
+
+    tickers = await connector.get_all_tickers()
+    assert "BTC/USDT" in tickers
+    assert tickers["BTC/USDT"]["last"] == 50000.0
+    assert tickers["ETH/USDT"]["last"] == 3000.0
+
+
+@pytest.mark.asyncio
+async def test_get_all_tickers_error(connector, mock_client):
+    mock_client.get.side_effect = Exception("Error")
+    with pytest.raises(APIError):
+        await connector.get_all_tickers()
+
+
+@pytest.mark.asyncio
+async def test_fetch_free_balance(connector, mock_client):
+    resp = create_mock_response(200, [
+        {"asset": "USDT", "balance": "1000.0", "availableBalance": "800.0"}
+    ])
+    mock_client.get.return_value = resp
+
+    balance = await connector.fetch_free_balance()
+    assert balance["USDT"] == Decimal("800.0")
+
+
+@pytest.mark.asyncio
+async def test_fetch_free_balance_error(connector, mock_client):
+    mock_client.get.side_effect = Exception("Error")
+    with pytest.raises(APIError):
+        await connector.fetch_free_balance()
+
+
+@pytest.mark.asyncio
+async def test_get_open_orders(connector, mock_client):
+    resp = create_mock_response(200, [
+        {
+            "orderId": "123",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "price": "50000.0",
+            "origQty": "1.0",
+            "executedQty": "0.0",
+            "status": "NEW"
+        }
+    ])
+    mock_client.get.return_value = resp
+
+    orders = await connector.get_open_orders("BTCUSDT")
+    assert len(orders) == 1
+    assert orders[0]["id"] == "123"
+    assert orders[0]["side"] == "buy"
+    assert orders[0]["status"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_get_open_orders_no_symbol(connector, mock_client):
+    resp = create_mock_response(200, [
+        {"orderId": "1", "symbol": "BTCUSDT", "side": "BUY", "type": "MARKET",
+         "price": "50000.0", "origQty": "1.0", "executedQty": "0.0", "status": "NEW"},
+        {"orderId": "2", "symbol": "ETHUSDT", "side": "SELL", "type": "LIMIT",
+         "price": "3000.0", "origQty": "2.0", "executedQty": "1.0", "status": "PARTIALLY_FILLED"}
+    ])
+    mock_client.get.return_value = resp
+
+    orders = await connector.get_open_orders()
+    assert len(orders) == 2
+    assert orders[1]["filled"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_get_open_orders_error(connector, mock_client):
+    mock_client.get.side_effect = Exception("Error")
+    with pytest.raises(APIError):
+        await connector.get_open_orders()
+
+
+@pytest.mark.asyncio
+async def test_get_positions(connector, mock_client):
+    resp = create_mock_response(200, [
+        {
+            "symbol": "BTCUSDT",
+            "positionAmt": "1.0",
+            "entryPrice": "50000.0",
+            "markPrice": "51000.0",
+            "unRealizedProfit": "1000.0",
+            "leverage": "10"
+        },
+        {
+            "symbol": "ETHUSDT",
+            "positionAmt": "0",  # No position
+            "entryPrice": "0",
+            "markPrice": "3000.0",
+            "unRealizedProfit": "0",
+            "leverage": "10"
+        }
+    ])
+    mock_client.get.return_value = resp
+
+    positions = await connector.get_positions()
+    # Only non-zero positions should be returned
+    assert len(positions) == 1
+    assert positions[0]["symbol"] == "BTCUSDT"
+    assert positions[0]["side"] == "long"
+    assert positions[0]["quantity"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_get_positions_short(connector, mock_client):
+    resp = create_mock_response(200, [
+        {
+            "symbol": "BTCUSDT",
+            "positionAmt": "-2.0",  # Short position
+            "entryPrice": "50000.0",
+            "markPrice": "49000.0",
+            "unRealizedProfit": "2000.0",
+            "leverage": "5"
+        }
+    ])
+    mock_client.get.return_value = resp
+
+    positions = await connector.get_positions("BTCUSDT")
+    assert len(positions) == 1
+    assert positions[0]["side"] == "short"
+    assert positions[0]["quantity"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_get_positions_error(connector, mock_client):
+    mock_client.get.side_effect = Exception("Error")
+    with pytest.raises(APIError):
+        await connector.get_positions()
+
+
+@pytest.mark.asyncio
+async def test_close(connector, mock_client):
+    # First make a request to create the client
+    resp = create_mock_response(200, {"price": "50000.0"})
+    mock_client.get.return_value = resp
+    await connector.get_current_price("BTCUSDT")
+
+    # Client should exist
+    assert connector._client is not None
+
+    # Close should clean up
+    await connector.close()
+    assert connector._client is None
+
+
+@pytest.mark.asyncio
+async def test_close_no_client(connector):
+    # Close when no client exists should not error
+    connector._client = None
+    await connector.close()
+    assert connector._client is None
+
+
+@pytest.mark.asyncio
+async def test_precision_rules_cache_hit(connector, mock_client):
+    resp = create_mock_response(200, {
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "filters": [
+                    {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                    {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "9000"},
+                    {"filterType": "MIN_NOTIONAL", "notional": "10"}
+                ]
+            }
+        ]
+    })
+    mock_client.get.return_value = resp
+
+    # First call populates cache
+    rules1 = await connector.get_precision_rules()
+    assert "BTCUSDT" in rules1
+
+    # Second call should use cache (mock_client.get called only once)
+    rules2 = await connector.get_precision_rules()
+    assert rules2 == rules1
+    mock_client.get.assert_called_once()
+
+
+def test_init_without_config():
+    """Test connector initialization without config uses defaults."""
+    with patch("httpx.AsyncClient"):
+        connector = MockConnector()
+        assert connector.api_key == "mock_api_key_12345"
+        assert connector.api_secret == "mock_api_secret_67890"
+
+
+def test_init_with_config():
+    """Test connector initialization with custom config."""
+    config = {
+        "api_key": "custom_key",
+        "api_secret": "custom_secret"
+    }
+    with patch("httpx.AsyncClient"):
+        connector = MockConnector(config=config)
+        assert connector.api_key == "custom_key"
+        assert connector.api_secret == "custom_secret"
+
+
+def test_normalize_symbol():
+    """Test symbol normalization removes slash."""
+    with patch("httpx.AsyncClient"):
+        connector = MockConnector()
+        assert connector._normalize_symbol("BTC/USDT") == "BTCUSDT"
+        assert connector._normalize_symbol("BTCUSDT") == "BTCUSDT"
+
+
+def test_sign_request():
+    """Test request signing creates valid HMAC signature."""
+    with patch("httpx.AsyncClient"):
+        connector = MockConnector()
+        params = {"symbol": "BTCUSDT"}
+        signature = connector._sign_request(params)
+
+        # Should be a hex string
+        assert len(signature) == 64
+        # Timestamp should have been added
+        assert "timestamp" in params
+
+
+@pytest.mark.asyncio
+async def test_place_order_limit(connector, mock_client):
+    """Test placing a limit order with price."""
+    resp = create_mock_response(200, {
+        "orderId": "2",
+        "clientOrderId": "client2",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "type": "LIMIT",
+        "origQty": "0.5",
+        "price": "55000.0",
+        "avgPrice": "0",
+        "status": "NEW",
+        "executedQty": "0"
+    })
+    mock_client.post.return_value = resp
+
+    order = await connector.place_order(
+        "BTC/USDT", "sell", "limit", Decimal("0.5"), price=Decimal("55000.0")
+    )
+    assert order["id"] == "2"
+    assert order["type"] == "limit"
+    assert order["price"] == 55000.0
+
+
+@pytest.mark.asyncio
+async def test_place_order_rejected(connector, mock_client):
+    """Test order rejection returns proper error."""
+    resp = create_mock_response(400, {"detail": "Insufficient balance"})
+    mock_client.post.return_value = resp
+
+    with pytest.raises(APIError, match="Insufficient balance"):
+        await connector.place_order("BTCUSDT", "buy", "market", Decimal("100.0"))
+
+
+@pytest.mark.asyncio
+async def test_get_order_status_error_response(connector, mock_client):
+    """Test order status with error code raises APIError."""
+    resp = create_mock_response(400, {"detail": {"code": -1000, "msg": "Unknown error"}})
+    resp.raise_for_status = MagicMock()  # Don't raise for 400
+    mock_client.get.return_value = resp
+
+    with pytest.raises(APIError):
+        await connector.get_order_status("1")
+
+
+@pytest.mark.asyncio
+async def test_precision_rules_symbol_formats(connector, mock_client):
+    """Test precision rules stored in both BTCUSDT and BTC/USDT formats."""
+    resp = create_mock_response(200, {
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "filters": [
+                    {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                    {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001", "maxQty": "9000"},
+                    {"filterType": "MIN_NOTIONAL", "notional": "10"}
+                ]
+            }
+        ]
+    })
+    mock_client.get.return_value = resp
+
+    rules = await connector.get_precision_rules()
+
+    # Both formats should exist
+    assert "BTCUSDT" in rules
+    assert "BTC/USDT" in rules
+    # Same values
+    assert rules["BTCUSDT"]["tick_size"] == rules["BTC/USDT"]["tick_size"]

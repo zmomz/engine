@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, RenderResult } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material';
 import RiskPage from './RiskPage';
@@ -56,7 +56,7 @@ const theme = createTheme({
 
 // Helper to render with providers wrapped in act() to handle async state updates
 const renderWithProviders = async (component: React.ReactElement) => {
-  let result;
+  let result: RenderResult;
   await act(async () => {
     result = render(
       <ThemeProvider theme={theme}>

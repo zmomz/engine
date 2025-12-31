@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, RenderResult } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { MemoryRouter } from 'react-router-dom';
 import QueuePage from './QueuePage';
@@ -54,7 +54,7 @@ const theme = createTheme({
 
 // Helper to render with router and theme wrapped in act() to handle async state updates
 const renderWithRouter = async (component: React.ReactElement) => {
-  let result;
+  let result: RenderResult;
   await act(async () => {
     result = render(
       <ThemeProvider theme={theme}>

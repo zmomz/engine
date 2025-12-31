@@ -342,20 +342,26 @@ async def test_add_to_queue_new_signal(queue_manager_service, mock_queued_signal
     )
 
 @pytest.mark.asyncio
-async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queued_signal_repository_class, user_id_fixture):
+async def test_add_to_queue_duplicate_same_candle_rejected(queue_manager_service, mock_queued_signal_repository_class, user_id_fixture):
     """
-    Test adding a replacement signal to the queue (updates existing).
+    Test that duplicate signals within the same timeframe period (candle) are rejected.
     """
+    # Calculate a time that's definitely within the current 60m candle period
+    # by setting queued_at to 1 minute after the current hour start
+    now = datetime.utcnow()
+    current_hour_start = now.replace(minute=0, second=0, microsecond=0)
+    queued_time = current_hour_start + timedelta(minutes=1)
+
     original_signal = QueuedSignal(
         id=uuid.uuid4(),
         user_id=user_id_fixture,
         exchange="binance",
         symbol="LTCUSDT",
-        timeframe=60,
+        timeframe=60,  # 1 hour timeframe
         side="long",
         entry_price=Decimal("90.0"),
         signal_payload={},
-        queued_at=datetime.utcnow() - timedelta(hours=1),
+        queued_at=queued_time,  # Within same hour as 'now'
         replacement_count=0,
         status=QueueStatus.QUEUED
     )
@@ -384,9 +390,67 @@ async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queue
         "risk": {"stop_loss": None, "take_profit": None, "max_slippage_percent": 0.1}
     }
     signal_payload = WebhookPayload(**payload_data)
-    
+
+    # Duplicate signal within same candle should be rejected
+    with pytest.raises(ValueError) as exc_info:
+        await queue_manager_service.add_signal_to_queue(signal_payload)
+
+    assert "Duplicate signal rejected" in str(exc_info.value)
+    # Original signal should not be modified
+    assert original_signal.entry_price == Decimal("90.0")
+    assert original_signal.replacement_count == 0
+    # update should NOT be called since we rejected
+    mock_queued_signal_repository_class.return_value.update.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_to_queue_replacement_signal(queue_manager_service, mock_queued_signal_repository_class, user_id_fixture):
+    """
+    Test that signals from a previous timeframe period are treated as replacements.
+    """
+    # Signal queued 2 hours ago - for a 60m timeframe, this is from a previous candle
+    original_signal = QueuedSignal(
+        id=uuid.uuid4(),
+        user_id=user_id_fixture,
+        exchange="binance",
+        symbol="LTCUSDT",
+        timeframe=60,  # 1 hour timeframe
+        side="long",
+        entry_price=Decimal("90.0"),
+        signal_payload={},
+        queued_at=datetime.utcnow() - timedelta(hours=2),  # Previous candle
+        replacement_count=0,
+        status=QueueStatus.QUEUED
+    )
+    mock_queued_signal_repository_class.return_value.get_by_symbol_timeframe_side.return_value = original_signal
+
+    payload_data = {
+        "user_id": str(user_id_fixture),
+        "secret": "some_secret",
+        "source": "tradingview",
+        "timestamp": datetime.utcnow().isoformat(),
+        "tv": {
+            "exchange": "binance",
+            "symbol": "LTCUSDT",
+            "timeframe": 60,
+            "action": "long",
+            "market_position": "long",
+            "market_position_size": 0.001,
+            "prev_market_position": "flat",
+            "prev_market_position_size": 0.0,
+            "entry_price": 105.0,
+            "close_price": 105.1,
+            "order_size": 0.001
+        },
+        "strategy_info": {"trade_id": "test_trade_id", "alert_name": "Test Alert", "alert_message": "Test Message"},
+        "execution_intent": {"type": "signal", "side": "long", "position_size_type": "base", "precision_mode": "auto"},
+        "risk": {"stop_loss": None, "take_profit": None, "max_slippage_percent": 0.1}
+    }
+    signal_payload = WebhookPayload(**payload_data)
+
+    # Signal from previous candle should be treated as replacement
     await queue_manager_service.add_signal_to_queue(signal_payload)
-    
+
     assert original_signal.entry_price == Decimal("105.0")
     assert original_signal.replacement_count == 1
     # SECURITY FIX: user_id is now required to prevent cross-user signal replacement
