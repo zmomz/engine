@@ -248,6 +248,8 @@ class PositionManagerService:
         current_invested_usd = Decimal("0")
         total_realized_pnl = Decimal("0")
         current_avg_price = Decimal("0")
+        total_entry_fees = Decimal("0")
+        total_exit_fees = Decimal("0")
 
         for o in filled_orders:
             order_side = o.side.lower()
@@ -255,14 +257,30 @@ class PositionManagerService:
 
             qty = o.filled_quantity
             price = o.avg_fill_price or o.price
+            order_fee = o.fee or Decimal("0")
+            fee_currency = (o.fee_currency or "").upper()
+
+            # Determine if fee is in quote currency (USDT/BUSD/USDC)
+            # Only add fee to investment/PnL if it's in quote currency
+            # If fee is in base currency (e.g., BTC) or BNB, it's already deducted from qty/separate
+            quote_currencies = {"USDT", "BUSD", "USDC", "USD", "TUSD", "DAI"}
+            fee_in_quote = fee_currency in quote_currencies
 
             # For SPOT trading: All positions are "long"
             # "buy" orders are entries, "sell" orders are exits
             is_entry = (order_side == "buy")
 
             if is_entry:
-                new_invested = current_invested_usd + (qty * price)
+                # Investment = qty * price
+                # Only add fee if it was paid in quote currency (USDT)
+                # If fee was in base currency, qty already reflects net received
+                if fee_in_quote:
+                    new_invested = current_invested_usd + (qty * price) + order_fee
+                else:
+                    # Fee was in base currency or BNB - don't add to investment
+                    new_invested = current_invested_usd + (qty * price)
                 new_qty = current_qty + qty
+                total_entry_fees += order_fee
 
                 if new_qty > 0:
                     current_avg_price = new_invested / new_qty
@@ -272,8 +290,14 @@ class PositionManagerService:
             else:
                 # For SPOT trading: All positions are "long"
                 # PnL = (sell_price - avg_entry_price) * quantity
-                trade_pnl = (price - current_avg_price) * qty
+                # Only subtract fee if it was paid in quote currency
+                if fee_in_quote:
+                    trade_pnl = (price - current_avg_price) * qty - order_fee
+                else:
+                    # Fee was in base currency or BNB - don't subtract from PnL
+                    trade_pnl = (price - current_avg_price) * qty
                 total_realized_pnl += trade_pnl
+                total_exit_fees += order_fee
                 current_qty -= qty
                 current_invested_usd = current_qty * current_avg_price
 
@@ -287,6 +311,8 @@ class PositionManagerService:
         position_group.total_invested_usd = current_invested_usd
         position_group.total_filled_quantity = current_qty
         position_group.realized_pnl_usd = total_realized_pnl
+        position_group.total_entry_fees_usd = total_entry_fees
+        position_group.total_exit_fees_usd = total_exit_fees
 
         # Get user for exchange connector
         user = await session.get(User, position_group.user_id)
@@ -300,10 +326,19 @@ class PositionManagerService:
             current_price = await exchange_connector.get_current_price(position_group.symbol)
             current_price = Decimal(str(current_price))
 
+            # Fetch dynamic fee rate from exchange (fallback to 0.1% if unavailable)
+            try:
+                fee_rate = Decimal(str(await exchange_connector.get_trading_fee_rate(position_group.symbol)))
+            except Exception:
+                fee_rate = Decimal("0.001")  # 0.1% fallback
+
             if current_qty > 0 and current_avg_price > 0:
                 # For SPOT trading: All positions are "long"
-                # Unrealized PnL = (current_price - avg_entry) * quantity
-                position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty
+                # Unrealized PnL = (current_price - avg_entry) * quantity - estimated_exit_fee
+                # Use dynamic fee rate from exchange
+                estimated_exit_value = current_price * current_qty
+                estimated_exit_fee = estimated_exit_value * fee_rate
+                position_group.unrealized_pnl_usd = (current_price - current_avg_price) * current_qty - estimated_exit_fee
 
                 if position_group.total_invested_usd > 0:
                     position_group.unrealized_pnl_percent = (position_group.unrealized_pnl_usd / position_group.total_invested_usd) * Decimal("100")

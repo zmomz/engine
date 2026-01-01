@@ -360,7 +360,25 @@ class OrderService:
                 logger.info(f"Order {dca_order.id}: Average fill price changed from {dca_order.avg_fill_price} to {avg_fill_price_from_exchange}")
                 dca_order.avg_fill_price = avg_fill_price_from_exchange
                 changed = True
-            
+
+            # Extract and store fee data from exchange response
+            # CCXT returns fee as object: {"cost": 0.001, "currency": "USDT", "rate": 0.0001}
+            # Mock exchange returns fee as number directly
+            raw_fee = exchange_order_data.get("fee", 0)
+            if isinstance(raw_fee, dict):
+                # CCXT unified format (Binance, Bybit, etc.)
+                fee_from_exchange = Decimal(str(raw_fee.get("cost", 0) or 0))
+                fee_currency = raw_fee.get("currency")
+            else:
+                # Mock exchange or direct number format
+                fee_from_exchange = Decimal(str(raw_fee or 0))
+                fee_currency = exchange_order_data.get("fee_currency")
+            if fee_from_exchange > 0 and (dca_order.fee is None or dca_order.fee != fee_from_exchange):
+                logger.info(f"Order {dca_order.id}: Fee updated to {fee_from_exchange} {fee_currency}")
+                dca_order.fee = fee_from_exchange
+                dca_order.fee_currency = fee_currency
+                changed = True
+
             # Set filled_at if the order is now filled and it wasn't before
             if new_status == OrderStatus.FILLED and dca_order.filled_at is None:
                 dca_order.filled_at = datetime.utcnow()

@@ -78,6 +78,8 @@ class DCAOrder(Base):
     )
     filled_quantity = Column(Numeric(20, 10), default=Decimal("0"))
     avg_fill_price = Column(Numeric(20, 10))
+    fee = Column(Numeric(20, 10), default=Decimal("0"))
+    fee_currency = Column(String(10), nullable=True)
 
     tp_hit = Column(Boolean, default=False)
     tp_order_id = Column(String)

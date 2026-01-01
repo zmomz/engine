@@ -4,6 +4,7 @@
 Cancel all open orders, sell all assets to USDT, and close positions on:
 - Binance Spot Testnet
 - Bybit (Unified Trading Account)
+- Mock Exchange (local)
 """
 
 import time
@@ -13,7 +14,14 @@ import requests
 import urllib.parse
 import json
 import asyncio
-import ccxt.async_support as ccxt
+import argparse
+
+try:
+    import ccxt.async_support as ccxt
+    CCXT_AVAILABLE = True
+except ImportError:
+    CCXT_AVAILABLE = False
+    print("Warning: ccxt not installed. Binance/Bybit asset selling will be skipped.")
 
 # ===========================
 # BINANCE TESTNET CONFIG
@@ -28,6 +36,15 @@ BINANCE_BASE_URL = "https://testnet.binance.vision"
 BYBIT_API_KEY = "yJIGPFqyMqcxnYLPn3"
 BYBIT_API_SECRET = "Fvucd6ZKYBRC7oGULuED0pHLKpEsxdpB2gsb"
 BYBIT_BASE_URL = "https://api-testnet.bybit.com"
+
+# ===========================
+# MOCK EXCHANGE CONFIG
+# ===========================
+# Try Docker internal URL first, then localhost
+MOCK_EXCHANGE_URLS = [
+    "http://mock-exchange:9000",  # Docker internal network
+    "http://127.0.0.1:9000",      # Local/host machine
+]
 
 # Coins to skip (stablecoins)
 SKIP_COINS = {'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USD'}
@@ -69,35 +86,40 @@ def cancel_binance_orders():
     print("=" * 50)
     print("BINANCE TESTNET - Cancelling Orders")
     print("=" * 50)
-    
-    open_orders = binance_signed_request("GET", "/api/v3/openOrders")
-    
-    if open_orders is None:
-        print("✗ Failed to fetch open orders\n")
-        return
 
-    if not open_orders:
-        print("✓ No open orders found\n")
-        return
+    try:
+        open_orders = binance_signed_request("GET", "/api/v3/openOrders")
 
-    print(f"Found {len(open_orders)} open order(s):\n")
-    
-    for order in open_orders:
-        print(f"  Symbol: {order['symbol']}, OrderId: {order['orderId']}, "
-              f"Side: {order['side']}, Price: {order['price']}, Qty: {order['origQty']}")
-    
-    print("\nCancelling all orders...\n")
-    
-    symbols_with_orders = set(order['symbol'] for order in open_orders)
-    
-    for symbol in symbols_with_orders:
-        result = binance_signed_request("DELETE", "/api/v3/openOrders", {"symbol": symbol})
-        if result:
-            print(f"  ✓ Cancelled all orders for {symbol}")
-        else:
-            print(f"  ✗ Failed to cancel orders for {symbol}")
-    
-    print()
+        if open_orders is None:
+            print("[X] Failed to fetch open orders\n")
+            return
+
+        if not open_orders:
+            print("[OK] No open orders found\n")
+            return
+
+        print(f"Found {len(open_orders)} open order(s):\n")
+
+        for order in open_orders:
+            print(f"  Symbol: {order['symbol']}, OrderId: {order['orderId']}, "
+                  f"Side: {order['side']}, Price: {order['price']}, Qty: {order['origQty']}")
+
+        print("\nCancelling all orders...\n")
+
+        symbols_with_orders = set(order['symbol'] for order in open_orders)
+
+        for symbol in symbols_with_orders:
+            result = binance_signed_request("DELETE", "/api/v3/openOrders", {"symbol": symbol})
+            if result:
+                print(f"  [OK] Cancelled all orders for {symbol}")
+            else:
+                print(f"  [X] Failed to cancel orders for {symbol}")
+
+        print()
+    except requests.exceptions.ConnectionError as e:
+        print(f"[X] Connection error: Could not reach Binance testnet\n")
+    except Exception as e:
+        print(f"[X] Error: {e}\n")
 
 # ========================================
 # BYBIT FUNCTIONS
@@ -194,48 +216,126 @@ def cancel_bybit_orders():
     print("=" * 50)
     print("BYBIT TESTNET - Cancelling Spot Orders")
     print("=" * 50)
-    
-    print("\nChecking SPOT orders...")
-    
-    # First, let's try to get open orders
-    result = bybit_request("GET", "/v5/order/realtime", {
-        "category": "spot"
-    })
-    
-    if result and result.get("retCode") == 0:
-        orders = result.get("result", {}).get("list", [])
-        if orders:
-            print(f"  Found {len(orders)} open spot order(s):")
-            for order in orders:
-                print(f"    OrderId: {order.get('orderId')}, Symbol: {order.get('symbol')}")
-            
-            print("\n  Cancelling all spot orders...")
-            
-            # Cancel each order individually
-            for order in orders:
-                cancel_result = bybit_request("POST", "/v5/order/cancel", {
-                    "category": "spot",
-                    "symbol": order.get('symbol'),
-                    "orderId": order.get('orderId')
-                })
-                
-                if cancel_result and cancel_result.get("retCode") == 0:
-                    print(f"    ✓ Cancelled order {order.get('orderId')} for {order.get('symbol')}")
-                else:
-                    error_msg = cancel_result.get("retMsg") if cancel_result else "Unknown error"
-                    print(f"    ✗ Failed to cancel order {order.get('orderId')}: {error_msg}")
+
+    try:
+        print("\nChecking SPOT orders...")
+
+        # First, let's try to get open orders
+        result = bybit_request("GET", "/v5/order/realtime", {
+            "category": "spot"
+        })
+
+        if result and result.get("retCode") == 0:
+            orders = result.get("result", {}).get("list", [])
+            if orders:
+                print(f"  Found {len(orders)} open spot order(s):")
+                for order in orders:
+                    print(f"    OrderId: {order.get('orderId')}, Symbol: {order.get('symbol')}")
+
+                print("\n  Cancelling all spot orders...")
+
+                # Cancel each order individually
+                for order in orders:
+                    cancel_result = bybit_request("POST", "/v5/order/cancel", {
+                        "category": "spot",
+                        "symbol": order.get('symbol'),
+                        "orderId": order.get('orderId')
+                    })
+
+                    if cancel_result and cancel_result.get("retCode") == 0:
+                        print(f"    [OK] Cancelled order {order.get('orderId')} for {order.get('symbol')}")
+                    else:
+                        error_msg = cancel_result.get("retMsg") if cancel_result else "Unknown error"
+                        print(f"    [X] Failed to cancel order {order.get('orderId')}: {error_msg}")
+            else:
+                print(f"  [OK] No open orders in spot")
         else:
-            print(f"  ✓ No open orders in spot")
-    else:
-        error_msg = result.get("retMsg") if result else "Unknown error"
-        print(f"  ✗ Failed to fetch spot orders: {error_msg}")
-    
-    print()
+            error_msg = result.get("retMsg") if result else "Unknown error"
+            print(f"  [X] Failed to fetch spot orders: {error_msg}")
+
+        print()
+    except requests.exceptions.ConnectionError as e:
+        print(f"[X] Connection error: Could not reach Bybit testnet\n")
+    except Exception as e:
+        print(f"[X] Error: {e}\n")
 
 def close_bybit_positions():
     # Spot doesn't have positions, only derivatives do
     # Skipping position closure for spot testnet
     pass
+
+# ========================================
+# MOCK EXCHANGE FUNCTIONS
+# ========================================
+
+def clean_mock_exchange():
+    """Clean all positions, orders, and trades from the mock exchange."""
+    print("=" * 50)
+    print("MOCK EXCHANGE - Cleaning Data")
+    print("=" * 50)
+
+    # Try each URL until one works
+    mock_url = None
+    for url in MOCK_EXCHANGE_URLS:
+        try:
+            r = requests.get(f"{url}/health", timeout=2)
+            if r.status_code == 200:
+                mock_url = url
+                break
+        except:
+            continue
+
+    if not mock_url:
+        print("  [X] Could not connect to mock exchange (is it running?)\n")
+        return
+
+    try:
+        print(f"  Mock exchange is running at {mock_url}")
+
+        # Get current state before cleanup
+        orders_resp = requests.get(f"{mock_url}/admin/orders", timeout=5)
+        positions_resp = requests.get(f"{mock_url}/admin/positions", timeout=5)
+
+        orders = orders_resp.json() if orders_resp.status_code == 200 else []
+        positions = positions_resp.json() if positions_resp.status_code == 200 else []
+
+        pending_orders = [o for o in orders if o.get('status') in ['NEW', 'PARTIALLY_FILLED']]
+        active_positions = [p for p in positions if p.get('quantity', 0) != 0]
+
+        print(f"  Found {len(pending_orders)} pending order(s)")
+        print(f"  Found {len(active_positions)} active position(s)")
+
+        if pending_orders:
+            print("\n  Pending Orders:")
+            for order in pending_orders[:10]:  # Show first 10
+                print(f"    - {order.get('symbol')} {order.get('side')} {order.get('quantity')} @ {order.get('price')} ({order.get('status')})")
+            if len(pending_orders) > 10:
+                print(f"    ... and {len(pending_orders) - 10} more")
+
+        if active_positions:
+            print("\n  Active Positions:")
+            for pos in active_positions[:10]:  # Show first 10
+                print(f"    - {pos.get('symbol')} {pos.get('positionSide')} qty={pos.get('quantity')} entry={pos.get('entryPrice')}")
+            if len(active_positions) > 10:
+                print(f"    ... and {len(active_positions) - 10} more")
+
+        # Call reset endpoint
+        print("\n  Resetting mock exchange...")
+        r = requests.delete(f"{mock_url}/admin/reset", timeout=10)
+
+        if r.status_code == 200:
+            result = r.json()
+            print(f"  [OK] Mock exchange reset complete")
+            print(f"    Timestamp: {result.get('timestamp', 'N/A')}")
+        else:
+            print(f"  [X] Failed to reset mock exchange: {r.status_code} - {r.text}")
+
+    except requests.exceptions.Timeout:
+        print("  [X] Connection to mock exchange timed out\n")
+    except Exception as e:
+        print(f"  [X] Error cleaning mock exchange: {e}\n")
+
+    print()
 
 # ========================================
 # SELL ALL ASSETS TO USDT (ASYNC)
@@ -245,6 +345,10 @@ async def sell_all_binance_async():
     print("\n" + "=" * 50)
     print("BINANCE - Selling all assets to USDT")
     print("=" * 50)
+
+    if not CCXT_AVAILABLE:
+        print("  [SKIP] ccxt not installed\n")
+        return
 
     exchange = ccxt.binance({
         'apiKey': BINANCE_API_KEY,
@@ -297,11 +401,11 @@ async def sell_all_binance_async():
 
                     print(f"  Selling {sell_amount} {currency} (~${value_usdt:.2f})...")
                     order = await exchange.create_market_sell_order(symbol, sell_amount)
-                    print(f"  ✓ Sold {currency}")
+                    print(f"  [OK] Sold {currency}")
                     sold_count += 1
 
                 except Exception as e:
-                    print(f"  ✗ Failed to sell {currency}: {e}")
+                    print(f"  [X] Failed to sell {currency}: {e}")
 
         print(f"\nBinance: Sold {sold_count} assets, skipped {skipped_count}")
 
@@ -315,6 +419,10 @@ async def sell_all_bybit_async():
     print("\n" + "=" * 50)
     print("BYBIT - Selling all assets to USDT")
     print("=" * 50)
+
+    if not CCXT_AVAILABLE:
+        print("  [SKIP] ccxt not installed\n")
+        return
 
     exchange = ccxt.bybit({
         'apiKey': BYBIT_API_KEY,
@@ -341,7 +449,7 @@ async def sell_all_bybit_async():
                 continue
 
         if not balance:
-            print("  ✗ Could not fetch balance")
+            print("  [X] Could not fetch balance")
             return
 
         sold_count = 0
@@ -406,16 +514,30 @@ async def sell_all_assets():
 # ========================================
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Clean positions and orders from exchanges")
+    parser.add_argument("--mock-only", action="store_true", help="Only clean mock exchange")
+    parser.add_argument("--skip-mock", action="store_true", help="Skip mock exchange cleanup")
+    parser.add_argument("--skip-binance", action="store_true", help="Skip Binance cleanup")
+    parser.add_argument("--skip-bybit", action="store_true", help="Skip Bybit cleanup")
+    args = parser.parse_args()
+
     print("\n" + "=" * 50)
     print("EXCHANGE CLEANUP TOOL")
     print("=" * 50 + "\n")
 
-    # Cancel all open orders
-    cancel_binance_orders()
-    cancel_bybit_orders()
+    # Clean mock exchange first (local)
+    if not args.skip_mock:
+        clean_mock_exchange()
 
-    # Sell all assets to USDT
-    asyncio.run(sell_all_assets())
+    if not args.mock_only:
+        # Cancel all open orders on real exchanges
+        if not args.skip_binance:
+            cancel_binance_orders()
+        if not args.skip_bybit:
+            cancel_bybit_orders()
+
+        # Sell all assets to USDT
+        asyncio.run(sell_all_assets())
 
     print("\n" + "=" * 50)
     print("CLEANUP COMPLETE")

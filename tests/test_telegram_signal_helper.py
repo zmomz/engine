@@ -243,6 +243,7 @@ class TestBroadcastEntrySignal:
     ):
         """Test broadcast with aggregate TP mode"""
         sample_position_group.user_id = sample_user.id
+        sample_position_group.tp_mode = "aggregate"  # Set on position_group (used by code)
         sample_dca_config.tp_mode = TakeProfitMode.AGGREGATE
         sample_dca_config.tp_settings = {"tp_aggregate_percent": 2.0}
 
@@ -276,6 +277,7 @@ class TestBroadcastEntrySignal:
     ):
         """Test broadcast with aggregate TP using alternate key name"""
         sample_position_group.user_id = sample_user.id
+        sample_position_group.tp_mode = "aggregate"  # Set on position_group (used by code)
         sample_dca_config.tp_mode = TakeProfitMode.AGGREGATE
         sample_dca_config.tp_settings = {"aggregate_tp_percent": 2.5}  # Alternate key
 

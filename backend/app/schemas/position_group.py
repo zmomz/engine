@@ -29,7 +29,9 @@ class DCAOrderSchema(BaseModel):
     quantity: Decimal
     status: str
     filled_quantity: Decimal | None = None
-    
+    fee: Decimal | None = None
+    fee_currency: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class PyramidSchema(BaseModel):
@@ -60,6 +62,8 @@ class PositionGroupSchema(BaseModel):
     unrealized_pnl_usd: Decimal
     unrealized_pnl_percent: Decimal
     realized_pnl_usd: Decimal
+    total_entry_fees_usd: Decimal | None = Decimal("0")
+    total_exit_fees_usd: Decimal | None = Decimal("0")
     tp_mode: TPMode
     tp_aggregate_percent: Decimal | None = None
     risk_timer_start: datetime | None = None

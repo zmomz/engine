@@ -994,7 +994,7 @@
             try {
                 await api('/admin/reset', { method: 'DELETE' });
                 showToast('Exchange reset complete!', 'success');
-                refreshAll();
+                await refreshAll();
             } catch (e) {
                 showToast('Failed to reset: ' + e.message, 'error');
             }

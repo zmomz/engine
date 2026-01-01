@@ -216,6 +216,9 @@ async def test_check_order_status_filled(order_service, mock_exchange_connector,
     assert updated_order.filled_quantity == Decimal("0.001")
     assert updated_order.avg_fill_price == Decimal("60000")
     assert updated_order.filled_at is not None
+    # Verify fee extraction from exchange response
+    assert updated_order.fee == Decimal("0.06")
+    assert updated_order.fee_currency == "USDT"
 
 @pytest.mark.asyncio
 async def test_submit_order_with_retries(order_service, mock_exchange_connector, mock_dca_order_repository):

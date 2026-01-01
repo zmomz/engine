@@ -89,6 +89,8 @@ class PositionGroup(Base):
     unrealized_pnl_usd = Column(Numeric(20, 10), default=Decimal("0"))
     unrealized_pnl_percent = Column(Numeric(10, 4), default=Decimal("0"))
     realized_pnl_usd = Column(Numeric(20, 10), default=Decimal("0"))
+    total_entry_fees_usd = Column(Numeric(20, 10), default=Decimal("0"))
+    total_exit_fees_usd = Column(Numeric(20, 10), default=Decimal("0"))
 
     # Take-profit configuration
     tp_mode = Column(

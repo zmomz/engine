@@ -15,6 +15,14 @@ jest.mock('../store/confirmStore', () => ({
     }
 }));
 
+// Mock custom hooks that can cause timeouts with event listeners
+jest.mock('../hooks/useKeyboardShortcuts', () => ({
+    useKeyboardShortcuts: jest.fn(),
+}));
+jest.mock('../hooks/useVisibilityRefresh', () => ({
+    useVisibilityRefresh: jest.fn(),
+}));
+
 // Mock useMediaQuery for mobile testing
 const mockUseMediaQuery = jest.fn();
 jest.mock('@mui/material', () => ({
@@ -105,7 +113,14 @@ describe('QueuePage', () => {
   ];
 
   beforeEach(() => {
+    // Use legacy fake timers to allow waitFor to work
+    jest.useFakeTimers('legacy');
     mockUseMediaQuery.mockReturnValue(false); // Default to desktop
+
+    // Make async mocks return resolved promises
+    mockFetchQueuedSignals.mockResolvedValue(undefined);
+    mockPromoteSignal.mockResolvedValue(undefined);
+    mockRemoveSignal.mockResolvedValue(undefined);
 
     mockUseQueueStore.mockReturnValue({
       queuedSignals: mockSignals,
@@ -113,7 +128,7 @@ describe('QueuePage', () => {
       loading: false,
       error: null,
       fetchQueuedSignals: mockFetchQueuedSignals,
-      fetchQueueHistory: jest.fn(),
+      fetchQueueHistory: jest.fn().mockResolvedValue(undefined),
       promoteSignal: mockPromoteSignal,
       removeSignal: mockRemoveSignal,
     });
@@ -127,6 +142,7 @@ describe('QueuePage', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.useRealTimers();
   });
 
   it('renders the queue page with heading', async () => {

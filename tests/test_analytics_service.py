@@ -262,6 +262,7 @@ class TestCalculateLiveDashboard:
         active.side = "long"
         active.total_filled_quantity = Decimal("0.1")
         active.weighted_avg_entry = Decimal("50000")
+        active.total_entry_fees_usd = Decimal("0")  # No entry fees for test simplicity
 
         # Mock closed positions
         win = MagicMock()
@@ -275,7 +276,8 @@ class TestCalculateLiveDashboard:
         exchange_data = {
             "binance": {
                 "balances": {"total": {"USDT": 1000, "BTC": 0.1}, "free": {"USDT": 1000}},
-                "tickers": {"BTC/USDT": {"last": 55000.0}}
+                "tickers": {"BTC/USDT": {"last": 55000.0}},
+                "fee_rate": 0.001  # 0.1% fee rate
             }
         }
 
@@ -293,7 +295,8 @@ class TestCalculateLiveDashboard:
         assert result["wins"] == 1
         assert result["losses"] == 1
         assert result["win_rate"] == 50.0
-        assert result["unrealized_pnl_usd"] == 500.0  # (55000-50000) * 0.1
+        # Unrealized PnL: (55000-50000) * 0.1 - 0 entry_fees - 5500*0.001 exit_fee = 500 - 5.5 = 494.5
+        assert result["unrealized_pnl_usd"] == 494.5
 
     def test_live_dashboard_short_position(self, analytics_service):
         """Test live dashboard with short position."""
@@ -303,11 +306,13 @@ class TestCalculateLiveDashboard:
         active.side = "short"
         active.total_filled_quantity = Decimal("0.1")
         active.weighted_avg_entry = Decimal("50000")
+        active.total_entry_fees_usd = Decimal("0")  # No entry fees for test simplicity
 
         exchange_data = {
             "binance": {
                 "balances": {"total": {"USDT": 1000}, "free": {"USDT": 1000}},
-                "tickers": {"BTC/USDT": {"last": 45000.0}}  # Price dropped
+                "tickers": {"BTC/USDT": {"last": 45000.0}},  # Price dropped
+                "fee_rate": 0.001  # 0.1% fee rate
             }
         }
 
@@ -319,8 +324,8 @@ class TestCalculateLiveDashboard:
             exchange_data=exchange_data
         )
 
-        # Short profit: (50000-45000) * 0.1 = 500
-        assert result["unrealized_pnl_usd"] == 500.0
+        # Short profit: (50000-45000) * 0.1 - 0 entry_fees - 4500*0.001 exit_fee = 500 - 4.5 = 495.5
+        assert result["unrealized_pnl_usd"] == 495.5
 
     def test_live_dashboard_pnl_calculation_error(self, analytics_service):
         """Test live dashboard handles PnL calculation errors."""

@@ -89,7 +89,7 @@ async def test_dashboard_handles_exchange_errors_gracefully():
                     "/api/v1/users/login",
                     data={"username": TEST_USER, "password": TEST_PASSWORD}
                 )
-            except (httpx.ConnectError, httpx.ReadTimeout):
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError):
                 pytest.skip("Could not connect to app - is Docker running?")
             if r.status_code != 200:
                 pytest.skip("Could not authenticate")
@@ -103,7 +103,7 @@ async def test_dashboard_handles_exchange_errors_gracefully():
             # Should have structure even if some exchanges failed
             assert "live_dashboard" in data
             assert "performance_dashboard" in data
-    except (httpx.ConnectError, httpx.ReadTimeout):
+    except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError):
         pytest.skip("Could not connect to app - is Docker running?")
 
 

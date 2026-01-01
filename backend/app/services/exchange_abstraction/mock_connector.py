@@ -234,6 +234,8 @@ class MockConnector(ExchangeInterface):
                 "status": data["status"].lower(),
                 "filled": float(data.get("executedQty", 0)),
                 "remaining": float(data["origQty"]) - float(data.get("executedQty", 0)),
+                "fee": float(data.get("fee", 0)),
+                "fee_currency": data.get("feeCurrency", "USDT"),
             }
 
         except APIError:
@@ -278,6 +280,8 @@ class MockConnector(ExchangeInterface):
                 "price": float(data.get("avgPrice", 0)) or float(data.get("price", 0)),
                 "average": float(data.get("avgPrice", 0)) or float(data.get("price", 0)),  # OrderService expects 'average' key
                 "quantity": float(data["origQty"]),
+                "fee": float(data.get("fee", 0)),
+                "fee_currency": data.get("feeCurrency", "USDT"),
             }
 
         except APIError:
@@ -483,3 +487,16 @@ class MockConnector(ExchangeInterface):
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    async def get_trading_fee_rate(self, symbol: str = None) -> float:
+        """
+        Returns the mock exchange trading fee rate.
+        Always returns 0.001 (0.1%) for the mock exchange.
+
+        Args:
+            symbol: Trading pair (ignored for mock)
+
+        Returns:
+            Fee rate as decimal (0.001 = 0.1%)
+        """
+        return 0.001

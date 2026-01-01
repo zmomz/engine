@@ -151,13 +151,13 @@ async def broadcast_entry_signal(
         entry_prices: List[Optional[Decimal]] = []
         weights: List[int] = []
         tp_prices: List[Optional[Decimal]] = []
-        tp_mode = None
+        # Use position_group.tp_mode directly - it's always available (nullable=False)
+        tp_mode = position_group.tp_mode
         aggregate_tp = None
         pyramid_tp_percent = None
 
         if dca_config and dca_config.dca_levels:
             dca_levels = dca_config.dca_levels
-            tp_mode = dca_config.tp_mode.value if hasattr(dca_config.tp_mode, 'value') else dca_config.tp_mode
 
             for i, order in enumerate(dca_orders):
                 entry_prices.append(order.price if order.status == OrderStatus.FILLED else None)
@@ -266,11 +266,8 @@ async def broadcast_exit_signal(
             duration = end_time - position_group.created_at
             duration_hours = duration.total_seconds() / 3600
 
-        # Get DCA config for TP mode
-        dca_config = await _get_dca_config(position_group, session)
-        tp_mode = None
-        if dca_config:
-            tp_mode = dca_config.tp_mode.value if hasattr(dca_config.tp_mode, 'value') else dca_config.tp_mode
+        # Use position_group.tp_mode directly - it's always available (nullable=False)
+        tp_mode = position_group.tp_mode
 
         # Count filled legs
         filled_legs = position_group.filled_dca_legs or 0
@@ -383,15 +380,11 @@ async def broadcast_status_change(
         if not config or not config.send_status_updates:
             return
 
-        # Get DCA config for TP info
-        dca_config = await _get_dca_config(position_group, session)
-        tp_mode = None
-        tp_percent = None
+        # Use position_group.tp_mode directly - it's always available (nullable=False)
+        tp_mode = position_group.tp_mode
 
-        if dca_config:
-            tp_mode = dca_config.tp_mode.value if hasattr(dca_config.tp_mode, 'value') else dca_config.tp_mode
-            if dca_config.tp_settings:
-                tp_percent = Decimal(str(dca_config.tp_settings.get('tp_aggregate_percent', 0)))
+        # Get TP percent from position group if available
+        tp_percent = position_group.tp_aggregate_percent
 
         # Get fill counts
         filled_count = position_group.filled_dca_legs or 0

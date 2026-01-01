@@ -148,9 +148,17 @@ class AnalyticsService:
                         logger.warning(f"Could not fetch tickers from {exchange_name}: {e}")
                         all_tickers = {}
 
+                # Fetch trading fee rate (fallback to 0.1% if unavailable)
+                try:
+                    fee_rate = await connector.get_trading_fee_rate()
+                except Exception as e:
+                    logger.warning(f"Could not fetch fee rate from {exchange_name}: {e}")
+                    fee_rate = 0.001  # 0.1% fallback
+
                 exchange_data[exchange_name] = {
                     "balances": balances,
-                    "tickers": all_tickers
+                    "tickers": all_tickers,
+                    "fee_rate": fee_rate
                 }
 
             except Exception as e:
@@ -173,6 +181,7 @@ class AnalyticsService:
         total_active_groups = len(active_positions)
 
         # Calculate unrealized PnL from active positions
+        # Includes actual entry fees (from DB) and estimated exit fees (0.1%)
         total_unrealized_pnl = 0.0
         for group in active_positions:
             ex = group.exchange
@@ -186,10 +195,17 @@ class AnalyticsService:
                         qty = float(group.total_filled_quantity)
                         avg_entry = float(group.weighted_avg_entry)
                         if qty > 0:
+                            # Get actual entry fees from database
+                            entry_fees = float(group.total_entry_fees_usd or 0)
+                            # Use dynamic fee rate from exchange (already fetched)
+                            fee_rate = exchange_data[ex].get('fee_rate', 0.001)
+                            exit_value = current_price * qty
+                            estimated_exit_fee = exit_value * fee_rate
+
                             if group.side == "long":
-                                pnl = (current_price - avg_entry) * qty
+                                pnl = (current_price - avg_entry) * qty - entry_fees - estimated_exit_fee
                             else:
-                                pnl = (avg_entry - current_price) * qty
+                                pnl = (avg_entry - current_price) * qty - entry_fees - estimated_exit_fee
                             total_unrealized_pnl += pnl
                 except Exception as e:
                     logger.error(f"Error calculating PnL for {group.symbol}: {e}")
@@ -308,7 +324,7 @@ class AnalyticsService:
     ) -> Dict:
         """Calculate performance metrics"""
 
-        # Calculate unrealized PnL for open positions
+        # Calculate unrealized PnL for open positions (with fees)
         total_unrealized_pnl = 0.0
         for group in active_positions:
             ex = group.exchange
@@ -322,10 +338,17 @@ class AnalyticsService:
                         qty = float(group.total_filled_quantity)
                         avg_entry = float(group.weighted_avg_entry)
                         if qty > 0:
+                            # Get actual entry fees from database
+                            entry_fees = float(group.total_entry_fees_usd or 0)
+                            # Use dynamic fee rate from exchange (already fetched)
+                            fee_rate = exchange_data[ex].get('fee_rate', 0.001)
+                            exit_value = current_price * qty
+                            estimated_exit_fee = exit_value * fee_rate
+
                             if group.side == "long":
-                                pnl = (current_price - avg_entry) * qty
+                                pnl = (current_price - avg_entry) * qty - entry_fees - estimated_exit_fee
                             else:
-                                pnl = (avg_entry - current_price) * qty
+                                pnl = (avg_entry - current_price) * qty - entry_fees - estimated_exit_fee
                             total_unrealized_pnl += pnl
                 except Exception:
                     pass

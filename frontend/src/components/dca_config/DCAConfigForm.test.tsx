@@ -763,4 +763,261 @@ describe('DCAConfigForm', () => {
       expect(screen.getByText(/using custom capital from settings below/i)).toBeInTheDocument();
     });
   });
+
+  describe('Pyramid Aggregate TP Settings', () => {
+    test('shows P0 TP % field on Default tab in pyramid_aggregate mode', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            tp_mode: 'pyramid_aggregate',
+            tp_settings: { tp_aggregate_percent: 2.0, pyramid_tp_percents: {} },
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.getByLabelText(/p0 tp % \(initial entry\)/i)).toBeInTheDocument();
+    });
+
+    test('shows per-pyramid TP field when on pyramid tab in pyramid_aggregate mode', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            tp_mode: 'pyramid_aggregate',
+            max_pyramids: 2,
+            tp_settings: { tp_aggregate_percent: 2.0, pyramid_tp_percents: {} },
+          }}
+          isEdit={true}
+        />
+      );
+
+      const p1Tab = screen.getByRole('tab', { name: /p1/i });
+      fireEvent.click(p1Tab);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/p1 tp %/i)).toBeInTheDocument();
+      });
+    });
+
+    test('can change P0 TP percentage value', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            tp_mode: 'pyramid_aggregate',
+            tp_settings: { tp_aggregate_percent: 2.0, pyramid_tp_percents: { '0': 3.0 } },
+          }}
+          isEdit={true}
+        />
+      );
+
+      const p0TpField = screen.getByLabelText(/p0 tp % \(initial entry\)/i);
+      expect(p0TpField).toHaveValue(3);
+    });
+  });
+
+  describe('Pyramid Custom Capital Settings', () => {
+    test('shows P0 Capital field on Default tab when custom capital enabled', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            use_custom_capital: true,
+            custom_capital_usd: 200,
+            pyramid_custom_capitals: {},
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.getByLabelText(/p0 capital \(initial entry\)/i)).toBeInTheDocument();
+    });
+
+    test('shows per-pyramid capital field on pyramid tab when custom capital enabled', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            use_custom_capital: true,
+            custom_capital_usd: 200,
+            max_pyramids: 2,
+            pyramid_custom_capitals: {},
+          }}
+          isEdit={true}
+        />
+      );
+
+      const p1Tab = screen.getByRole('tab', { name: /p1/i });
+      fireEvent.click(p1Tab);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/p1 capital/i)).toBeInTheDocument();
+      });
+    });
+
+    test('can change P0 capital value', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            use_custom_capital: true,
+            custom_capital_usd: 200,
+            pyramid_custom_capitals: { '0': 300 },
+          }}
+          isEdit={true}
+        />
+      );
+
+      const p0CapitalField = screen.getByLabelText(/p0 capital \(initial entry\)/i);
+      expect(p0CapitalField).toHaveValue(300);
+    });
+
+    test('does not show P0 Capital when custom capital disabled', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            use_custom_capital: false,
+          }}
+          isEdit={true}
+        />
+      );
+
+      expect(screen.queryByLabelText(/p0 capital \(initial entry\)/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Pyramid Override Toggle Behavior', () => {
+    test('enabling pyramid override shows DCA levels editor', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            max_pyramids: 2,
+            dca_levels: [{ gap_percent: 0, weight_percent: 100, tp_percent: 1 }],
+          }}
+          isEdit={true}
+        />
+      );
+
+      // Switch to P1 tab
+      const p1Tab = screen.getByRole('tab', { name: /p1/i });
+      fireEvent.click(p1Tab);
+
+      await waitFor(() => {
+        expect(screen.getByText(/enable p1 dca levels/i)).toBeInTheDocument();
+      });
+
+      // Enable pyramid override by clicking checkbox
+      const checkbox = screen.getByRole('checkbox');
+      fireEvent.click(checkbox);
+
+      // After enabling, should show Add Level button for pyramid-specific levels
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /add level/i })).toBeInTheDocument();
+      });
+    });
+
+    test('shows indicator dot on tab when pyramid has specific levels', () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            max_pyramids: 2,
+            pyramid_specific_levels: {
+              '1': [{ gap_percent: 0, weight_percent: 100, tp_percent: 1.5 }],
+            },
+          }}
+          isEdit={true}
+        />
+      );
+
+      // The P1 tab should exist and the indicator dot is rendered inside it
+      const p1Tab = screen.getByRole('tab', { name: /p1/i });
+      expect(p1Tab).toBeInTheDocument();
+    });
+  });
+
+  describe('Form Validation Errors', () => {
+    test('shows validation error when weight does not equal 100%', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+          initialData={{
+            ...mockInitialData,
+            dca_levels: [
+              { gap_percent: 0, weight_percent: 30, tp_percent: 1 },
+              { gap_percent: -1, weight_percent: 30, tp_percent: 1 },
+            ], // Total = 60%, not 100%
+          }}
+          isEdit={true}
+        />
+      );
+
+      const saveButton = screen.getByRole('button', { name: /save/i });
+      fireEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/total weight must be 100%/i)).toBeInTheDocument();
+      });
+    });
+
+    test('validates pair field is required', async () => {
+      renderWithTheme(
+        <DCAConfigForm
+          open={true}
+          onClose={mockOnClose}
+          onSubmit={mockOnSubmit}
+        />
+      );
+
+      // Add a level to avoid that validation error
+      const addButton = screen.getByRole('button', { name: /add level/i });
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('#0')).toBeInTheDocument();
+      });
+
+      // Try to submit without pair
+      const saveButton = screen.getByRole('button', { name: /save/i });
+      fireEvent.click(saveButton);
+
+      // Form should not be submitted because pair is required
+      await waitFor(() => {
+        expect(mockOnSubmit).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

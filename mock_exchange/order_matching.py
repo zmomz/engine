@@ -145,6 +145,14 @@ class OrderMatchingEngine:
             # Update or create position
             self._update_position(order, fill_price, fill_qty)
 
+            # Calculate fee (0.04% for taker, 0.02% for maker)
+            fee_rate = 0.0002 if order.type.upper() == "LIMIT" else 0.0004
+            trade_fee = trade_value * fee_rate
+
+            # Accumulate fee on order
+            order.cumulative_fee = (order.cumulative_fee or 0) + trade_fee
+            order.fee_currency = "USDT"
+
             # Record trade
             trade = Trade(
                 order_id=order.id,
@@ -153,7 +161,7 @@ class OrderMatchingEngine:
                 price=fill_price,
                 quantity=fill_qty,
                 quote_qty=trade_value,
-                commission=trade_value * 0.0004,  # 0.04% fee
+                commission=trade_fee,
                 commission_asset="USDT",
                 is_maker=order.type.upper() == "LIMIT",
             )

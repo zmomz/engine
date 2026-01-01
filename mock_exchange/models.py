@@ -127,6 +127,8 @@ class Order(Base):
     quantity = Column(Float, nullable=False)  # Requested quantity
     executed_qty = Column(Float, default=0.0)  # Filled quantity
     avg_price = Column(Float, default=0.0)  # Average fill price
+    cumulative_fee = Column(Float, default=0.0)  # Accumulated trading fees
+    fee_currency = Column(String(10), default="USDT")  # Fee currency
 
     status = Column(String(20), default="NEW")
     time_in_force = Column(String(10), default="GTC")  # GTC, IOC, FOK

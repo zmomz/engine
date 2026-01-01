@@ -418,6 +418,53 @@ class BybitConnector(ExchangeInterface):
         if self.exchange:
             await self.exchange.close()
 
+    @map_exchange_errors
+    async def get_trading_fee_rate(self, symbol: str = None) -> float:
+        """
+        Fetches the trading fee rate (taker fee) from Bybit.
+        Uses Redis cache with 1h TTL to avoid repeated API calls.
+        Falls back to 0.001 (0.1%) if API call fails.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTC/USDT')
+
+        Returns:
+            Fee rate as decimal (e.g., 0.001 for 0.1%)
+        """
+        DEFAULT_FEE = 0.001  # 0.1% fallback
+
+        try:
+            # Try to get from cache first
+            cache = await get_cache()
+            cache_key = f"bybit{'_testnet' if self.testnet_mode else ''}_fee_{symbol}" if symbol else f"bybit{'_testnet' if self.testnet_mode else ''}_fee_default"
+            cached_fee = await cache.get(cache_key)
+            if cached_fee is not None:
+                return float(cached_fee)
+
+            # Fetch from exchange
+            if symbol:
+                # Fetch fee for specific symbol
+                fee_info = await self.exchange.fetch_trading_fee(symbol)
+                taker_fee = fee_info.get('taker', DEFAULT_FEE)
+            else:
+                # Fetch account-level fees
+                fees = await self.exchange.fetch_trading_fees()
+                # Get first available or default
+                if fees:
+                    first_fee = next(iter(fees.values()), {})
+                    taker_fee = first_fee.get('taker', DEFAULT_FEE)
+                else:
+                    taker_fee = DEFAULT_FEE
+
+            # Cache for 1 hour
+            await cache.set(cache_key, str(taker_fee), ttl=3600)
+            logger.info(f"Fetched trading fee for {symbol or 'account'}: {taker_fee}")
+            return float(taker_fee)
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch trading fee from Bybit: {e}. Using default {DEFAULT_FEE}")
+            return DEFAULT_FEE
+
     async def cancel_all_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
         """
         Cancels all open orders for a given symbol or all symbols on Bybit.

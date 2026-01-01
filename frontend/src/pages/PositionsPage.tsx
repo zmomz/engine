@@ -138,11 +138,20 @@ const PositionsPage: React.FC = () => {
     }));
   };
 
-  const formatCurrency = (value: number | string | null | undefined) => {
+  const formatCurrency = (value: number | string | null | undefined, decimals: number = 2) => {
     if (value === null || value === undefined) return '-';
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(numValue)) return '-';
-    return `$${numValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `$${numValue.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+  };
+
+  const formatPrice = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined) return '-';
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return '-';
+    // Use 4 decimals for prices under $10, 2 for larger values
+    const decimals = Math.abs(numValue) < 10 ? 4 : 2;
+    return `$${numValue.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
   };
 
   const getPnlColor = (value: number | string | null | undefined) => {
@@ -911,13 +920,13 @@ const PositionsPage: React.FC = () => {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Base Entry</Typography>
                     <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
-                      {formatCurrency(position.base_entry_price)}
+                      {formatPrice(position.base_entry_price)}
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Avg Entry</Typography>
                     <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
-                      {formatCurrency(position.weighted_avg_entry)}
+                      {formatPrice(position.weighted_avg_entry)}
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 6, sm: 3 }}>
@@ -959,7 +968,7 @@ const PositionsPage: React.FC = () => {
 
                             <Typography variant="caption" color="text.secondary">Entry Price</Typography>
                             <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace' }}>
-                              {formatCurrency(pyramid.entry_price)}
+                              {formatPrice(pyramid.entry_price)}
                             </Typography>
 
                             {/* DCA Orders */}
@@ -976,7 +985,7 @@ const PositionsPage: React.FC = () => {
                                           {dca.order_type}
                                         </TableCell>
                                         <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
-                                          {formatCurrency(dca.price)}
+                                          {formatPrice(dca.price)}
                                         </TableCell>
                                         <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
                                           Qty: {safeToFixed(dca.quantity, 4)}

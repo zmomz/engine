@@ -169,6 +169,12 @@ async def execute_handle_exit_signal(
             # 3. Close the position with slippage protection
             current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
 
+            # Fetch dynamic fee rate from exchange (fallback to 0.1% if unavailable)
+            try:
+                fee_rate = Decimal(str(await exchange_connector.get_trading_fee_rate(position_group.symbol)))
+            except Exception:
+                fee_rate = Decimal("0.001")  # 0.1% fallback
+
             try:
                 await order_service.close_position_market(
                     position_group=position_group,
@@ -183,12 +189,14 @@ async def execute_handle_exit_signal(
                 position_group.status = PositionGroupStatus.CLOSED
 
                 exit_value = total_filled_quantity * current_price
-                cost_basis = position_group.total_invested_usd
+                cost_basis = position_group.total_invested_usd  # Already includes entry fees
+                # Estimate exit fee using dynamic rate from exchange
+                estimated_exit_fee = exit_value * fee_rate
 
                 if position_group.side == "long":
-                    realized_pnl = exit_value - cost_basis
+                    realized_pnl = exit_value - cost_basis - estimated_exit_fee
                 else:
-                    realized_pnl = cost_basis - exit_value
+                    realized_pnl = cost_basis - exit_value - estimated_exit_fee
 
                 position_group.realized_pnl_usd = realized_pnl
                 position_group.unrealized_pnl_usd = Decimal("0")
@@ -239,12 +247,14 @@ async def execute_handle_exit_signal(
                             position_group.status = PositionGroupStatus.CLOSED
                             current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
                             exit_value = available_balance * current_price
-                            cost_basis = position_group.total_invested_usd
+                            cost_basis = position_group.total_invested_usd  # Already includes entry fees
+                            # Estimate exit fee using dynamic rate (already fetched above)
+                            estimated_exit_fee = exit_value * fee_rate
 
                             if position_group.side == "long":
-                                realized_pnl = exit_value - cost_basis
+                                realized_pnl = exit_value - cost_basis - estimated_exit_fee
                             else:
-                                realized_pnl = cost_basis - exit_value
+                                realized_pnl = cost_basis - exit_value - estimated_exit_fee
 
                             position_group.realized_pnl_usd = realized_pnl
                             position_group.unrealized_pnl_usd = Decimal("0")

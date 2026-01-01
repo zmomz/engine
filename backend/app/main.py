@@ -123,6 +123,12 @@ async def startup_event():
         position_group_repository_class=PositionGroupRepository
     )
 
+    # QueueManagerService - needed by all workers for API endpoints
+    app.state.queue_manager_service = QueueManagerService(
+        session_factory=AsyncSessionLocal,
+        execution_pool_manager=app.state.execution_pool_manager
+    )
+
     if app.state.is_leader:
         logger.info(f"Worker {WORKER_ID} elected as LEADER - will run background tasks")
 
@@ -140,11 +146,7 @@ async def startup_event():
         )
         await app.state.order_fill_monitor.start_monitoring_task()
 
-        # QueueManagerService
-        app.state.queue_manager_service = QueueManagerService(
-            session_factory=AsyncSessionLocal,
-            execution_pool_manager=app.state.execution_pool_manager
-        )
+        # Start queue promotion background task (only on leader)
         await app.state.queue_manager_service.start_promotion_task()
 
         # RiskEngineService - Background monitoring task for automatic risk management

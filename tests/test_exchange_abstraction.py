@@ -30,6 +30,9 @@ class MockExchange(ExchangeInterface):
     async def close(self):
         pass
 
+    async def get_trading_fee_rate(self, symbol: str = None) -> float:
+        return 0.001  # 0.1% default fee
+
 @pytest.mark.asyncio
 async def test_exchange_interface_methods():
     """

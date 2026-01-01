@@ -767,6 +767,7 @@ class TestLongPositionPnLCalculation:
             mock_connector = AsyncMock()
             # Exit at higher price (profit for long)
             mock_connector.get_current_price = AsyncMock(return_value=55000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.0)  # No fee for pure P&L test
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
 
@@ -811,6 +812,7 @@ class TestLongPositionPnLCalculation:
             mock_connector = AsyncMock()
             # Exit at lower price (loss for long)
             mock_connector.get_current_price = AsyncMock(return_value=45000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.0)  # No fee for pure P&L test
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
 

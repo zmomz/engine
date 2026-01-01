@@ -251,6 +251,12 @@ class RiskEngineService:
                     await cache.release_lock(lock_resource, lock_id)
                     return
 
+                # Fetch dynamic fee rate from exchange (fallback to 0.1% if unavailable)
+                try:
+                    fee_rate = Decimal(str(await exchange_connector.get_trading_fee_rate(loser.symbol)))
+                except Exception:
+                    fee_rate = Decimal("0.001")  # 0.1% fallback
+
                 # Instantiate OrderService
                 order_service = self.order_service_class(
                     session=session,
@@ -381,13 +387,15 @@ class RiskEngineService:
                     except Exception:
                         current_price = loser.weighted_avg_entry  # Fallback
 
-                    # Calculate realized PnL
+                    # Calculate realized PnL with estimated exit fee
                     exit_value = loser.total_filled_quantity * current_price
-                    cost_basis = loser.total_invested_usd
+                    cost_basis = loser.total_invested_usd  # Already includes entry fees
+                    # Estimate exit fee using dynamic rate from exchange
+                    estimated_exit_fee = exit_value * fee_rate
                     if loser.side == "long":
-                        realized_pnl = exit_value - cost_basis
+                        realized_pnl = exit_value - cost_basis - estimated_exit_fee
                     else:
-                        realized_pnl = cost_basis - exit_value
+                        realized_pnl = cost_basis - exit_value - estimated_exit_fee
 
                     # Mark loser as CLOSED
                     loser.status = PositionGroupStatus.CLOSED.value
@@ -407,12 +415,14 @@ class RiskEngineService:
                                 winner_price = winner_pg.weighted_avg_entry  # Fallback
 
                             # Calculate REALIZED PROFIT from the hedge (not notional value)
-                            # Profit = (exit_price - entry_price) * quantity for long
-                            # Profit = (entry_price - exit_price) * quantity for short
+                            # Profit = (exit_price - entry_price) * quantity - exit_fee for long
+                            # Profit = (entry_price - exit_price) * quantity - exit_fee for short
+                            exit_value_winner = winner_price * qty_closed
+                            estimated_winner_exit_fee = exit_value_winner * fee_rate
                             if winner_pg.side == "long":
-                                hedge_profit = (winner_price - winner_pg.weighted_avg_entry) * qty_closed
+                                hedge_profit = (winner_price - winner_pg.weighted_avg_entry) * qty_closed - estimated_winner_exit_fee
                             else:
-                                hedge_profit = (winner_pg.weighted_avg_entry - winner_price) * qty_closed
+                                hedge_profit = (winner_pg.weighted_avg_entry - winner_price) * qty_closed - estimated_winner_exit_fee
 
                             # Accumulate hedge tracking (add to existing values)
                             # total_hedged_qty: quantity that was closed for offset
@@ -429,12 +439,14 @@ class RiskEngineService:
                                 winner_pg.unrealized_pnl_usd = Decimal("0")
                                 winner_pg.unrealized_pnl_percent = Decimal("0")
                             else:
-                                # Recalculate based on remaining quantity
+                                # Recalculate based on remaining quantity with estimated exit fee
                                 remaining_qty = winner_pg.total_filled_quantity
+                                remaining_exit_value = winner_price * remaining_qty
+                                remaining_exit_fee = remaining_exit_value * fee_rate
                                 if winner_pg.side == "long":
-                                    winner_pg.unrealized_pnl_usd = (winner_price - winner_pg.weighted_avg_entry) * remaining_qty
+                                    winner_pg.unrealized_pnl_usd = (winner_price - winner_pg.weighted_avg_entry) * remaining_qty - remaining_exit_fee
                                 else:
-                                    winner_pg.unrealized_pnl_usd = (winner_pg.weighted_avg_entry - winner_price) * remaining_qty
+                                    winner_pg.unrealized_pnl_usd = (winner_pg.weighted_avg_entry - winner_price) * remaining_qty - remaining_exit_fee
 
                             await position_group_repo.update(winner_pg)
                             logger.info(

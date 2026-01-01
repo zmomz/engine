@@ -53,3 +53,17 @@ class ExchangeInterface(ABC):
         Closes the exchange connection and releases resources.
         """
         pass
+
+    @abstractmethod
+    async def get_trading_fee_rate(self, symbol: str = None) -> float:
+        """
+        Fetches the trading fee rate for a symbol (taker fee as decimal).
+        Returns 0.001 (0.1%) as default if exchange doesn't support fee fetching.
+
+        Args:
+            symbol: Trading pair (optional, some exchanges return account-level fees)
+
+        Returns:
+            Fee rate as decimal (e.g., 0.001 for 0.1%)
+        """
+        pass
