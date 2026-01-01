@@ -129,5 +129,95 @@ async def override_get_db_session_for_integration_tests(db_session: AsyncSession
                     app.dependency_overrides[get_db_session] = override_get_db_session
 
                     yield
-        
+
     app.dependency_overrides = {}
+
+
+@pytest.fixture(scope="function")
+async def real_services(db_session: AsyncSession, test_user: User):
+    """
+    Provides real service instances with mock exchange only.
+    Tests actual service integration without mocking internal services.
+
+    This fixture is designed to enable integration tests that verify
+    actual behavior rather than just mock call verification.
+
+    Usage:
+        async def test_something(real_services):
+            pm = real_services["position_manager"]
+            result = await pm.create_position_group_from_signal(...)
+
+            # Verify actual database state
+            repo = PositionGroupRepository(real_services["session"])
+            db_position = await repo.get_by_id(result.id)
+            assert db_position is not None
+
+    Available services:
+        - connector: MockExchangeConnector
+        - grid_calculator: GridCalculatorService
+        - order_service: OrderService
+        - position_manager: PositionManagerService
+        - risk_engine: RiskEngineService
+        - execution_pool_manager: ExecutionPoolManager
+        - session: AsyncSession
+        - user: User
+    """
+    # Patch encryption to avoid real key operations
+    with patch("app.services.exchange_abstraction.factory.EncryptionService", new=MockEncryptionService):
+        # Create mock exchange connector
+        mock_exchange_config = {"encrypted_data": "mock_test_key"}
+        connector = get_exchange_connector("mock", mock_exchange_config)
+
+        # Initialize real services with mock exchange
+        grid_calculator = GridCalculatorService()
+
+        # Order service needs session, user, and exchange connector
+        order_service = OrderService(
+            session=db_session,
+            user=test_user,
+            exchange_connector=connector
+        )
+
+        execution_pool_manager = ExecutionPoolManager(
+            session_factory=lambda: db_session,
+            position_group_repository_class=PositionGroupRepository
+        )
+
+        position_manager = PositionManagerService(
+            session_factory=lambda: db_session,
+            user=test_user,
+            position_group_repository_class=PositionGroupRepository,
+            grid_calculator_service=grid_calculator,
+            order_service_class=OrderService
+        )
+
+        risk_engine_config = RiskEngineConfig(
+            loss_threshold_percent=Decimal("-1.5"),
+            required_pyramids_for_timer=3,
+            post_pyramids_wait_minutes=15,
+            max_winners_to_combine=3
+        )
+
+        risk_engine = RiskEngineService(
+            session_factory=lambda: db_session,
+            position_group_repository_class=PositionGroupRepository,
+            risk_action_repository_class=RiskActionRepository,
+            dca_order_repository_class=DCAOrderRepository,
+            order_service_class=OrderService,
+            risk_engine_config=risk_engine_config
+        )
+
+        yield {
+            "connector": connector,
+            "grid_calculator": grid_calculator,
+            "order_service": order_service,
+            "position_manager": position_manager,
+            "risk_engine": risk_engine,
+            "execution_pool_manager": execution_pool_manager,
+            "session": db_session,
+            "user": test_user,
+            "risk_engine_config": risk_engine_config
+        }
+
+        # Cleanup
+        await connector.close()

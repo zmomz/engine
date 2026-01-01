@@ -653,3 +653,292 @@ async def test_trigger_risk_evaluation_disabled(mock_order_fill_monitor_service)
 
         # Risk engine should not be instantiated
         mock_risk_engine_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_dca_beyond_threshold_cancels_order(mock_order_fill_monitor_service):
+    """Test that DCA orders are cancelled when price moves beyond threshold."""
+    mock_session = AsyncMock()
+
+    mock_order = MagicMock()
+    mock_order.id = uuid.uuid4()
+    mock_order.symbol = "BTC/USDT"
+    mock_order.status = OrderStatus.OPEN.value
+    mock_order.group = MagicMock()
+    mock_order.group.user_id = uuid.uuid4()
+    mock_order.group.symbol = "BTCUSDT"
+    mock_order.group.timeframe = 60
+    mock_order.group.exchange = "binance"
+    mock_order.group.side = "long"
+    mock_order.group.weighted_avg_entry = Decimal("50000")
+
+    mock_config = MagicMock()
+    mock_config.cancel_dca_beyond_percent = Decimal("5")  # 5% threshold
+
+    mock_order_service = AsyncMock()
+
+    with patch("app.services.order_fill_monitor.DCAConfigurationRepository") as MockRepo:
+        mock_repo = AsyncMock()
+        mock_repo.get_specific_config = AsyncMock(return_value=mock_config)
+        MockRepo.return_value = mock_repo
+
+        # Price dropped 6% from entry (beyond 5% threshold)
+        current_price = Decimal("47000")
+
+        await mock_order_fill_monitor_service._check_dca_beyond_threshold(
+            order=mock_order,
+            current_price=current_price,
+            order_service=mock_order_service,
+            session=mock_session
+        )
+
+        mock_order_service.cancel_order.assert_called_once_with(mock_order)
+
+
+@pytest.mark.asyncio
+async def test_check_dca_beyond_threshold_does_not_cancel_within_threshold(mock_order_fill_monitor_service):
+    """Test that DCA orders are NOT cancelled when price is within threshold."""
+    mock_session = AsyncMock()
+
+    mock_order = MagicMock()
+    mock_order.id = uuid.uuid4()
+    mock_order.symbol = "BTC/USDT"
+    mock_order.status = OrderStatus.OPEN.value
+    mock_order.group = MagicMock()
+    mock_order.group.user_id = uuid.uuid4()
+    mock_order.group.symbol = "BTCUSDT"
+    mock_order.group.timeframe = 60
+    mock_order.group.exchange = "binance"
+    mock_order.group.side = "long"
+    mock_order.group.weighted_avg_entry = Decimal("50000")
+
+    mock_config = MagicMock()
+    mock_config.cancel_dca_beyond_percent = Decimal("5")  # 5% threshold
+
+    mock_order_service = AsyncMock()
+
+    with patch("app.services.order_fill_monitor.DCAConfigurationRepository") as MockRepo:
+        mock_repo = AsyncMock()
+        mock_repo.get_specific_config = AsyncMock(return_value=mock_config)
+        MockRepo.return_value = mock_repo
+
+        # Price dropped only 2% from entry (within 5% threshold)
+        current_price = Decimal("49000")
+
+        await mock_order_fill_monitor_service._check_dca_beyond_threshold(
+            order=mock_order,
+            current_price=current_price,
+            order_service=mock_order_service,
+            session=mock_session
+        )
+
+        mock_order_service.cancel_order.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_dca_beyond_threshold_no_config(mock_order_fill_monitor_service):
+    """Test handling when no DCA config exists."""
+    mock_session = AsyncMock()
+
+    mock_order = MagicMock()
+    mock_order.id = uuid.uuid4()
+    mock_order.group = MagicMock()
+    mock_order.group.user_id = uuid.uuid4()
+    mock_order.group.symbol = "BTCUSDT"
+    mock_order.group.timeframe = 60
+    mock_order.group.exchange = "binance"
+
+    mock_order_service = AsyncMock()
+
+    with patch("app.services.order_fill_monitor.DCAConfigurationRepository") as MockRepo:
+        mock_repo = AsyncMock()
+        mock_repo.get_specific_config = AsyncMock(return_value=None)
+        MockRepo.return_value = mock_repo
+
+        # Should not raise
+        await mock_order_fill_monitor_service._check_dca_beyond_threshold(
+            order=mock_order,
+            current_price=Decimal("50000"),
+            order_service=mock_order_service,
+            session=mock_session
+        )
+
+        mock_order_service.cancel_order.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_dca_beyond_threshold_no_threshold_configured(mock_order_fill_monitor_service):
+    """Test when cancel_dca_beyond_percent is None."""
+    mock_session = AsyncMock()
+
+    mock_order = MagicMock()
+    mock_order.id = uuid.uuid4()
+    mock_order.group = MagicMock()
+    mock_order.group.user_id = uuid.uuid4()
+    mock_order.group.symbol = "BTCUSDT"
+    mock_order.group.timeframe = 60
+    mock_order.group.exchange = "binance"
+    mock_order.group.side = "long"
+    mock_order.group.weighted_avg_entry = Decimal("50000")
+
+    mock_config = MagicMock()
+    mock_config.cancel_dca_beyond_percent = None  # Not configured
+
+    mock_order_service = AsyncMock()
+
+    with patch("app.services.order_fill_monitor.DCAConfigurationRepository") as MockRepo:
+        mock_repo = AsyncMock()
+        mock_repo.get_specific_config = AsyncMock(return_value=mock_config)
+        MockRepo.return_value = mock_repo
+
+        await mock_order_fill_monitor_service._check_dca_beyond_threshold(
+            order=mock_order,
+            current_price=Decimal("40000"),  # Big price drop
+            order_service=mock_order_service,
+            session=mock_session
+        )
+
+        mock_order_service.cancel_order.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_dca_beyond_threshold_handles_exception(mock_order_fill_monitor_service):
+    """Test that exceptions in threshold check are handled gracefully."""
+    mock_session = AsyncMock()
+
+    mock_order = MagicMock()
+    mock_order.id = uuid.uuid4()
+    mock_order.group = None  # No group - should cause early return
+
+    mock_order_service = AsyncMock()
+
+    # Should not raise
+    await mock_order_fill_monitor_service._check_dca_beyond_threshold(
+        order=mock_order,
+        current_price=Decimal("50000"),
+        order_service=mock_order_service,
+        session=mock_session
+    )
+
+    mock_order_service.cancel_order.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_orders_market_entry_triggers_immediately(mock_order_fill_monitor_service):
+    """Test that market entry orders (leg_index=0) trigger immediately regardless of price."""
+    group_id = uuid.uuid4()
+    mock_group = MagicMock()
+    mock_group.exchange = "binance"
+    mock_group.side = "long"
+    mock_group.status = "active"
+    mock_group.weighted_avg_entry = Decimal("50000")
+    mock_group.tp_mode = "per_leg"
+
+    # Create a market entry order
+    market_order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=group_id,
+        status=OrderStatus.TRIGGER_PENDING.value,
+        exchange_order_id=None,
+        symbol="BTC/USDT",
+        quantity=Decimal("0.01"),
+        filled_quantity=Decimal("0"),
+        side="buy",
+        order_type="market",  # Market order
+        price=Decimal("51000"),  # Above current price
+        leg_index=0  # Entry order
+    )
+    market_order.group = mock_group
+    market_order.pyramid = None
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
+    mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
+
+    mock_encryption_service = MagicMock()
+    mock_encryption_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+    mock_order_fill_monitor_service.encryption_service = mock_encryption_service
+
+    repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
+    repo_instance.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [market_order]})
+
+    mock_order_service_instance = AsyncMock()
+    mock_order_fill_monitor_service.order_service_class.return_value = mock_order_service_instance
+    mock_order_service_instance.submit_order = AsyncMock()
+    mock_order_service_instance.place_tp_order = AsyncMock()
+
+    mock_position_manager_instance = AsyncMock()
+    mock_order_fill_monitor_service.position_manager_service_class.return_value = mock_position_manager_instance
+    mock_position_manager_instance.update_position_stats = AsyncMock()
+
+    # Price is BELOW the trigger price - but market entries should trigger anyway
+    mock_connector = AsyncMock()
+    mock_connector.get_current_price = AsyncMock(return_value=Decimal("50000"))
+    mock_connector.close = AsyncMock()
+
+    with (
+        patch("app.services.order_fill_monitor.UserRepository") as mock_user_repo_cls,
+        patch("app.services.order_fill_monitor.get_exchange_connector", return_value=mock_connector),
+        patch("app.services.order_fill_monitor.DCAConfigurationRepository") as mock_dca_config_repo
+    ):
+        mock_user_repo_instance = mock_user_repo_cls.return_value
+        mock_user_repo_instance.get_all_active_users = AsyncMock(return_value=[mock_user])
+
+        mock_config_repo_instance = AsyncMock()
+        mock_config_repo_instance.get_specific_config = AsyncMock(return_value=None)
+        mock_dca_config_repo.return_value = mock_config_repo_instance
+
+        await mock_order_fill_monitor_service._check_orders()
+
+    # Market entry should trigger immediately
+    mock_order_service_instance.submit_order.assert_called_once_with(market_order)
+
+
+@pytest.mark.asyncio
+async def test_check_orders_skips_closing_position(mock_order_fill_monitor_service):
+    """Test that orders for closing positions are skipped."""
+    group_id = uuid.uuid4()
+    mock_group = MagicMock()
+    mock_group.exchange = "binance"
+    mock_group.status = "closing"  # Position is being closed
+
+    order = DCAOrder(
+        id=uuid.uuid4(),
+        group_id=group_id,
+        status=OrderStatus.OPEN.value,
+        symbol="BTC/USDT"
+    )
+    order.group = mock_group
+    order.pyramid = None
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_user.username = "testuser"
+    mock_user.encrypted_api_keys = {"binance": {"encrypted_data": "mock"}}
+
+    mock_encryption_service = MagicMock()
+    mock_encryption_service.decrypt_keys.return_value = ("dummy_api", "dummy_secret")
+    mock_order_fill_monitor_service.encryption_service = mock_encryption_service
+
+    repo_instance = mock_order_fill_monitor_service.dca_order_repository_class.return_value
+    repo_instance.get_all_open_orders_for_all_users = AsyncMock(return_value={str(mock_user.id): [order]})
+
+    mock_order_service_instance = AsyncMock()
+    mock_order_fill_monitor_service.order_service_class.return_value = mock_order_service_instance
+
+    mock_connector = AsyncMock()
+    mock_connector.close = AsyncMock()
+    mock_connector.get_all_tickers = AsyncMock(return_value={})
+
+    with (
+        patch("app.services.order_fill_monitor.UserRepository") as mock_user_repo_cls,
+        patch("app.services.order_fill_monitor.get_exchange_connector", return_value=mock_connector)
+    ):
+        mock_user_repo_instance = mock_user_repo_cls.return_value
+        mock_user_repo_instance.get_all_active_users = AsyncMock(return_value=[mock_user])
+
+        await mock_order_fill_monitor_service._check_orders()
+
+    # Order for closing position should be skipped
+    mock_order_service_instance.check_order_status.assert_not_called()

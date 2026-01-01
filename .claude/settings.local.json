@@ -122,7 +122,8 @@
       "Bash(timeout:*)",
       "Bash(git checkout:*)",
       "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"def test_\"\" {} | wc -l')",
-      "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"async def\\\\|^def \"\" {} | head -15')"
+      "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"async def\\\\|^def \"\" {} | head -15')",
+      "Bash(CI=true npm test -- --testPathPattern=\"SettingsPage.test.tsx\" --no-coverage)"
     ]
   }
 }

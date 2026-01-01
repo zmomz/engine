@@ -493,3 +493,336 @@ class TestExecuteHandleExitSignal:
 
             # Should not call update to change status since already CLOSING
             assert mock_position_group.status == PositionGroupStatus.CLOSED
+
+
+class TestInsufficientFundsRetry:
+    """
+    Tests for insufficient funds retry logic (lines 213-276 in position_closer.py).
+    This error path was previously untested.
+    """
+
+    @pytest.mark.asyncio
+    async def test_insufficient_funds_triggers_retry_with_available_balance(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """When insufficient funds, should fetch balance and retry with available amount."""
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
+        mock_position_group.symbol = "BTCUSDT"
+        mock_position_group.total_filled_quantity = Decimal("0.02")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        # Order service that fails first time with insufficient funds, then succeeds
+        mock_order_service_instance = AsyncMock()
+        call_count = 0
+
+        async def mock_close(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Insufficient balance for requested action")
+            # Second call succeeds
+            return None
+
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.close_position_market = AsyncMock(side_effect=mock_close)
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
+             patch('app.services.position.position_closer.save_close_action') as mock_save:
+            mock_connector = AsyncMock()
+            mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0.01})
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            await execute_handle_exit_signal(
+                position_group_id=mock_position_group.id,
+                session=mock_session,
+                user=mock_user,
+                position_group_repository_class=mock_repo_class,
+                order_service_class=mock_order_service_class
+            )
+
+            # Should have called close_position_market twice (initial + retry)
+            assert mock_order_service_instance.close_position_market.call_count == 2
+            # Should have fetched balance for retry
+            mock_connector.fetch_free_balance.assert_called_once()
+            # Position should be closed
+            assert mock_position_group.status == PositionGroupStatus.CLOSED
+            # Save close action should be called
+            mock_save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_insufficient_funds_no_balance_available_raises_error(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """When insufficient funds and no balance available, should raise original error."""
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.symbol = "BTCUSDT"
+        mock_position_group.total_filled_quantity = Decimal("0.02")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        mock_order_service_instance = AsyncMock()
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.close_position_market = AsyncMock(
+            side_effect=Exception("Insufficient balance for requested action")
+        )
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
+            mock_connector = AsyncMock()
+            mock_connector.get_current_price = AsyncMock(return_value=51000)
+            # No balance available
+            mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0})
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            with pytest.raises(Exception, match="Insufficient balance"):
+                await execute_handle_exit_signal(
+                    position_group_id=mock_position_group.id,
+                    session=mock_session,
+                    user=mock_user,
+                    position_group_repository_class=mock_repo_class,
+                    order_service_class=mock_order_service_class
+                )
+
+    @pytest.mark.asyncio
+    async def test_insufficient_funds_retry_also_fails_raises_original_error(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """When retry also fails, should raise the original error."""
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.symbol = "BTCUSDT"
+        mock_position_group.total_filled_quantity = Decimal("0.02")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        # Both calls fail
+        mock_order_service_instance = AsyncMock()
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.close_position_market = AsyncMock(
+            side_effect=Exception("Insufficient balance for requested action")
+        )
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
+            mock_connector = AsyncMock()
+            mock_connector.get_current_price = AsyncMock(return_value=51000)
+            # Has some balance, but retry will still fail
+            mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0.005})
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            with pytest.raises(Exception, match="Insufficient balance"):
+                await execute_handle_exit_signal(
+                    position_group_id=mock_position_group.id,
+                    session=mock_session,
+                    user=mock_user,
+                    position_group_repository_class=mock_repo_class,
+                    order_service_class=mock_order_service_class
+                )
+
+            # Should have tried twice
+            assert mock_order_service_instance.close_position_market.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_insufficient_funds_parses_symbol_correctly(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """Test that base currency is correctly parsed from various symbol formats."""
+        # Test with ETHUSDT
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.symbol = "ETHUSDT"
+        mock_position_group.total_filled_quantity = Decimal("1.0")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        call_count = 0
+
+        async def mock_close(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Insufficient balance for requested action")
+            return None
+
+        mock_order_service_instance = AsyncMock()
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.close_position_market = AsyncMock(side_effect=mock_close)
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
+             patch('app.services.position.position_closer.save_close_action'):
+            mock_connector = AsyncMock()
+            mock_connector.get_current_price = AsyncMock(return_value=3000)
+            # ETH balance available (parsed from ETHUSDT symbol)
+            mock_connector.fetch_free_balance = AsyncMock(return_value={"ETH": 0.5})
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            await execute_handle_exit_signal(
+                position_group_id=mock_position_group.id,
+                session=mock_session,
+                user=mock_user,
+                position_group_repository_class=mock_repo_class,
+                order_service_class=mock_order_service_class
+            )
+
+            # Retry should have used 0.5 ETH
+            assert mock_order_service_instance.close_position_market.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_non_insufficient_error_not_retried(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """Non-insufficient balance errors should not trigger retry."""
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.total_filled_quantity = Decimal("0.02")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        mock_order_service_instance = AsyncMock()
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        # Different error - not "insufficient"
+        mock_order_service_instance.close_position_market = AsyncMock(
+            side_effect=Exception("Network timeout error")
+        )
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
+            mock_connector = AsyncMock()
+            mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            with pytest.raises(Exception, match="Network timeout"):
+                await execute_handle_exit_signal(
+                    position_group_id=mock_position_group.id,
+                    session=mock_session,
+                    user=mock_user,
+                    position_group_repository_class=mock_repo_class,
+                    order_service_class=mock_order_service_class
+                )
+
+            # Should only be called once (no retry for non-insufficient errors)
+            assert mock_order_service_instance.close_position_market.call_count == 1
+            # fetch_free_balance should not be called
+            mock_connector.fetch_free_balance.assert_not_called()
+
+
+class TestLongPositionPnLCalculation:
+    """
+    Tests for long position PnL calculation.
+    Note: This is a spot trading app - only long positions are supported.
+    """
+
+    @pytest.mark.asyncio
+    async def test_long_position_profit_when_price_rises(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """Long position should profit when exit price is higher than entry."""
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
+        mock_position_group.symbol = "BTCUSDT"
+        mock_position_group.weighted_avg_entry = Decimal("50000")
+        mock_position_group.total_invested_usd = Decimal("1000")
+        mock_position_group.total_filled_quantity = Decimal("0.02")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        mock_order_service_instance = AsyncMock()
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.close_position_market = AsyncMock()
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
+             patch('app.services.position.position_closer.save_close_action'):
+            mock_connector = AsyncMock()
+            # Exit at higher price (profit for long)
+            mock_connector.get_current_price = AsyncMock(return_value=55000)
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            await execute_handle_exit_signal(
+                position_group_id=mock_position_group.id,
+                session=mock_session,
+                user=mock_user,
+                position_group_repository_class=mock_repo_class,
+                order_service_class=mock_order_service_class
+            )
+
+            # For long: PnL = exit_value - cost_basis
+            # exit_value = 0.02 * 55000 = 1100, cost_basis = 1000
+            # Expected PnL = 1100 - 1000 = 100 (profit)
+            assert mock_position_group.realized_pnl_usd == Decimal("100")
+
+    @pytest.mark.asyncio
+    async def test_long_position_loss_when_price_drops(
+        self, mock_session, mock_user, mock_position_group
+    ):
+        """Long position should lose when exit price is lower than entry."""
+        mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
+        mock_position_group.symbol = "BTCUSDT"
+        mock_position_group.weighted_avg_entry = Decimal("50000")
+        mock_position_group.total_invested_usd = Decimal("1000")
+        mock_position_group.total_filled_quantity = Decimal("0.02")
+
+        mock_repo_class = MagicMock()
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.get_with_orders.return_value = mock_position_group
+        mock_repo_instance.update = AsyncMock()
+        mock_repo_class.return_value = mock_repo_instance
+
+        mock_order_service_instance = AsyncMock()
+        mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.close_position_market = AsyncMock()
+        mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
+             patch('app.services.position.position_closer.save_close_action'):
+            mock_connector = AsyncMock()
+            # Exit at lower price (loss for long)
+            mock_connector.get_current_price = AsyncMock(return_value=45000)
+            mock_connector.close = AsyncMock()
+            mock_get_conn.return_value = mock_connector
+
+            await execute_handle_exit_signal(
+                position_group_id=mock_position_group.id,
+                session=mock_session,
+                user=mock_user,
+                position_group_repository_class=mock_repo_class,
+                order_service_class=mock_order_service_class
+            )
+
+            # For long: PnL = exit_value - cost_basis
+            # exit_value = 0.02 * 45000 = 900, cost_basis = 1000
+            # Expected PnL = 900 - 1000 = -100 (loss)
+            assert mock_position_group.realized_pnl_usd == Decimal("-100")

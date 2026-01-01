@@ -25,6 +25,8 @@ class MockConnector(ExchangeInterface):
     Connector for the enhanced Mock Exchange.
     Communicates with the mock exchange server via REST API,
     mimicking Binance Futures API behavior.
+
+    Supports error simulation for testing via inject_error() method.
     """
 
     def __init__(self, config: dict = None):
@@ -53,6 +55,54 @@ class MockConnector(ExchangeInterface):
 
         # Shared HTTP client to avoid connection pool churn
         self._client: Optional["httpx.AsyncClient"] = None
+
+        # Error simulation for testing
+        self._error_injection: Dict[str, Any] = {}
+
+    def inject_error(self, method: str, error_type: str = "exception", error_data: Any = None, one_shot: bool = True):
+        """
+        Inject an error to be raised on the next call to a method.
+
+        Args:
+            method: Method name to inject error for (e.g., 'place_order', 'get_current_price')
+            error_type: Type of error - 'exception', 'timeout', 'insufficient_balance', 'rate_limit', 'api_error'
+            error_data: Additional data for the error (message, code, etc.)
+            one_shot: If True, error is cleared after first trigger
+        """
+        self._error_injection[method] = {
+            "type": error_type,
+            "data": error_data,
+            "one_shot": one_shot
+        }
+        logger.debug(f"MockConnector: Injected {error_type} error for {method}")
+
+    def clear_error(self, method: str = None):
+        """Clear injected errors for a method or all methods."""
+        if method:
+            self._error_injection.pop(method, None)
+        else:
+            self._error_injection.clear()
+
+    def _check_error_injection(self, method: str):
+        """Check if an error should be raised for a method."""
+        if method in self._error_injection:
+            error_info = self._error_injection[method]
+            if error_info["one_shot"]:
+                del self._error_injection[method]
+
+            error_type = error_info["type"]
+            error_data = error_info.get("data", "Injected test error")
+
+            if error_type == "exception":
+                raise Exception(error_data)
+            elif error_type == "timeout":
+                raise ExchangeConnectionError("Connection timeout (simulated)")
+            elif error_type == "insufficient_balance":
+                raise APIError("Insufficient balance (simulated)")
+            elif error_type == "rate_limit":
+                raise APIError("Rate limit exceeded (simulated)")
+            elif error_type == "api_error":
+                raise APIError(error_data if error_data else "API error (simulated)")
 
     async def _get_client(self) -> "httpx.AsyncClient":
         """Get or create a shared async HTTP client."""
@@ -150,6 +200,7 @@ class MockConnector(ExchangeInterface):
         Returns:
             Order response dict with id, status, etc.
         """
+        self._check_error_injection("place_order")
         try:
             normalized_symbol = self._normalize_symbol(symbol)
             client = await self._get_client()
@@ -201,6 +252,7 @@ class MockConnector(ExchangeInterface):
         Returns:
             Order status dict
         """
+        self._check_error_injection("get_order_status")
         try:
             client = await self._get_client()
             params = {"orderId": order_id}
@@ -244,6 +296,7 @@ class MockConnector(ExchangeInterface):
         Returns:
             Cancellation result dict
         """
+        self._check_error_injection("cancel_order")
         try:
             client = await self._get_client()
             params = {"orderId": order_id}
@@ -274,6 +327,7 @@ class MockConnector(ExchangeInterface):
         Returns:
             Current price as Decimal
         """
+        self._check_error_injection("get_current_price")
         try:
             normalized_symbol = self._normalize_symbol(symbol)
             client = await self._get_client()
@@ -313,6 +367,7 @@ class MockConnector(ExchangeInterface):
         Returns:
             Dict mapping asset to total balance
         """
+        self._check_error_injection("fetch_balance")
         try:
             client = await self._get_client()
             response = await client.get("/fapi/v2/balance")
@@ -334,6 +389,7 @@ class MockConnector(ExchangeInterface):
         Returns:
             Dict mapping asset to available balance
         """
+        self._check_error_injection("fetch_free_balance")
         try:
             client = await self._get_client()
             response = await client.get("/fapi/v2/balance")
