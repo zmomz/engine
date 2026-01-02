@@ -41,6 +41,7 @@ describe('HistoryPositionCard', () => {
     filled_dca_legs: 3,
     total_dca_legs: 5,
     tp_mode: 'weighted_average',
+    tp_aggregate_percent: null,
     risk_blocked: false,
     risk_eligible: false,
     risk_timer_expires: null,

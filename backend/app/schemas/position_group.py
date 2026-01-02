@@ -31,6 +31,11 @@ class DCAOrderSchema(BaseModel):
     filled_quantity: Decimal | None = None
     fee: Decimal | None = None
     fee_currency: str | None = None
+    # TP fields
+    tp_percent: Decimal | None = None
+    tp_price: Decimal | None = None
+    tp_hit: bool | None = False
+    tp_order_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -180,6 +180,28 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
                 {position.tp_mode?.replace('_', ' ').toUpperCase() || '-'}
               </Typography>
             </Box>
+            {/* TP Target for aggregate/hybrid/pyramid_aggregate modes */}
+            {(position.tp_mode === 'aggregate' || position.tp_mode === 'hybrid' || position.tp_mode === 'pyramid_aggregate') && position.tp_aggregate_percent && (
+              <Box sx={{ gridColumn: '1 / -1' }}>
+                <Typography variant="caption" color="text.secondary">Aggregate TP Target</Typography>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'success.main', fontWeight: 600 }}>
+                  {position.weighted_avg_entry > 0 ? (
+                    <>
+                      {formatCompactCurrency(
+                        position.side === 'long'
+                          ? position.weighted_avg_entry * (1 + position.tp_aggregate_percent / 100)
+                          : position.weighted_avg_entry * (1 - position.tp_aggregate_percent / 100)
+                      )}
+                      <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
+                        (+{position.tp_aggregate_percent}%)
+                      </Typography>
+                    </>
+                  ) : (
+                    `+${position.tp_aggregate_percent}%`
+                  )}
+                </Typography>
+              </Box>
+            )}
             <Box>
               <Typography variant="caption" color="text.secondary">Total Quantity</Typography>
               <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>

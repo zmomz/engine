@@ -378,6 +378,30 @@ class OrderService:
                 dca_order.fee = fee_from_exchange
                 dca_order.fee_currency = fee_currency
                 changed = True
+            elif fee_from_exchange <= 0 and new_status == OrderStatus.FILLED:
+                # Exchange didn't return fee - estimate it for realistic PnL tracking
+                # This is common on testnets that don't report fees
+                try:
+                    filled_qty = Decimal(str(filled_quantity_from_exchange or 0))
+                    avg_price = avg_fill_price_from_exchange if avg_fill_price_from_exchange > 0 else dca_order.price
+
+                    if filled_qty > 0 and avg_price and avg_price > 0:
+                        # Get dynamic fee rate from exchange (cached, fallback 0.1%)
+                        fee_rate = Decimal(str(
+                            await self.exchange_connector.get_trading_fee_rate(dca_order.symbol)
+                        ))
+
+                        # Estimate: trade_value × fee_rate
+                        trade_value = filled_qty * avg_price
+                        estimated_fee = trade_value * fee_rate
+
+                        if dca_order.fee is None or dca_order.fee == Decimal("0"):
+                            dca_order.fee = estimated_fee
+                            dca_order.fee_currency = "USDT"  # Assume quote currency for estimates
+                            logger.info(f"Order {dca_order.id}: Fee estimated at {estimated_fee} USDT (rate: {fee_rate})")
+                            changed = True
+                except Exception as e:
+                    logger.warning(f"Order {dca_order.id}: Failed to estimate fee: {e}")
 
             # Set filled_at if the order is now filled and it wasn't before
             if new_status == OrderStatus.FILLED and dca_order.filled_at is None:
@@ -754,8 +778,8 @@ class OrderService:
         orders = await self.dca_order_repository.get_all_orders_by_group_id(group_id)
         
         for order in orders:
-            # Cancel Entry Orders
-            if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value]:
+            # Cancel Entry Orders (including TRIGGER_PENDING which are stop orders on exchange)
+            if order.status in [OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value, OrderStatus.TRIGGER_PENDING.value]:
                 await self.cancel_order(order)
             
             # Cancel TP Orders for Filled entries

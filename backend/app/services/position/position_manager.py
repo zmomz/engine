@@ -244,6 +244,14 @@ class PositionManagerService:
         filled_orders = [o for o in all_orders if o.status == OrderStatus.FILLED]
         filled_orders.sort(key=lambda x: x.filled_at or x.created_at or datetime.min)
 
+        # Log order details for debugging
+        buy_orders = [o for o in filled_orders if o.side.lower() == 'buy']
+        sell_orders = [o for o in filled_orders if o.side.lower() == 'sell']
+        logger.debug(
+            f"Stats calculation for {group_id}: {len(filled_orders)} filled orders "
+            f"({len(buy_orders)} buys, {len(sell_orders)} sells)"
+        )
+
         current_qty = Decimal("0")
         current_invested_usd = Decimal("0")
         total_realized_pnl = Decimal("0")
@@ -380,7 +388,12 @@ class PositionManagerService:
                         )
 
             # Auto-close check - when all filled legs have been TP'd (qty = 0)
+            logger.debug(
+                f"Auto-close check for {group_id}: current_qty={current_qty}, "
+                f"filled_orders={len(filled_orders)}, status={position_group.status}"
+            )
             if current_qty <= 0 and len(filled_orders) > 0 and position_group.status not in [PositionGroupStatus.CLOSED, PositionGroupStatus.CLOSING]:
+                logger.info(f"Position {group_id} auto-closing: all TPs hit (qty=0, {len(filled_orders)} filled orders)")
                 position_group.status = PositionGroupStatus.CLOSED
                 position_group.closed_at = datetime.utcnow()
 
@@ -614,6 +627,8 @@ class PositionManagerService:
                     # All pyramids have been TP'd, close the position
                     position_group.status = PositionGroupStatus.CLOSED
                     position_group.closed_at = datetime.utcnow()
+                    # Cancel any remaining open orders on the exchange
+                    await order_service.cancel_open_orders_for_group(position_group.id)
                     await position_group_repo.update(position_group)
                     logger.info(f"All pyramids closed for Group {position_group.id} - Position CLOSED")
 

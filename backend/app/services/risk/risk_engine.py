@@ -290,6 +290,13 @@ class RiskEngineService:
                 await session.commit()
                 logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSING and committed to prevent re-selection")
 
+                # Cancel pending orders on loser before closing
+                try:
+                    await order_service.cancel_open_orders_for_group(loser.id)
+                    logger.info(f"Risk Engine: Cancelled pending orders for loser {loser.symbol} (ID: {loser.id}).")
+                except Exception as cancel_err:
+                    logger.warning(f"Risk Engine: Failed to cancel orders for loser {loser.symbol}: {cancel_err}")
+
                 # Prepare all close orders for SIMULTANEOUS execution
                 close_tasks = []
 

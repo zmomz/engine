@@ -941,6 +941,28 @@ const PositionsPage: React.FC = () => {
                       {position.tp_mode.replace('_', ' ').toUpperCase()}
                     </Typography>
                   </Grid>
+                  {/* Show Aggregate TP Target for aggregate/hybrid modes */}
+                  {(position.tp_mode === 'aggregate' || position.tp_mode === 'hybrid' || position.tp_mode === 'pyramid_aggregate') && position.tp_aggregate_percent && (
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="text.secondary">Aggregate TP Target</Typography>
+                      <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace', color: 'success.main' }}>
+                        {position.weighted_avg_entry > 0 ? (
+                          <>
+                            {formatPrice(
+                              position.side === 'long'
+                                ? position.weighted_avg_entry * (1 + position.tp_aggregate_percent / 100)
+                                : position.weighted_avg_entry * (1 - position.tp_aggregate_percent / 100)
+                            )}
+                            <Typography component="span" variant="caption" sx={{ ml: 0.5, color: 'text.secondary' }}>
+                              ({position.tp_aggregate_percent}%)
+                            </Typography>
+                          </>
+                        ) : (
+                          `${position.tp_aggregate_percent}%`
+                        )}
+                      </Typography>
+                    </Grid>
+                  )}
                 </Grid>
 
                 {/* Pyramids Section */}
@@ -990,6 +1012,36 @@ const PositionsPage: React.FC = () => {
                                         <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
                                           Qty: {safeToFixed(dca.quantity, 4)}
                                         </TableCell>
+                                        {/* TP column - show for per_leg and hybrid modes */}
+                                        {(position.tp_mode === 'per_leg' || position.tp_mode === 'hybrid') && (
+                                          <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
+                                            {dca.tp_price ? (
+                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <Typography
+                                                  component="span"
+                                                  sx={{
+                                                    fontSize: '0.7rem',
+                                                    fontFamily: 'monospace',
+                                                    color: dca.tp_hit ? 'success.main' : 'text.secondary'
+                                                  }}
+                                                >
+                                                  TP: {formatPrice(dca.tp_price)}
+                                                </Typography>
+                                                {dca.tp_hit && (
+                                                  <CheckCircleIcon sx={{ fontSize: 12, color: 'success.main' }} />
+                                                )}
+                                                {dca.tp_percent && (
+                                                  <Typography
+                                                    component="span"
+                                                    sx={{ fontSize: '0.65rem', color: 'text.secondary' }}
+                                                  >
+                                                    ({safeToFixed(dca.tp_percent, 1)}%)
+                                                  </Typography>
+                                                )}
+                                              </Box>
+                                            ) : '-'}
+                                          </TableCell>
+                                        )}
                                         <TableCell sx={{ py: 0.5, px: 1, borderBottom: 'none' }}>
                                           <Chip
                                             label={dca.status}

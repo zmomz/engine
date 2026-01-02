@@ -610,6 +610,7 @@ async def test_check_pyramid_aggregate_tp_long(
 
     mock_order_service = MagicMock()
     mock_order_service.place_market_order = AsyncMock()
+    mock_order_service.cancel_open_orders_for_group = AsyncMock()
     position_manager_service.order_service_class.return_value = mock_order_service
 
     # Price above TP target
@@ -689,6 +690,7 @@ async def test_check_pyramid_aggregate_tp_uses_default_percent(
 
     mock_order_service = MagicMock()
     mock_order_service.place_market_order = AsyncMock()
+    mock_order_service.cancel_open_orders_for_group = AsyncMock()
     position_manager_service.order_service_class.return_value = mock_order_service
 
     current_price = Decimal("51600")
@@ -726,6 +728,7 @@ async def test_check_pyramid_aggregate_tp_cancels_tp_orders(
 
     mock_order_service = MagicMock()
     mock_order_service.place_market_order = AsyncMock()
+    mock_order_service.cancel_open_orders_for_group = AsyncMock()
     position_manager_service.order_service_class.return_value = mock_order_service
 
     current_price = Decimal("51500")
@@ -766,6 +769,7 @@ async def test_check_pyramid_aggregate_tp_handles_cancel_error(
 
     mock_order_service = MagicMock()
     mock_order_service.place_market_order = AsyncMock()
+    mock_order_service.cancel_open_orders_for_group = AsyncMock()
     position_manager_service.order_service_class.return_value = mock_order_service
 
     current_price = Decimal("51500")
@@ -805,6 +809,7 @@ async def test_check_pyramid_aggregate_tp_closes_all_pyramids(
 
     mock_order_service = MagicMock()
     mock_order_service.place_market_order = AsyncMock()
+    mock_order_service.cancel_open_orders_for_group = AsyncMock()
     position_manager_service.order_service_class.return_value = mock_order_service
 
     current_price = Decimal("51500")

@@ -121,7 +121,9 @@ class TestProcessSingleOrder:
             symbol="BTC/USDT",
             price=Decimal("50000"),
             tp_price=Decimal("52000"),
-            filled_quantity=Decimal("0.1")
+            filled_quantity=Decimal("0.1"),
+            tp_order_id="tp_123",  # TP order already placed, needs status check
+            leg_index=0  # Entry order, not TP fill record
         )
         order.group = mock_group
         order.pyramid = mock_pyramid

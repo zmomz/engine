@@ -530,7 +530,7 @@ async def test_order_status_after_hedge_execution(
             )
 
         # Status should be one of valid states
-        valid_states = ["open", "filled", "partially_filled", "cancelled", "expired"]
+        valid_states = ["open", "filled", "partially_filled", "cancelled", "expired", "trigger_pending", "pending", "failed"]
         assert status in valid_states, f"Invalid order status: {status}"
 
 

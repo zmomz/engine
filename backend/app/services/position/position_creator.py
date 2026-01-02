@@ -212,13 +212,16 @@ async def create_position_group_from_signal(
     entry_type = dca_grid_config.entry_order_type
 
     for i, level in enumerate(dca_levels):
-        current_order_type = "limit"
-        current_status = OrderStatus.PENDING
-
-        if i == 0:
-            if entry_type == "market":
-                current_order_type = "market"
-                current_status = OrderStatus.TRIGGER_PENDING
+        # Apply entry_order_type to ALL DCA orders, not just the first one
+        if entry_type == "market":
+            current_order_type = "market"
+            # ALL market orders use TRIGGER_PENDING - the order_fill_monitor will:
+            # - Trigger first order (leg_index=0) immediately
+            # - Trigger other orders when price reaches their DCA level
+            current_status = OrderStatus.TRIGGER_PENDING
+        else:
+            current_order_type = "limit"
+            current_status = OrderStatus.PENDING
 
         dca_order = DCAOrder(
             group_id=new_position_group.id,

@@ -820,11 +820,11 @@ async def test_create_position_group_market_entry_order(
         total_capital_usd=Decimal("1000")
     )
 
-    # First order should NOT be submitted (it's TRIGGER_PENDING for market)
-    # Only subsequent limit orders should be submitted
+    # When entry_order_type="market", ALL orders are market orders (TRIGGER_PENDING)
+    # and none are submitted immediately - they wait for the order_fill_monitor
     mock_order_service_instance = mock_order_service_class.return_value
-    # With 2 levels, first is market (not submitted), second is limit (submitted)
-    assert mock_order_service_instance.submit_order.call_count == 1
+    # With market entry, all DCA orders are TRIGGER_PENDING (no immediate submission)
+    assert mock_order_service_instance.submit_order.call_count == 0
 
 
 @pytest.mark.asyncio

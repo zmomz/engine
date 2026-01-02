@@ -9,6 +9,12 @@ export interface DCAOrder {
   filled_quantity: number | null;
   status: string;
   order_type: string;
+  leg_index?: number;
+  // TP fields
+  tp_percent: number | null;
+  tp_price: number | null;
+  tp_hit: boolean;
+  tp_order_id: string | null;
 }
 
 export interface Pyramid {
@@ -38,6 +44,7 @@ export interface PositionGroup {
   unrealized_pnl_percent: number;
   realized_pnl_usd: number;
   tp_mode: string;
+  tp_aggregate_percent: number | null;
   risk_timer_expires: string | null;
   risk_eligible: boolean;
   risk_blocked: boolean;

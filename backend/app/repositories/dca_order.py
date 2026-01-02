@@ -22,10 +22,13 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
             .where(
                 or_(
                     self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value, OrderStatus.TRIGGER_PENDING.value]),
+                    # Filled ENTRY orders with TP placed, waiting for TP to hit
+                    # Exclude leg_index=999 which are TP fill records
                     and_(
                         self.model.status == OrderStatus.FILLED.value,
                         self.model.tp_order_id.isnot(None),
-                        self.model.tp_hit == False
+                        self.model.tp_hit == False,
+                        self.model.leg_index != 999
                     )
                 ),
                 PositionGroup.user_id == user_id
@@ -73,6 +76,10 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
         Returns a dictionary mapping user_id to list of orders.
 
         This prevents N+1 query issues when checking orders for multiple users.
+
+        Also includes FILLED orders that:
+        - Have a TP order placed (tp_order_id IS NOT NULL) but not hit yet
+        - Need a TP order to be placed (tp_order_id IS NULL, per_leg/hybrid mode)
         """
         if not user_ids:
             return {}
@@ -86,11 +93,25 @@ class DCAOrderRepository(BaseRepository[DCAOrder]):
             .join(PositionGroup, self.model.group_id == PositionGroup.id)
             .where(
                 or_(
+                    # Open/pending orders that need status checking
                     self.model.status.in_([OrderStatus.OPEN.value, OrderStatus.PARTIALLY_FILLED.value, OrderStatus.TRIGGER_PENDING.value]),
+                    # Filled ENTRY orders with TP placed, waiting for TP to hit
+                    # Exclude leg_index=999 which are TP fill records, not entry orders
                     and_(
                         self.model.status == OrderStatus.FILLED.value,
                         self.model.tp_order_id.isnot(None),
-                        self.model.tp_hit == False
+                        self.model.tp_hit == False,
+                        self.model.leg_index != 999  # Exclude TP fill records
+                    ),
+                    # Filled ENTRY orders that need TP orders placed (per_leg/hybrid modes)
+                    # Exclude leg_index=999 which are TP fill records, not entry orders
+                    and_(
+                        self.model.status == OrderStatus.FILLED.value,
+                        self.model.tp_order_id.is_(None),
+                        self.model.tp_hit == False,
+                        self.model.leg_index != 999,  # Exclude TP fill records
+                        PositionGroup.tp_mode.in_(["per_leg", "hybrid"]),
+                        PositionGroup.status.in_(["active", "partially_filled"])  # Include positions with pending DCA orders
                     )
                 ),
                 PositionGroup.user_id.in_(user_ids)
