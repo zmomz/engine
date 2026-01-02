@@ -938,11 +938,27 @@
                 logsDiv.innerHTML = logs.map(log => {
                     const statusClass = log.responseStatus >= 200 && log.responseStatus < 300 ? 'log-success' : 'log-error';
                     const time = new Date(log.createdAt).toLocaleTimeString();
+                    const symbol = log.payload?.tv?.symbol || 'Unknown';
+                    const action = log.payload?.tv?.action || '';
+
+                    // Parse response body to show meaningful message
+                    let responseMsg = '';
+                    if (log.responseBody) {
+                        try {
+                            const parsed = typeof log.responseBody === 'string' ? JSON.parse(log.responseBody) : log.responseBody;
+                            // Prefer 'result' field (actual processing result) over 'message' (generic acknowledgment)
+                            responseMsg = parsed.result || parsed.detail || parsed.message || JSON.stringify(parsed);
+                        } catch {
+                            responseMsg = log.responseBody;
+                        }
+                    }
+
                     return `
                         <div class="log-entry">
                             <span class="log-time">[${time}]</span>
                             <span class="${statusClass}">${log.responseStatus || 'ERR'}</span>
-                            ${log.payload?.tv?.symbol || 'Unknown'} ${log.payload?.tv?.action || ''}
+                            <strong>${symbol}</strong> ${action}
+                            ${responseMsg ? `<br><span style="color: var(--text-secondary); font-size: 11px; margin-left: 8px;">${responseMsg}</span>` : ''}
                         </div>
                     `;
                 }).join('');
