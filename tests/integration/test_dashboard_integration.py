@@ -48,7 +48,7 @@ async def test_dashboard_returns_all_configured_exchanges():
                     "/api/v1/users/login",
                     data={"username": TEST_USER, "password": TEST_PASSWORD}
                 )
-            except (httpx.ConnectError, httpx.ReadTimeout):
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError):
                 pytest.skip("Could not connect to app - is Docker running?")
             if r.status_code != 200:
                 pytest.skip("Could not authenticate - is the app running?")
