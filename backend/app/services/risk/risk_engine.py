@@ -257,6 +257,18 @@ class RiskEngineService:
                 except Exception:
                     fee_rate = Decimal("0.001")  # 0.1% fallback
 
+                # Adjust required_usd to account for exit fees on both loser and winner
+                # Loser exit fee: based on loser's position value
+                # Winner exit fee: approximately equal to required_usd since we close that much value
+                loser_exit_fee_estimate = (loser.total_invested_usd or Decimal("0")) * fee_rate
+                winner_exit_fee_estimate = required_usd * fee_rate
+                fee_adjusted_required_usd = required_usd + loser_exit_fee_estimate + winner_exit_fee_estimate
+                logger.debug(
+                    f"Risk Engine: Adjusting required_usd for fees. "
+                    f"Original: {required_usd}, Loser exit fee: {loser_exit_fee_estimate}, "
+                    f"Winner exit fee: {winner_exit_fee_estimate}, Adjusted: {fee_adjusted_required_usd}"
+                )
+
                 # Instantiate OrderService
                 order_service = self.order_service_class(
                     session=session,
@@ -264,8 +276,8 @@ class RiskEngineService:
                     exchange_connector=exchange_connector
                 )
 
-                # Calculate partial close quantities
-                close_plan = await calculate_partial_close_quantities(user, winners, required_usd)
+                # Calculate partial close quantities using fee-adjusted amount
+                close_plan = await calculate_partial_close_quantities(user, winners, fee_adjusted_required_usd)
 
                 if not close_plan and required_usd > 0:
                     logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
@@ -408,9 +420,10 @@ class RiskEngineService:
                     loser.status = PositionGroupStatus.CLOSED.value
                     loser.realized_pnl_usd = realized_pnl
                     loser.unrealized_pnl_usd = Decimal("0")
+                    loser.total_exit_fees_usd = (loser.total_exit_fees_usd or Decimal("0")) + estimated_exit_fee
                     loser.closed_at = datetime.utcnow()
                     await position_group_repo.update(loser)
-                    logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSED. Realized PnL: {realized_pnl}")
+                    logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSED. Realized PnL: {realized_pnl}, Exit fee: {estimated_exit_fee}")
 
                     # Update hedge tracking for successful winner closes
                     for winner_pg, qty_closed, task_idx in winner_close_info:
@@ -436,6 +449,17 @@ class RiskEngineService:
                             # total_hedged_value_usd: PROFIT realized from the hedge (not notional)
                             winner_pg.total_hedged_qty = (winner_pg.total_hedged_qty or Decimal("0")) + qty_closed
                             winner_pg.total_hedged_value_usd = (winner_pg.total_hedged_value_usd or Decimal("0")) + hedge_profit
+                            winner_pg.total_exit_fees_usd = (winner_pg.total_exit_fees_usd or Decimal("0")) + estimated_winner_exit_fee
+
+                            # Proportionally reduce invested and entry fees based on closed fraction
+                            # This keeps fee percentages accurate after partial closes
+                            original_qty = winner_pg.total_filled_quantity  # Before reduction
+                            if original_qty > 0:
+                                close_fraction = qty_closed / original_qty
+                                invested_to_remove = (winner_pg.total_invested_usd or Decimal("0")) * close_fraction
+                                entry_fee_to_remove = (winner_pg.total_entry_fees_usd or Decimal("0")) * close_fraction
+                                winner_pg.total_invested_usd = (winner_pg.total_invested_usd or Decimal("0")) - invested_to_remove
+                                winner_pg.total_entry_fees_usd = (winner_pg.total_entry_fees_usd or Decimal("0")) - entry_fee_to_remove
 
                             # Also reduce the winner's total_filled_quantity by the closed amount
                             winner_pg.total_filled_quantity = winner_pg.total_filled_quantity - qty_closed

@@ -459,8 +459,13 @@ class OrderService:
                             dca_order.fee_currency = "USDT"  # Assume quote currency for estimates
                             logger.info(f"Order {dca_order.id}: Fee estimated at {estimated_fee} USDT (rate: {fee_rate})")
                             changed = True
+                    else:
+                        logger.warning(
+                            f"Order {dca_order.id} ({dca_order.symbol}): Cannot estimate fee - "
+                            f"filled_qty={filled_qty}, avg_price={avg_price}. Exchange returned no fee."
+                        )
                 except Exception as e:
-                    logger.warning(f"Order {dca_order.id}: Failed to estimate fee: {e}")
+                    logger.warning(f"Order {dca_order.id} ({dca_order.symbol}): Failed to estimate fee: {e}")
 
             # Set filled_at if the order is now filled and it wasn't before
             if new_status == OrderStatus.FILLED and dca_order.filled_at is None:
