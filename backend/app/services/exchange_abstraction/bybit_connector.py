@@ -4,7 +4,7 @@ from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
 from app.core.cache import get_cache
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -115,27 +115,77 @@ class BybitConnector(ExchangeInterface):
         return precision_rules
 
     @map_exchange_errors
-    async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None, **kwargs):
+    async def place_order(
+        self,
+        symbol: str,
+        order_type: str,
+        side: str,
+        quantity: float,
+        price: float = None,
+        amount_type: Literal["base", "quote"] = "base",
+        **kwargs
+    ):
         """
         Places an order on the exchange.
-        """
 
+        Args:
+            symbol: Trading pair (e.g., "BTCUSDT")
+            order_type: "MARKET" or "LIMIT"
+            side: "BUY" or "SELL"
+            quantity: Amount to trade
+            price: Price for limit orders
+            amount_type: "base" for base currency, "quote" for quote currency
+        """
         try:
-            logger.info(f"Placing order: symbol={symbol}, type={order_type}, side={side}, quantity={quantity}, price={price}, kwargs={kwargs}")
+            logger.info(f"Placing order: symbol={symbol}, type={order_type}, side={side}, "
+                        f"quantity={quantity}, price={price}, amount_type={amount_type}")
 
             params = kwargs.copy()
             if 'reduce_only' in kwargs:
                 params['reduceOnly'] = kwargs['reduce_only']
                 del params['reduce_only']
 
-            result = await self.exchange.create_order(
-                symbol=symbol,
-                type=order_type,
-                side=side,
-                amount=quantity,
-                price=price,
-                params=params
-            )
+            is_spot = self.exchange.options.get('defaultType') == 'spot'
+            is_market = order_type.upper() == 'MARKET'
+
+            if amount_type == "quote":
+                if is_market:
+                    # For market orders with quote amount, use marketUnit=quoteCoin
+                    # Bybit will spend exactly this amount of quote currency
+                    params['marketUnit'] = 'quoteCoin'
+                    logger.info(f"Using quote amount {quantity} with marketUnit=quoteCoin")
+                    result = await self.exchange.create_order(
+                        symbol=symbol,
+                        type=order_type,
+                        side=side,
+                        amount=quantity,  # Quote amount directly
+                        price=None,
+                        params=params
+                    )
+                else:
+                    # For limit orders with quote amount, calculate base quantity
+                    if not price or price <= 0:
+                        raise ValueError("Price required for limit orders with quote amount")
+                    base_quantity = quantity / price
+                    logger.info(f"Converting quote {quantity} to base {base_quantity} at price {price}")
+                    result = await self.exchange.create_order(
+                        symbol=symbol,
+                        type=order_type,
+                        side=side,
+                        amount=base_quantity,
+                        price=price,
+                        params=params
+                    )
+            else:
+                # Base amount - pass directly
+                result = await self.exchange.create_order(
+                    symbol=symbol,
+                    type=order_type,
+                    side=side,
+                    amount=quantity,
+                    price=price if not is_market else None,
+                    params=params
+                )
 
             # Extract native Bybit orderId from info field (CCXT returns composite ID)
             if 'info' in result and 'orderId' in result['info']:
@@ -146,7 +196,6 @@ class BybitConnector(ExchangeInterface):
             else:
                 logger.info(f"Order placed successfully: {result.get('id', 'unknown')}")
 
-            # Removed blocking 50ms sleep for performance - CCXT handles rate limiting
             return result
         except ccxt.ExchangeError as e:
             # Check for error code 10005 (Invalid permissions/key) or 170131 (Insufficient balance)
@@ -376,10 +425,26 @@ class BybitConnector(ExchangeInterface):
         """
         Fetches the free (available) balance for all assets.
         Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
+
+        Note: Bybit Unified accounts may return None for 'free' values but have valid 'total'.
+        In this case, we use 'total' as the available balance (assuming no margin/used).
         """
         try:
             balance = await self.exchange.fetch_balance(params={'accountType': 'UNIFIED'})
-            return balance['free']
+            free_balance = balance.get('free', {})
+
+            # Bybit Unified account quirk: 'free' may have all None values
+            # Check if all free values are None and fall back to 'total'
+            all_none = all(v is None for v in free_balance.values() if v is not None or True)
+            has_any_value = any(v is not None and v > 0 for v in free_balance.values())
+
+            if not has_any_value:
+                # Fall back to 'total' balance
+                total_balance = balance.get('total', {})
+                logger.debug(f"Bybit free balance all None, using total balance instead")
+                return total_balance
+
+            return free_balance
         except (ccxt.ExchangeError, Exception) as e:
             logger.warning(f"fetch_free_balance failed with UNIFIED: {e}. Retrying with SPOT/CONTRACT.")
             try:

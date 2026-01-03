@@ -394,6 +394,18 @@ class TestExchangeOrderErrors:
         from app.services.position.position_closer import execute_handle_exit_signal
 
         mock_session = AsyncMock()
+        mock_session.expire_all = MagicMock()
+        mock_session.flush = AsyncMock()
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         mock_user = MagicMock()
         mock_user.encrypted_api_keys = {"mock": {"encrypted_data": "test"}}
 
@@ -425,6 +437,7 @@ class TestExchangeOrderErrors:
 
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock(side_effect=mock_close)
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
 
@@ -432,6 +445,7 @@ class TestExchangeOrderErrors:
              patch('app.services.position.position_closer.save_close_action'):
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0.01})
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector

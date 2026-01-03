@@ -129,6 +129,7 @@ def mock_db_session():
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     session.flush = AsyncMock() # Mock flush
+    session.expire_all = MagicMock()  # Sync method used in position_closer
 
     # Mock refresh to increment pyramid_count on the position group
     async def mock_refresh(obj):
@@ -136,10 +137,11 @@ def mock_db_session():
             obj.pyramid_count += 1
     session.refresh = AsyncMock(side_effect=mock_refresh)
 
-    # Mock result for session.execute
+    # Mock result for session.execute - supports both scalars() and fetchall()
     mock_result = MagicMock()
     mock_result.scalars.return_value.all.return_value = [] # Default empty list
-    session.execute.return_value = mock_result
+    mock_result.fetchall.return_value = []  # For position_closer.py DB query
+    session.execute = AsyncMock(return_value=mock_result)
 
     return session
 
@@ -429,35 +431,49 @@ async def test_handle_pyramid_continuation_clears_timer(
 
 @pytest.mark.asyncio
 async def test_handle_exit_signal(
-    position_manager_service, 
+    position_manager_service,
     mock_order_service_class,
     sample_position_group,
-    mock_position_group_repository_class # Added fixture dependency
+    mock_position_group_repository_class,
+    mock_db_session
 ):
     """
     Test that handle_exit_signal cancels open orders and closes the filled position.
     """
     # Add some orders to the position group
-    filled_order = DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("1.5"))
-    open_order = DCAOrder(status=OrderStatus.OPEN, filled_quantity=Decimal("0"))
+    filled_order = DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("1.5"), side="buy")
+    open_order = DCAOrder(status=OrderStatus.OPEN, filled_quantity=Decimal("0"), side="buy")
     sample_position_group.dca_orders = [filled_order, open_order]
-    
+
     # Ensure sample_position_group.exchange is a string
     sample_position_group.exchange = "binance"
 
     # Configure the repository mock to return our sample position group
     mock_repo_instance = mock_position_group_repository_class.return_value
     mock_repo_instance.get_with_orders.return_value = sample_position_group
-    
+
+    # Mock DB query to return filled orders for position_closer.py
+    mock_row = MagicMock()
+    mock_row.side = "buy"
+    mock_row.filled_quantity = Decimal("1.5")
+    mock_row.status = "filled"
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [mock_row]
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db_session.execute = AsyncMock(return_value=mock_result)
+
+    # Add sync_orders_for_group mock
+    mock_order_service_class.return_value.sync_orders_for_group = AsyncMock()
+
     await position_manager_service.handle_exit_signal(sample_position_group.id)
 
     # Get the mock instance that was created inside the method
     # In this setup, the instance is the same as the one returned by the class mock
     mock_order_service_instance = mock_order_service_class.return_value
-    
+
     # Assert that open orders were cancelled
     mock_order_service_instance.cancel_open_orders_for_group.assert_called_once_with(sample_position_group.id)
-    
+
     # Assert that the market close order was placed for the correct quantity
     mock_order_service_instance.close_position_market.assert_called_once_with(
         position_group=sample_position_group,
@@ -582,7 +598,8 @@ async def test_handle_exit_signal_no_filled_quantity(
 async def test_handle_exit_signal_short_position(
     position_manager_service,
     mock_order_service_class,
-    mock_position_group_repository_class
+    mock_position_group_repository_class,
+    mock_db_session
 ):
     """Test handle_exit_signal for a short position calculates PnL correctly."""
     short_group = PositionGroup(
@@ -602,10 +619,23 @@ async def test_handle_exit_signal_short_position(
         pyramid_count=0,
         max_pyramids=5
     )
-    short_group.dca_orders = [DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("1.5"))]
+    short_group.dca_orders = [DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("1.5"), side="sell")]
 
     mock_repo_instance = mock_position_group_repository_class.return_value
     mock_repo_instance.get_with_orders.return_value = short_group
+
+    # Mock DB query to return filled orders for position_closer.py (short uses sell)
+    mock_row = MagicMock()
+    mock_row.side = "sell"
+    mock_row.filled_quantity = Decimal("1.5")
+    mock_row.status = "filled"
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [mock_row]
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db_session.execute = AsyncMock(return_value=mock_result)
+
+    # Add sync_orders_for_group mock
+    mock_order_service_class.return_value.sync_orders_for_group = AsyncMock()
 
     await position_manager_service.handle_exit_signal(short_group.id)
 
@@ -820,11 +850,11 @@ async def test_create_position_group_market_entry_order(
         total_capital_usd=Decimal("1000")
     )
 
-    # When entry_order_type="market", ALL orders are market orders (TRIGGER_PENDING)
-    # and none are submitted immediately - they wait for the order_fill_monitor
+    # When entry_order_type="market" and gap_percent <= 0, orders are PENDING
+    # and submitted immediately. Both levels have gap_percent <= 0 (0.0 and -0.5)
+    # so both should be submitted.
     mock_order_service_instance = mock_order_service_class.return_value
-    # With market entry, all DCA orders are TRIGGER_PENDING (no immediate submission)
-    assert mock_order_service_instance.submit_order.call_count == 0
+    assert mock_order_service_instance.submit_order.call_count == 2
 
 
 @pytest.mark.asyncio

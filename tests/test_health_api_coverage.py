@@ -310,3 +310,149 @@ async def test_comprehensive_health_check_db_failure(client: AsyncClient):
     response = await client.get("/api/v1/health/comprehensive")
     assert response.status_code == 200
     assert "database" in response.json()["components"]
+
+
+@pytest.mark.asyncio
+async def test_db_health_check_exception(client: AsyncClient):
+    """Test database health check returns 503 on database error."""
+    from app.db.database import get_db_session
+
+    async def mock_failing_session():
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database connection lost")
+        yield mock_session
+
+    from app.main import app
+    app.dependency_overrides[get_db_session] = mock_failing_session
+
+    try:
+        response = await client.get("/api/v1/health/db")
+
+        assert response.status_code == 503
+        assert "Database connection failed" in response.json()["detail"]
+    finally:
+        del app.dependency_overrides[get_db_session]
+
+
+@pytest.mark.asyncio
+async def test_comprehensive_health_check_db_exception(client: AsyncClient):
+    """Test comprehensive health check handles database exception."""
+    from app.db.database import get_db_session
+
+    async def mock_failing_session():
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("DB Error")
+        yield mock_session
+
+    mock_cache = AsyncMock()
+    mock_cache._connected = True
+    mock_cache.get_all_services_health = AsyncMock(return_value={})
+
+    from app.main import app
+    app.dependency_overrides[get_db_session] = mock_failing_session
+
+    try:
+        with patch("app.api.health.get_cache", return_value=mock_cache):
+            response = await client.get("/api/v1/health/comprehensive")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["components"]["database"]["healthy"] is False
+        assert "error" in data["components"]["database"]
+    finally:
+        del app.dependency_overrides[get_db_session]
+
+
+@pytest.mark.asyncio
+async def test_comprehensive_health_check_services_exception(client: AsyncClient):
+    """Test comprehensive health check handles services check exception."""
+    mock_cache = AsyncMock()
+    mock_cache._connected = True
+    mock_cache.get_all_services_health.side_effect = Exception("Services check failed")
+
+    with patch("app.api.health.get_cache", return_value=mock_cache):
+        response = await client.get("/api/v1/health/comprehensive")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert "error" in data["components"]["services"]
+
+
+@pytest.mark.asyncio
+async def test_services_health_check_missing_last_heartbeat(client: AsyncClient):
+    """Test services health check when last_heartbeat is missing."""
+    mock_cache = AsyncMock()
+    mock_cache.get_all_services_health = AsyncMock(return_value={
+        "order_fill_monitor": {
+            "status": "running",
+            # No last_heartbeat key - should default to 0
+            "metrics": {}
+        },
+        "queue_manager": {"status": "running", "metrics": {}},
+        "risk_engine": {"status": "running", "metrics": {}}
+    })
+
+    with patch("app.api.health.get_cache", return_value=mock_cache):
+        response = await client.get("/api/v1/health/services")
+
+    assert response.status_code == 200
+    data = response.json()
+    # With no heartbeat, it should be unhealthy (>300 seconds since epoch 0)
+    assert data["services"]["order_fill_monitor"]["healthy"] is False
+
+
+@pytest.mark.asyncio
+async def test_services_health_check_missing_status_field(client: AsyncClient):
+    """Test services health check when status field is missing from service data."""
+    current_time = time.time()
+    mock_cache = AsyncMock()
+    mock_cache.get_all_services_health = AsyncMock(return_value={
+        "order_fill_monitor": {
+            # No status field - should default to "unknown"
+            "last_heartbeat": current_time - 30,
+            "metrics": {}
+        },
+        "queue_manager": {"last_heartbeat": current_time - 30},
+        "risk_engine": {"last_heartbeat": current_time - 30}
+    })
+
+    with patch("app.api.health.get_cache", return_value=mock_cache):
+        response = await client.get("/api/v1/health/services")
+
+    assert response.status_code == 200
+    data = response.json()
+    # Should use "unknown" as default status
+    assert data["services"]["order_fill_monitor"]["status"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_comprehensive_health_all_degraded(client: AsyncClient):
+    """Test comprehensive health check when all components are degraded."""
+    from app.db.database import get_db_session
+
+    async def mock_failing_session():
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("DB Error")
+        yield mock_session
+
+    from app.main import app
+    app.dependency_overrides[get_db_session] = mock_failing_session
+
+    # Mock Redis as unavailable
+    mock_cache = AsyncMock()
+    mock_cache._connected = False
+    mock_cache.get_all_services_health = AsyncMock(return_value={})
+
+    try:
+        with patch("app.api.health.get_cache", return_value=mock_cache):
+            response = await client.get("/api/v1/health/comprehensive")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["components"]["database"]["healthy"] is False
+        assert data["components"]["redis"]["healthy"] is False
+    finally:
+        del app.dependency_overrides[get_db_session]

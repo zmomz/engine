@@ -130,6 +130,7 @@ def mock_session(pyramid, mock_user):
     session.commit = AsyncMock()
     session.flush = AsyncMock()
     session.refresh = AsyncMock()
+    session.expire_all = MagicMock()  # Sync method used in position_closer
     # Return pyramid or user based on type
     async def mock_get(model, id):
         if model == Pyramid:
@@ -138,7 +139,12 @@ def mock_session(pyramid, mock_user):
             return mock_user
         return None
     session.get = AsyncMock(side_effect=mock_get)
-    session.execute = AsyncMock()
+
+    # Mock execute to return a result with sync fetchall()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = []  # Default empty list
+    mock_result.scalars.return_value.all.return_value = []
+    session.execute = AsyncMock(return_value=mock_result)
     return session
 
 
@@ -838,7 +844,7 @@ async def test_handle_exit_signal_with_session(
 ):
     """Test handle_exit_signal when session is provided."""
     position_group.dca_orders = [
-        DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("0.01"))
+        DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("0.01"), side="buy")
     ]
 
     mock_repo = MagicMock()
@@ -848,8 +854,21 @@ async def test_handle_exit_signal_with_session(
 
     mock_order_service = MagicMock()
     mock_order_service.cancel_open_orders_for_group = AsyncMock()
+    mock_order_service.sync_orders_for_group = AsyncMock()
     mock_order_service.close_position_market = AsyncMock()
     position_manager_service.order_service_class.return_value = mock_order_service
+
+    # Mock DB query to return filled orders
+    mock_row = MagicMock()
+    mock_row.side = "buy"
+    mock_row.filled_quantity = Decimal("0.01")
+    mock_row.status = "filled"
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [mock_row]
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    # Ensure get_trading_fee_rate is mocked
+    mock_exchange_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
 
     with patch("app.services.position.position_closer.get_exchange_connector", return_value=mock_exchange_connector):
         with patch("app.services.position.position_closer.save_close_action", new_callable=AsyncMock):
@@ -865,7 +884,7 @@ async def test_handle_exit_signal_with_session(
     mock_order_service.close_position_market.assert_called_once()
 
     # CRITICAL: Verify the position state was retrieved for exit handling
-    mock_repo.get_with_orders.assert_called_once()
+    mock_repo.get_with_orders.assert_called()
     # The method uses 'group_id' as the first positional argument
     assert mock_repo.get_with_orders.call_args[0][0] == position_group.id, \
         "Must retrieve position with orders for exit signal handling"

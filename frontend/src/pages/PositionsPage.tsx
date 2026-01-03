@@ -43,7 +43,7 @@ import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import ResponsiveTableWrapper from '../components/ResponsiveTableWrapper';
 import PositionCard from '../components/PositionCard';
 import HistoryPositionCard from '../components/HistoryPositionCard';
-import { safeToFixed, safeNumber, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
+import { safeToFixed, safeNumber, formatCompactCurrency, formatCompactPercent, formatQuantity } from '../utils/formatters';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -430,9 +430,9 @@ const PositionsPage: React.FC = () => {
           return <Typography sx={{ ...monoStyle, color: 'text.secondary' }}>-</Typography>;
         }
         return (
-          <Tooltip title={`Total hedged: ${safeToFixed(value, 6)}`}>
+          <Tooltip title={`Total hedged: ${formatQuantity(value)}`}>
             <Typography sx={{ ...monoStyle, color: 'info.main', fontWeight: 500 }}>
-              {safeToFixed(value, 4)}
+              {formatQuantity(value)}
             </Typography>
           </Tooltip>
         );
@@ -612,7 +612,7 @@ const PositionsPage: React.FC = () => {
         }
         return (
           <Typography sx={{ ...monoStyle, color: 'info.main' }}>
-            {safeToFixed(value, 4)}
+            {formatQuantity(value)}
           </Typography>
         );
       },
@@ -932,7 +932,7 @@ const PositionsPage: React.FC = () => {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Total Quantity</Typography>
                     <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>
-                      {safeToFixed(position.total_filled_quantity, 4)}
+                      {formatQuantity(position.total_filled_quantity)}
                     </Typography>
                   </Grid>
                   <Grid size={{ xs: 6, sm: 3 }}>
@@ -1010,7 +1010,7 @@ const PositionsPage: React.FC = () => {
                                           {formatPrice(dca.price)}
                                         </TableCell>
                                         <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
-                                          Qty: {safeToFixed(dca.quantity, 4)}
+                                          Qty: {formatQuantity(dca.filled_quantity ?? dca.quantity)}
                                         </TableCell>
                                         {/* TP column - show for per_leg and hybrid modes */}
                                         {(position.tp_mode === 'per_leg' || position.tp_mode === 'hybrid') && (

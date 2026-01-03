@@ -65,6 +65,7 @@ class DCAOrder(Base):
     )
     price = Column(Numeric(20, 10), nullable=False)
     quantity = Column(Numeric(20, 10), nullable=False)
+    quote_amount = Column(Numeric(20, 10), nullable=True)  # USDT amount for quote-based orders
 
     gap_percent = Column(Numeric(10, 4), nullable=False)
     weight_percent = Column(Numeric(10, 4), nullable=False)

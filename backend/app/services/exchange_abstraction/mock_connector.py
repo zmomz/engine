@@ -8,7 +8,7 @@ import hashlib
 import hmac
 import time
 from decimal import Decimal
-from typing import Dict, Optional, Any, TYPE_CHECKING
+from typing import Dict, Optional, Any, TYPE_CHECKING, Literal
 import uuid
 
 if TYPE_CHECKING:
@@ -185,7 +185,9 @@ class MockConnector(ExchangeInterface):
         side: str,
         order_type: str,
         quantity: Decimal,
-        price: Optional[Decimal] = None
+        price: Optional[Decimal] = None,
+        amount_type: Literal["base", "quote"] = "base",
+        **kwargs
     ) -> Dict:
         """
         Place an order on the mock exchange.
@@ -196,6 +198,7 @@ class MockConnector(ExchangeInterface):
             order_type: 'limit' or 'market'
             quantity: Order quantity
             price: Order price (required for limit orders)
+            amount_type: "base" for base currency, "quote" for quote currency
 
         Returns:
             Order response dict with id, status, etc.
@@ -204,14 +207,46 @@ class MockConnector(ExchangeInterface):
         try:
             normalized_symbol = self._normalize_symbol(symbol)
             client = await self._get_client()
-            payload = {
-                "symbol": normalized_symbol,
-                "side": side.upper(),
-                "type": order_type.upper(),
-                "quantity": float(quantity),
-                "price": float(price) if price else 0.0,
-                "timeInForce": "GTC" if order_type.upper() == "LIMIT" else None,
-            }
+
+            is_market = order_type.upper() == 'MARKET'
+
+            # Handle quote vs base amount
+            if amount_type == "quote":
+                if is_market:
+                    # For market orders with quote amount, pass quoteOrderQty
+                    # Mock exchange will calculate the base quantity
+                    logger.info(f"MockConnector: Using quote amount {quantity} for market {side} order")
+                    payload = {
+                        "symbol": normalized_symbol,
+                        "side": side.upper(),
+                        "type": order_type.upper(),
+                        "quoteOrderQty": float(quantity),
+                        "timeInForce": None,
+                    }
+                else:
+                    # For limit orders with quote amount, calculate base quantity
+                    if not price or float(price) <= 0:
+                        raise APIError("Price required for limit orders with quote amount")
+                    base_quantity = float(quantity) / float(price)
+                    logger.info(f"MockConnector: Converting quote {quantity} to base {base_quantity} at price {price}")
+                    payload = {
+                        "symbol": normalized_symbol,
+                        "side": side.upper(),
+                        "type": order_type.upper(),
+                        "quantity": base_quantity,
+                        "price": float(price),
+                        "timeInForce": "GTC",
+                    }
+            else:
+                # Base amount - pass directly
+                payload = {
+                    "symbol": normalized_symbol,
+                    "side": side.upper(),
+                    "type": order_type.upper(),
+                    "quantity": float(quantity),
+                    "price": float(price) if price and not is_market else 0.0,
+                    "timeInForce": "GTC" if order_type.upper() == "LIMIT" else None,
+                }
 
             response = await client.post("/fapi/v1/order", json=payload)
 

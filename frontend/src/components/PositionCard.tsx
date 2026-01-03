@@ -18,7 +18,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { PositionGroup } from '../store/positionsStore';
-import { safeNumber, safeToFixed, formatCompactCurrency, formatCompactPercent } from '../utils/formatters';
+import { safeNumber, safeToFixed, formatCompactCurrency, formatCompactPercent, formatQuantity } from '../utils/formatters';
 
 interface PositionCardProps {
   position: PositionGroup;
@@ -205,7 +205,7 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
             <Box>
               <Typography variant="caption" color="text.secondary">Total Quantity</Typography>
               <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                {position.total_filled_quantity ? safeToFixed(position.total_filled_quantity, 4) : '-'}
+                {formatQuantity(position.total_filled_quantity)}
               </Typography>
             </Box>
             <Box>
@@ -223,7 +223,7 @@ const PositionCard: React.FC<PositionCardProps> = ({ position, onForceClose }) =
                     </Typography>
                   </Tooltip>
                   <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'info.main', fontWeight: 500 }}>
-                    {safeToFixed(position.total_hedged_qty, 4)}
+                    {formatQuantity(position.total_hedged_qty)}
                   </Typography>
                 </Box>
                 <Box>

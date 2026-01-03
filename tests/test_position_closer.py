@@ -23,6 +23,13 @@ from app.models.user import User
 def mock_session():
     session = AsyncMock(spec=AsyncSession)
     session.flush = AsyncMock()
+    session.expire_all = MagicMock()  # sync method
+
+    # Mock execute to return a result with sync fetchall()
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = []  # Default empty list
+    session.execute = AsyncMock(return_value=mock_result)
+
     return session
 
 
@@ -365,7 +372,13 @@ class TestExecuteHandleExitSignal:
         mock_order_service_class = MagicMock()
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_class.return_value = mock_order_service_instance
+
+        # Mock DB query to return no filled orders
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
             mock_connector = AsyncMock()
@@ -399,13 +412,24 @@ class TestExecuteHandleExitSignal:
         mock_order_service_class = MagicMock()
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock()
         mock_order_service_class.return_value = mock_order_service_instance
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action') as mock_save:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
 
@@ -437,13 +461,24 @@ class TestExecuteHandleExitSignal:
         mock_order_service_class = MagicMock()
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock()
         mock_order_service_class.return_value = mock_order_service_instance
+
+        # Mock DB query to return filled orders (short position uses sell)
+        mock_row = MagicMock()
+        mock_row.side = "sell"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action') as mock_save:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=49000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
 
@@ -462,6 +497,7 @@ class TestExecuteHandleExitSignal:
     async def test_execute_exit_already_closing(self, mock_session, mock_user, mock_position_group):
         """Test exit when position is already in CLOSING status."""
         mock_position_group.status = PositionGroupStatus.CLOSING
+        mock_position_group.side = "long"
         mock_position_group.total_filled_quantity = Decimal("0.02")
 
         mock_repo_class = MagicMock()
@@ -473,13 +509,24 @@ class TestExecuteHandleExitSignal:
         mock_order_service_class = MagicMock()
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock()
         mock_order_service_class.return_value = mock_order_service_instance
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action') as mock_save:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
 
@@ -530,13 +577,24 @@ class TestInsufficientFundsRetry:
             return None
 
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock(side_effect=mock_close)
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action') as mock_save:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0.01})
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
@@ -564,6 +622,7 @@ class TestInsufficientFundsRetry:
     ):
         """When insufficient funds and no balance available, should raise original error."""
         mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
         mock_position_group.symbol = "BTCUSDT"
         mock_position_group.total_filled_quantity = Decimal("0.02")
 
@@ -575,14 +634,25 @@ class TestInsufficientFundsRetry:
 
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock(
             side_effect=Exception("Insufficient balance for requested action")
         )
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
 
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             # No balance available
             mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0})
             mock_connector.close = AsyncMock()
@@ -603,6 +673,7 @@ class TestInsufficientFundsRetry:
     ):
         """When retry also fails, should raise the original error."""
         mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
         mock_position_group.symbol = "BTCUSDT"
         mock_position_group.total_filled_quantity = Decimal("0.02")
 
@@ -615,14 +686,25 @@ class TestInsufficientFundsRetry:
         # Both calls fail
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock(
             side_effect=Exception("Insufficient balance for requested action")
         )
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
 
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             # Has some balance, but retry will still fail
             mock_connector.fetch_free_balance = AsyncMock(return_value={"BTC": 0.005})
             mock_connector.close = AsyncMock()
@@ -647,6 +729,7 @@ class TestInsufficientFundsRetry:
         """Test that base currency is correctly parsed from various symbol formats."""
         # Test with ETHUSDT
         mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
         mock_position_group.symbol = "ETHUSDT"
         mock_position_group.total_filled_quantity = Decimal("1.0")
 
@@ -667,13 +750,24 @@ class TestInsufficientFundsRetry:
 
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock(side_effect=mock_close)
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("1.0")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action'):
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=3000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             # ETH balance available (parsed from ETHUSDT symbol)
             mock_connector.fetch_free_balance = AsyncMock(return_value={"ETH": 0.5})
             mock_connector.close = AsyncMock()
@@ -696,6 +790,7 @@ class TestInsufficientFundsRetry:
     ):
         """Non-insufficient balance errors should not trigger retry."""
         mock_position_group.status = PositionGroupStatus.ACTIVE
+        mock_position_group.side = "long"
         mock_position_group.total_filled_quantity = Decimal("0.02")
 
         mock_repo_class = MagicMock()
@@ -706,15 +801,26 @@ class TestInsufficientFundsRetry:
 
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         # Different error - not "insufficient"
         mock_order_service_instance.close_position_market = AsyncMock(
             side_effect=Exception("Network timeout error")
         )
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
 
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn:
             mock_connector = AsyncMock()
             mock_connector.get_current_price = AsyncMock(return_value=51000)
+            mock_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
             mock_connector.close = AsyncMock()
             mock_get_conn.return_value = mock_connector
 
@@ -759,8 +865,18 @@ class TestLongPositionPnLCalculation:
 
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock()
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action'):
@@ -804,8 +920,18 @@ class TestLongPositionPnLCalculation:
 
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
+        mock_order_service_instance.sync_orders_for_group = AsyncMock()
         mock_order_service_instance.close_position_market = AsyncMock()
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
+
+        # Mock DB query to return filled orders
+        mock_row = MagicMock()
+        mock_row.side = "buy"
+        mock_row.filled_quantity = Decimal("0.02")
+        mock_row.status = "filled"
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch('app.services.position.position_closer._get_exchange_connector_for_user') as mock_get_conn, \
              patch('app.services.position.position_closer.save_close_action'):

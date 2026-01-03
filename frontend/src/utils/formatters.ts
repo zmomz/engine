@@ -77,3 +77,20 @@ export const formatCompactPercent = (value: any): string => {
   const sign = num >= 0 ? '+' : '';
   return `${sign}${num.toFixed(1)}%`;
 };
+
+/**
+ * Formats a crypto quantity with appropriate precision.
+ * Uses 6 decimals to show fee adjustments (e.g., 0.009991 vs 0.01).
+ * Trims trailing zeros for cleaner display.
+ */
+export const formatQuantity = (value: any): string => {
+  if (value === null || value === undefined) return '-';
+  const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+  if (isNaN(num)) return '-';
+
+  // Use 6 decimals to capture fee adjustments
+  const formatted = num.toFixed(6);
+  // Trim trailing zeros but keep at least 4 decimals for consistency
+  const trimmed = formatted.replace(/(\.\d{4})0+$/, '$1');
+  return trimmed;
+};

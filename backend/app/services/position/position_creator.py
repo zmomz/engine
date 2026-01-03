@@ -215,10 +215,15 @@ async def create_position_group_from_signal(
         # Apply entry_order_type to ALL DCA orders, not just the first one
         if entry_type == "market":
             current_order_type = "market"
-            # ALL market orders use TRIGGER_PENDING - the order_fill_monitor will:
-            # - Trigger first order (leg_index=0) immediately
-            # - Trigger other orders when price reaches their DCA level
-            current_status = OrderStatus.TRIGGER_PENDING
+            gap_pct = level.get('gap_percent', Decimal("0"))
+            if gap_pct <= 0:
+                # Market orders with gap_percent<=0 should be submitted immediately
+                # gap_percent=0: entry at current price
+                # gap_percent<0: price is already better than target (submit now)
+                current_status = OrderStatus.PENDING
+            else:
+                # DCA legs with gap_percent > 0 wait for order_fill_monitor to trigger
+                current_status = OrderStatus.TRIGGER_PENDING
         else:
             current_order_type = "limit"
             current_status = OrderStatus.PENDING
@@ -232,6 +237,7 @@ async def create_position_group_from_signal(
             order_type=current_order_type,
             price=level['price'],
             quantity=level['quantity'],
+            quote_amount=level.get('quote_amount'),  # USDT amount for market orders
             status=current_status,
             gap_percent=level.get('gap_percent', Decimal("0")),
             weight_percent=level.get('weight_percent', Decimal("0")),

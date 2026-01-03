@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional, List
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 
 from fastapi import FastAPI, HTTPException, Depends, Request, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,7 +51,8 @@ class OrderRequest(BaseModel):
     symbol: str
     side: str  # BUY/SELL
     type: str  # LIMIT/MARKET
-    quantity: float
+    quantity: Optional[float] = None  # Base quantity (e.g., BTC amount)
+    quoteOrderQty: Optional[float] = None  # Quote quantity (e.g., USDT amount) for market orders
     price: Optional[float] = None
     stopPrice: Optional[float] = None
     timeInForce: Optional[str] = "GTC"
@@ -387,11 +388,40 @@ async def create_order(
             "msg": f"Invalid symbol: {order_req.symbol}"
         })
 
+    # Determine quantity - either from base quantity or calculated from quote amount
+    is_quote_order = order_req.quoteOrderQty is not None and order_req.quoteOrderQty > 0
+
+    if is_quote_order:
+        # Quote-based order: calculate base quantity from quote amount / current price
+        current_price = symbol.current_price
+        if current_price <= 0:
+            raise HTTPException(status_code=400, detail={
+                "code": -1000,
+                "msg": f"Cannot process quote order: invalid current price {current_price}"
+            })
+
+        # Calculate base quantity from quote amount
+        raw_quantity = Decimal(str(order_req.quoteOrderQty)) / Decimal(str(current_price))
+
+        # Round to step size
+        step_size = Decimal(str(symbol.step_size))
+        quantity = float((raw_quantity / step_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * step_size)
+
+        logger.info(f"Quote order: {order_req.quoteOrderQty} USDT @ {current_price} = {quantity} {symbol.base_asset}")
+    else:
+        # Base quantity order
+        if order_req.quantity is None or order_req.quantity <= 0:
+            raise HTTPException(status_code=400, detail={
+                "code": -1013,
+                "msg": "Either quantity or quoteOrderQty must be provided"
+            })
+        quantity = order_req.quantity
+
     # Validate quantity
-    if order_req.quantity < symbol.min_qty:
+    if quantity < symbol.min_qty:
         raise HTTPException(status_code=400, detail={
             "code": -1013,
-            "msg": f"Quantity {order_req.quantity} less than minimum {symbol.min_qty}"
+            "msg": f"Quantity {quantity} less than minimum {symbol.min_qty}"
         })
 
     # Create order with generated order_id
@@ -402,7 +432,7 @@ async def create_order(
         side=order_req.side.upper(),
         type=order_req.type.upper(),
         price=order_req.price or 0.0,
-        quantity=order_req.quantity,
+        quantity=quantity,
         stop_price=order_req.stopPrice or 0.0,
         time_in_force=order_req.timeInForce or "GTC",
         reduce_only=order_req.reduceOnly or False,

@@ -167,7 +167,8 @@ class GridCalculatorService:
                 )
             
             level["quantity"] = quantity
-            logger.debug(f"  Level {i} quantity set to {quantity}")
-        
+            level["quote_amount"] = leg_capital  # Store quote amount for market orders
+            logger.debug(f"  Level {i} quantity set to {quantity}, quote_amount={leg_capital}")
+
         logger.debug("Exiting calculate_order_quantities successfully.")
         return dca_levels

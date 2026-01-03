@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,55 @@ from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.order_management import OrderService
 logger = logging.getLogger(__name__)
+
+
+def extract_fee_from_order_result(order_result: Dict[str, Any], fill_price: Decimal) -> Decimal:
+    """
+    Extract fee from exchange order result and convert to USD.
+
+    Handles multiple formats:
+    - CCXT: {'fee': {'cost': 0.001, 'currency': 'USDT'}}
+    - Bybit raw: {'info': {'cumFeeDetail': {'BTC': '0.000009'}}}
+    - Mock: {'fee': 0.001}
+
+    Args:
+        order_result: The exchange order response
+        fill_price: The fill price for converting base currency fees to USD
+
+    Returns:
+        Fee amount in USD
+    """
+    quote_currencies = {"USDT", "BUSD", "USDC", "USD", "TUSD", "DAI"}
+
+    # Try Bybit's cumFeeDetail first (most accurate)
+    info = order_result.get("info", {})
+    cum_fee_detail = info.get("cumFeeDetail", {})
+    if cum_fee_detail and isinstance(cum_fee_detail, dict):
+        for currency, amount in cum_fee_detail.items():
+            if amount and Decimal(str(amount)) > 0:
+                fee_amount = Decimal(str(amount))
+                if currency.upper() in quote_currencies:
+                    return fee_amount
+                else:
+                    # Convert base currency fee to USD
+                    return fee_amount * fill_price if fill_price > 0 else fee_amount
+
+    # Try CCXT unified format
+    raw_fee = order_result.get("fee")
+    if isinstance(raw_fee, dict):
+        fee_cost = Decimal(str(raw_fee.get("cost", 0) or 0))
+        fee_currency = (raw_fee.get("currency") or "").upper()
+        if fee_cost > 0:
+            if fee_currency in quote_currencies:
+                return fee_cost
+            else:
+                # Convert base currency fee to USD
+                return fee_cost * fill_price if fill_price > 0 else fee_cost
+    elif raw_fee is not None:
+        # Direct number (mock exchange)
+        return Decimal(str(raw_fee))
+
+    return Decimal("0")
 
 
 def _get_exchange_connector_for_user(user: User, exchange_name: str) -> ExchangeInterface:
@@ -158,12 +207,50 @@ async def execute_handle_exit_signal(
     try:
         order_service = order_service_class(session=session, user=user, exchange_connector=exchange_connector)
 
-        # 1. Cancel open orders
+        # 1. Sync order statuses with exchange BEFORE cancelling
+        # This ensures we have accurate filled quantities before closing
+        await order_service.sync_orders_for_group(position_group.id)
+        logger.info(f"Synced order statuses with exchange for PositionGroup {position_group.id}")
+
+        # 2. Cancel open orders
         await order_service.cancel_open_orders_for_group(position_group.id)
         logger.info(f"Cancelled open orders for PositionGroup {position_group.id}")
 
-        # 2. Use the already calculated net total filled quantity
-        total_filled_quantity = position_group.total_filled_quantity
+        # 3. Wait briefly to let order_fill_monitor finish any concurrent updates
+        # This avoids deadlocks and ensures we get fresh data
+        import asyncio
+        await asyncio.sleep(0.5)
+
+        # 4. Re-fetch position group with fresh data
+        session.expire_all()  # Clear any cached data (sync method)
+        position_group = await position_group_repo.get_with_orders(position_group_id)
+
+        # 5. Calculate total filled quantity from fresh DB query
+        from sqlalchemy import select
+        from app.models.dca_order import DCAOrder
+
+        result = await session.execute(
+            select(DCAOrder.side, DCAOrder.filled_quantity, DCAOrder.status)
+            .where(DCAOrder.group_id == position_group_id)
+        )
+        all_orders = result.fetchall()
+
+        total_filled_quantity = Decimal("0")
+        group_side = position_group.side.lower()
+        filled_count = 0
+        for row in all_orders:
+            if row.status == "filled":
+                filled_count += 1
+                order_side = row.side.lower()
+                qty = row.filled_quantity or Decimal("0")
+                is_entry = (group_side == "long" and order_side == "buy") or \
+                           (group_side == "short" and order_side == "sell")
+                if is_entry:
+                    total_filled_quantity += qty
+                else:
+                    total_filled_quantity -= qty
+
+        logger.info(f"Calculated total_filled_quantity={total_filled_quantity} ({filled_count} filled orders) for PositionGroup {position_group.id}")
 
         if total_filled_quantity > 0:
             # 3. Close the position with slippage protection
@@ -176,7 +263,8 @@ async def execute_handle_exit_signal(
                 fee_rate = Decimal("0.001")  # 0.1% fallback
 
             try:
-                await order_service.close_position_market(
+                # Place market order and get result with fee info
+                order_result = await order_service.close_position_market(
                     position_group=position_group,
                     quantity_to_close=total_filled_quantity,
                     expected_price=current_price,
@@ -185,31 +273,46 @@ async def execute_handle_exit_signal(
                 )
                 logger.info(f"Placed market order to close {total_filled_quantity} for PositionGroup {position_group.id}")
 
+                # Extract actual fill price from order result
+                actual_fill_price = current_price
+                if order_result:
+                    avg_price_raw = order_result.get("average") or order_result.get("avg_price") or order_result.get("price")
+                    if avg_price_raw:
+                        actual_fill_price = Decimal(str(avg_price_raw))
+
+                # Extract actual exit fee from order result (converted to USD)
+                actual_exit_fee = extract_fee_from_order_result(order_result or {}, actual_fill_price)
+                if actual_exit_fee > 0:
+                    logger.info(f"Actual exit fee extracted: {actual_exit_fee} USD")
+                else:
+                    # Fallback to estimated fee if actual not available
+                    actual_exit_fee = total_filled_quantity * actual_fill_price * fee_rate
+                    logger.info(f"Exit fee estimated (no actual fee in response): {actual_exit_fee} USD")
+
                 # If successful, update position status and PnL
                 position_group.status = PositionGroupStatus.CLOSED
 
-                exit_value = total_filled_quantity * current_price
+                exit_value = total_filled_quantity * actual_fill_price
                 cost_basis = position_group.total_invested_usd  # Already includes entry fees
-                # Estimate exit fee using dynamic rate from exchange
-                estimated_exit_fee = exit_value * fee_rate
 
                 if position_group.side == "long":
-                    realized_pnl = exit_value - cost_basis - estimated_exit_fee
+                    realized_pnl = exit_value - cost_basis - actual_exit_fee
                 else:
-                    realized_pnl = cost_basis - exit_value - estimated_exit_fee
+                    realized_pnl = cost_basis - exit_value - actual_exit_fee
 
                 position_group.realized_pnl_usd = realized_pnl
                 position_group.unrealized_pnl_usd = Decimal("0")
+                position_group.total_exit_fees_usd = (position_group.total_exit_fees_usd or Decimal("0")) + actual_exit_fee
                 position_group.closed_at = datetime.utcnow()
 
                 await position_group_repo.update(position_group)
-                logger.info(f"PositionGroup {position_group.id} closed. Realized PnL: {realized_pnl}")
+                logger.info(f"PositionGroup {position_group.id} closed. Exit fee: {actual_exit_fee} USD, Realized PnL: {realized_pnl}")
 
                 # Save risk action to history
                 await save_close_action(
                     session=session,
                     position_group=position_group,
-                    exit_price=current_price,
+                    exit_price=actual_fill_price,
                     exit_reason=exit_reason,
                     realized_pnl=realized_pnl,
                     quantity_closed=total_filled_quantity
@@ -224,6 +327,7 @@ async def execute_handle_exit_signal(
                 if "insufficient" in error_msg:
                     logger.warning(f"Insufficient funds to close {total_filled_quantity} for Group {position_group.id}. Attempting to close max available balance.")
 
+                    balance_data = None  # Initialize to avoid reference before assignment
                     try:
                         # Heuristic to find base currency
                         symbol = position_group.symbol
@@ -235,38 +339,52 @@ async def execute_handle_exit_signal(
 
                         # Fetch balance
                         balance_data = await exchange_connector.fetch_free_balance()
-                        available_balance = Decimal(str(balance_data.get(base_currency, 0)))
+                        balance_value = balance_data.get(base_currency)
+                        # Handle None values - Bybit may return None for zero balances
+                        available_balance = Decimal(str(balance_value)) if balance_value is not None else Decimal("0")
 
                         if available_balance > 0:
                             logger.info(f"Retrying close with available balance: {available_balance} {base_currency}")
-                            await order_service.close_position_market(
+                            retry_order_result = await order_service.close_position_market(
                                 position_group=position_group,
                                 quantity_to_close=available_balance
                             )
+
+                            # Extract actual fill price from retry order result
+                            retry_fill_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
+                            if retry_order_result:
+                                avg_price_raw = retry_order_result.get("average") or retry_order_result.get("avg_price") or retry_order_result.get("price")
+                                if avg_price_raw:
+                                    retry_fill_price = Decimal(str(avg_price_raw))
+
+                            # Extract actual exit fee from retry order result
+                            retry_exit_fee = extract_fee_from_order_result(retry_order_result or {}, retry_fill_price)
+                            if retry_exit_fee == 0:
+                                # Fallback to estimated fee
+                                retry_exit_fee = available_balance * retry_fill_price * fee_rate
+
                             # If retry is successful, update status and commit
                             position_group.status = PositionGroupStatus.CLOSED
-                            current_price = Decimal(str(await exchange_connector.get_current_price(position_group.symbol)))
-                            exit_value = available_balance * current_price
+                            exit_value = available_balance * retry_fill_price
                             cost_basis = position_group.total_invested_usd  # Already includes entry fees
-                            # Estimate exit fee using dynamic rate (already fetched above)
-                            estimated_exit_fee = exit_value * fee_rate
 
                             if position_group.side == "long":
-                                realized_pnl = exit_value - cost_basis - estimated_exit_fee
+                                realized_pnl = exit_value - cost_basis - retry_exit_fee
                             else:
-                                realized_pnl = cost_basis - exit_value - estimated_exit_fee
+                                realized_pnl = cost_basis - exit_value - retry_exit_fee
 
                             position_group.realized_pnl_usd = realized_pnl
                             position_group.unrealized_pnl_usd = Decimal("0")
+                            position_group.total_exit_fees_usd = (position_group.total_exit_fees_usd or Decimal("0")) + retry_exit_fee
                             position_group.closed_at = datetime.utcnow()
                             await position_group_repo.update(position_group)
-                            logger.info(f"PositionGroup {position_group.id} closed after retry. Realized PnL: {realized_pnl}")
+                            logger.info(f"PositionGroup {position_group.id} closed after retry. Exit fee: {retry_exit_fee} USD, Realized PnL: {realized_pnl}")
 
                             # Save risk action to history
                             await save_close_action(
                                 session=session,
                                 position_group=position_group,
-                                exit_price=current_price,
+                                exit_price=retry_fill_price,
                                 exit_reason=exit_reason,
                                 realized_pnl=realized_pnl,
                                 quantity_closed=available_balance

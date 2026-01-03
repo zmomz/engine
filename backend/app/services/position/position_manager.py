@@ -274,6 +274,14 @@ class PositionManagerService:
             quote_currencies = {"USDT", "BUSD", "USDC", "USD", "TUSD", "DAI"}
             fee_in_quote = fee_currency in quote_currencies
 
+            # Convert fee to USD for tracking purposes
+            # If fee is in base currency, multiply by price to get USD value
+            if fee_in_quote:
+                fee_usd = order_fee
+            else:
+                # Fee is in base currency (e.g., BTC) - convert to USD
+                fee_usd = order_fee * price if price and price > 0 else order_fee
+
             # For SPOT trading: All positions are "long"
             # "buy" orders are entries, "sell" orders are exits
             is_entry = (order_side == "buy")
@@ -286,9 +294,10 @@ class PositionManagerService:
                     new_invested = current_invested_usd + (qty * price) + order_fee
                 else:
                     # Fee was in base currency or BNB - don't add to investment
+                    # But we still track the USD value of the fee
                     new_invested = current_invested_usd + (qty * price)
                 new_qty = current_qty + qty
-                total_entry_fees += order_fee
+                total_entry_fees += fee_usd  # Always store in USD
 
                 if new_qty > 0:
                     current_avg_price = new_invested / new_qty
@@ -303,9 +312,10 @@ class PositionManagerService:
                     trade_pnl = (price - current_avg_price) * qty - order_fee
                 else:
                     # Fee was in base currency or BNB - don't subtract from PnL
+                    # (it's already reflected in the received amount)
                     trade_pnl = (price - current_avg_price) * qty
                 total_realized_pnl += trade_pnl
-                total_exit_fees += order_fee
+                total_exit_fees += fee_usd  # Always store in USD
                 current_qty -= qty
                 current_invested_usd = current_qty * current_avg_price
 

@@ -42,6 +42,9 @@ class OrderService:
         """
         Submits a DCA order to the exchange and updates its status in the database.
         Includes retry logic with exponential backoff for transient network errors.
+
+        For market orders with quote_amount set, uses quote-based ordering (spend exact USDT).
+        For limit orders or orders without quote_amount, uses base-based ordering.
         """
         max_retries = 3
         base_delay = 1  # seconds
@@ -52,18 +55,34 @@ class OrderService:
                 order_type_value = (dca_order.order_type.value if hasattr(dca_order.order_type, 'value') else str(dca_order.order_type)).upper()
                 side_value = (dca_order.side.value if hasattr(dca_order.side, 'value') else str(dca_order.side)).upper()
 
+                # Determine amount_type based on order type and quote_amount availability
+                # For market orders with quote_amount, use quote-based ordering
+                is_market = order_type_value == "MARKET"
+                has_quote_amount = dca_order.quote_amount is not None and dca_order.quote_amount > 0
+
+                if is_market and has_quote_amount:
+                    # Use quote amount directly for market orders
+                    amount_type = "quote"
+                    quantity_to_send = dca_order.quote_amount
+                    logger.info(f"Submitting market order with quote amount: {quantity_to_send} USDT")
+                else:
+                    # Use base quantity for limit orders or when no quote_amount
+                    amount_type = "base"
+                    quantity_to_send = dca_order.quantity
+
                 exchange_order_data = await self.exchange_connector.place_order(
                     symbol=dca_order.symbol,
                     order_type=order_type_value,
                     side=side_value,
-                    quantity=dca_order.quantity,
-                    price=dca_order.price
+                    quantity=quantity_to_send,
+                    price=dca_order.price,
+                    amount_type=amount_type
                 )
 
                 dca_order.exchange_order_id = exchange_order_data["id"]
                 dca_order.status = OrderStatus.OPEN.value
                 dca_order.submitted_at = datetime.utcnow()
-                
+
                 await self.dca_order_repository.update(dca_order)
                 return dca_order
             except ExchangeConnectionError as e:
@@ -369,6 +388,46 @@ class OrderService:
                 # CCXT unified format (Binance, Bybit, etc.)
                 fee_from_exchange = Decimal(str(raw_fee.get("cost", 0) or 0))
                 fee_currency = raw_fee.get("currency")
+
+                # Extract base currency from symbol (e.g., "BTC" from "BTC/USDT" or "BTCUSDT")
+                symbol_str = dca_order.symbol
+                if "/" in symbol_str:
+                    base_currency = symbol_str.split("/")[0].upper()
+                else:
+                    # Handle symbols without slash (e.g., BTCUSDT)
+                    # Common quote currencies to strip
+                    for quote in ["USDT", "BUSD", "USDC", "USD", "TUSD", "DAI"]:
+                        if symbol_str.upper().endswith(quote):
+                            base_currency = symbol_str.upper()[:-len(quote)]
+                            break
+                    else:
+                        base_currency = symbol_str[:3].upper()  # Fallback: first 3 chars
+
+                # Bybit fix: CCXT may misreport fee currency. Check raw info.cumFeeDetail
+                # Bybit returns: {'cumFeeDetail': {'BTC': '0.000009'}} for base currency fees
+                info = exchange_order_data.get("info", {})
+                cum_fee_detail = info.get("cumFeeDetail", {})
+                if cum_fee_detail and isinstance(cum_fee_detail, dict):
+                    # Get the actual fee currency from Bybit's raw response
+                    for actual_currency, actual_fee_amount in cum_fee_detail.items():
+                        if actual_fee_amount and Decimal(str(actual_fee_amount)) > 0:
+                            # Store fee in original currency (base or quote)
+                            fee_from_exchange = Decimal(str(actual_fee_amount))
+                            fee_currency = actual_currency
+                            break
+
+                # Only deduct fee from filled_quantity if fee is in BASE currency
+                # This handles: Bybit (fees in BTC), but NOT Binance with BNB discount (fees in BNB)
+                if fee_currency and fee_currency.upper() == base_currency:
+                    # Fee is in base currency - deduct from filled_quantity
+                    # This ensures we track the actual receivable amount
+                    if filled_quantity_from_exchange and filled_quantity_from_exchange > fee_from_exchange:
+                        adjusted_qty = filled_quantity_from_exchange - fee_from_exchange
+                        logger.info(f"Order {dca_order.id}: Fee {fee_from_exchange} {fee_currency} deducted from filled qty. Adjusted: {filled_quantity_from_exchange} -> {adjusted_qty}")
+                        filled_quantity_from_exchange = adjusted_qty
+                        # Save the adjusted quantity to the order
+                        dca_order.filled_quantity = adjusted_qty
+                        changed = True
             else:
                 # Mock exchange or direct number format
                 fee_from_exchange = Decimal(str(raw_fee or 0))
@@ -768,6 +827,34 @@ class OrderService:
         await self.dca_order_repository.update(dca_order)
         return dca_order
 
+    async def sync_orders_for_group(self, group_id: uuid.UUID):
+        """
+        Syncs all orders for a position group with the exchange to get accurate fill status.
+        This should be called before closing a position to ensure we have up-to-date data.
+
+        Only syncs orders that:
+        1. Have an exchange_order_id (were submitted to exchange)
+        2. Are not already in a terminal state (filled, cancelled)
+        """
+        orders = await self.dca_order_repository.get_all_orders_by_group_id(group_id)
+
+        for order in orders:
+            # Only sync orders that have been submitted to exchange and are not terminal
+            if order.exchange_order_id and order.status in [
+                OrderStatus.OPEN.value,
+                OrderStatus.PARTIALLY_FILLED.value,
+                OrderStatus.TRIGGER_PENDING.value
+            ]:
+                try:
+                    await self.check_order_status(order)
+                    logger.info(f"Synced order {order.id} ({order.symbol}): status={order.status}, filled={order.filled_quantity}")
+                except Exception as e:
+                    # Log but don't fail - order might already be cancelled/filled
+                    logger.warning(f"Could not sync order {order.id}: {e}")
+
+        # Flush to ensure all updates are visible
+        await self.session.flush()
+
     async def cancel_open_orders_for_group(self, group_id: uuid.UUID):
         """
         Cancels all open orders for a group:
@@ -793,7 +880,7 @@ class OrderService:
         expected_price: Decimal = None,
         max_slippage_percent: float = None,
         slippage_action: str = "warn"
-    ):
+    ) -> Dict[str, Any]:
         """
         Closes a position (or partial quantity) using a market order.
         Determines the correct side (opposite of position side) automatically.
@@ -804,10 +891,13 @@ class OrderService:
             expected_price: Expected execution price for slippage calculation
             max_slippage_percent: Maximum allowed slippage percentage
             slippage_action: "warn" to log only, "reject" to raise SlippageExceededError
+
+        Returns:
+            Dict with order result including fee information
         """
         close_side = "SELL" if position_group.side == "long" else "BUY"
 
-        await self.place_market_order(
+        order_result = await self.place_market_order(
             user_id=position_group.user_id,
             exchange=position_group.exchange,
             symbol=position_group.symbol,
@@ -818,4 +908,5 @@ class OrderService:
             slippage_action=slippage_action,
             max_slippage_percent=max_slippage_percent
         )
+        return order_result
 

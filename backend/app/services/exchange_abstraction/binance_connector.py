@@ -1,4 +1,5 @@
 import ccxt.async_support as ccxt
+from typing import Literal
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.error_mapping import map_exchange_errors
 from app.core.cache import get_cache
@@ -91,21 +92,75 @@ class BinanceConnector(ExchangeInterface):
         return precision_rules
 
     @map_exchange_errors
-    async def place_order(self, symbol: str, order_type: str, side: str, quantity: float, price: float = None, **kwargs):
+    async def place_order(
+        self,
+        symbol: str,
+        order_type: str,
+        side: str,
+        quantity: float,
+        price: float = None,
+        amount_type: Literal["base", "quote"] = "base",
+        **kwargs
+    ):
         """
         Places an order on the exchange.
         Uses newOrderRespType='FULL' to get fee information in the response.
+
+        Args:
+            symbol: Trading pair (e.g., "BTCUSDT")
+            order_type: "MARKET" or "LIMIT"
+            side: "BUY" or "SELL"
+            quantity: Amount to trade
+            price: Price for limit orders
+            amount_type: "base" for base currency, "quote" for quote currency
         """
+        logger.info(f"Placing order: symbol={symbol}, type={order_type}, side={side}, "
+                    f"quantity={quantity}, price={price}, amount_type={amount_type}")
+
         # Merge with FULL response type to get fee data
         params = {**kwargs, 'newOrderRespType': 'FULL'}
-        return await self.exchange.create_order(
-            symbol=symbol,
-            type=order_type,
-            side=side,
-            amount=quantity,
-            price=price,
-            params=params
-        )
+
+        is_market = order_type.upper() == 'MARKET'
+        is_buy = side.upper() == 'BUY'
+
+        if amount_type == "quote":
+            if is_market:
+                # For market orders with quote amount, use quoteOrderQty
+                # Binance will spend exactly this amount of quote currency
+                params['quoteOrderQty'] = quantity
+                logger.info(f"Using quoteOrderQty={quantity} for market {side} order")
+                return await self.exchange.create_order(
+                    symbol=symbol,
+                    type=order_type,
+                    side=side,
+                    amount=None,  # Let Binance calculate based on quoteOrderQty
+                    price=None,
+                    params=params
+                )
+            else:
+                # For limit orders with quote amount, calculate base quantity
+                if not price or price <= 0:
+                    raise ValueError("Price required for limit orders with quote amount")
+                base_quantity = quantity / price
+                logger.info(f"Converting quote {quantity} to base {base_quantity} at price {price}")
+                return await self.exchange.create_order(
+                    symbol=symbol,
+                    type=order_type,
+                    side=side,
+                    amount=base_quantity,
+                    price=price,
+                    params=params
+                )
+        else:
+            # Base amount - pass directly
+            return await self.exchange.create_order(
+                symbol=symbol,
+                type=order_type,
+                side=side,
+                amount=quantity,
+                price=price if not is_market else None,  # Don't pass price for market orders
+                params=params
+            )
 
     @map_exchange_errors
     async def get_order_status(self, order_id: str, symbol: str = None):
