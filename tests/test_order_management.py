@@ -51,14 +51,16 @@ async def order_service(db_session: AsyncMock, user_id_fixture, mock_exchange_co
         db_session.add(user)
         await db_session.commit()
         await db_session.refresh(user)
-    
-    # Patch the repository class where it is imported/used in order_management.py
-    with patch('app.services.order_management.DCAOrderRepository', return_value=mock_dca_order_repository):
-        yield OrderService(
-            session=db_session,
-            user=user,
-            exchange_connector=mock_exchange_connector
-        )
+
+    # Create OrderService and directly inject the mock repository
+    service = OrderService(
+        session=db_session,
+        user=user,
+        exchange_connector=mock_exchange_connector
+    )
+    # Directly assign the mock repository to ensure it's used
+    service.dca_order_repository = mock_dca_order_repository
+    yield service
 
 @pytest.mark.asyncio
 async def test_submit_order_success(order_service, mock_exchange_connector, mock_dca_order_repository):
@@ -106,7 +108,8 @@ async def test_submit_order_success(order_service, mock_exchange_connector, mock
         order_type=OrderType.LIMIT.value.upper(),
         side=mock_dca_order.side.upper(),
         quantity=Decimal("0.001"),
-        price=Decimal("60000")
+        price=Decimal("60000"),
+        amount_type="base"
     )
     mock_dca_order_repository.update.assert_awaited_once()
     assert updated_order.exchange_order_id == "exchange_order_123"

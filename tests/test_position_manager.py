@@ -440,10 +440,22 @@ async def test_handle_exit_signal(
     """
     Test that handle_exit_signal cancels open orders and closes the filled position.
     """
-    # Add some orders to the position group
-    filled_order = DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("1.5"), side="buy")
-    open_order = DCAOrder(status=OrderStatus.OPEN, filled_quantity=Decimal("0"), side="buy")
+    # Add some orders to the position group with proper price attributes
+    filled_order = DCAOrder(
+        status=OrderStatus.FILLED,
+        filled_quantity=Decimal("1.5"),
+        side="buy",
+        price=Decimal("100"),
+        avg_fill_price=Decimal("100")
+    )
+    open_order = DCAOrder(
+        status=OrderStatus.OPEN,
+        filled_quantity=Decimal("0"),
+        side="buy",
+        price=Decimal("100")
+    )
     sample_position_group.dca_orders = [filled_order, open_order]
+    sample_position_group.total_exit_fees_usd = Decimal("0")
 
     # Ensure sample_position_group.exchange is a string
     sample_position_group.exchange = "binance"
@@ -464,6 +476,13 @@ async def test_handle_exit_signal(
 
     # Add sync_orders_for_group mock
     mock_order_service_class.return_value.sync_orders_for_group = AsyncMock()
+    # Return a proper dict from close_position_market
+    mock_order_service_class.return_value.close_position_market = AsyncMock(return_value={
+        "id": "close_order_123",
+        "status": "closed",
+        "filled": 1.5,
+        "average": 100
+    })
 
     await position_manager_service.handle_exit_signal(sample_position_group.id)
 
@@ -617,9 +636,16 @@ async def test_handle_exit_signal_short_position(
         total_filled_quantity=Decimal("1.5"),
         tp_mode="per_leg",
         pyramid_count=0,
-        max_pyramids=5
+        max_pyramids=5,
+        total_exit_fees_usd=Decimal("0")
     )
-    short_group.dca_orders = [DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("1.5"), side="sell")]
+    short_group.dca_orders = [DCAOrder(
+        status=OrderStatus.FILLED,
+        filled_quantity=Decimal("1.5"),
+        side="sell",
+        price=Decimal("100"),
+        avg_fill_price=Decimal("100")
+    )]
 
     mock_repo_instance = mock_position_group_repository_class.return_value
     mock_repo_instance.get_with_orders.return_value = short_group
@@ -636,6 +662,13 @@ async def test_handle_exit_signal_short_position(
 
     # Add sync_orders_for_group mock
     mock_order_service_class.return_value.sync_orders_for_group = AsyncMock()
+    # Return a proper dict from close_position_market
+    mock_order_service_class.return_value.close_position_market = AsyncMock(return_value={
+        "id": "close_order_123",
+        "status": "closed",
+        "filled": 1.5,
+        "average": 100
+    })
 
     await position_manager_service.handle_exit_signal(short_group.id)
 

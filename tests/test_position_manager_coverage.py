@@ -844,8 +844,15 @@ async def test_handle_exit_signal_with_session(
 ):
     """Test handle_exit_signal when session is provided."""
     position_group.dca_orders = [
-        DCAOrder(status=OrderStatus.FILLED, filled_quantity=Decimal("0.01"), side="buy")
+        DCAOrder(
+            status=OrderStatus.FILLED,
+            filled_quantity=Decimal("0.01"),
+            side="buy",
+            price=Decimal("50000"),
+            avg_fill_price=Decimal("50000")
+        )
     ]
+    position_group.total_exit_fees_usd = Decimal("0")
 
     mock_repo = MagicMock()
     mock_repo.get_with_orders = AsyncMock(return_value=position_group)
@@ -855,7 +862,13 @@ async def test_handle_exit_signal_with_session(
     mock_order_service = MagicMock()
     mock_order_service.cancel_open_orders_for_group = AsyncMock()
     mock_order_service.sync_orders_for_group = AsyncMock()
-    mock_order_service.close_position_market = AsyncMock()
+    # Return a proper dict from close_position_market
+    mock_order_service.close_position_market = AsyncMock(return_value={
+        "id": "close_order_123",
+        "status": "closed",
+        "filled": 0.01,
+        "average": 50000
+    })
     position_manager_service.order_service_class.return_value = mock_order_service
 
     # Mock DB query to return filled orders
@@ -870,12 +883,13 @@ async def test_handle_exit_signal_with_session(
     # Ensure get_trading_fee_rate is mocked
     mock_exchange_connector.get_trading_fee_rate = AsyncMock(return_value=0.001)
 
-    with patch("app.services.position.position_closer.get_exchange_connector", return_value=mock_exchange_connector):
-        with patch("app.services.position.position_closer.save_close_action", new_callable=AsyncMock):
-            await position_manager_service.handle_exit_signal(
-                position_group_id=position_group.id,
-                session=mock_session
-            )
+    with patch("app.services.position.position_closer._get_exchange_connector_for_user", return_value=mock_exchange_connector):
+        with patch.object(position_manager_service, '_get_exchange_connector_for_user', return_value=mock_exchange_connector):
+            with patch("app.services.position.position_closer.save_close_action", new_callable=AsyncMock):
+                await position_manager_service.handle_exit_signal(
+                    position_group_id=position_group.id,
+                    session=mock_session
+                )
 
     # CRITICAL: Verify cancel_open_orders was called to clean up pending orders
     mock_order_service.cancel_open_orders_for_group.assert_called_once()

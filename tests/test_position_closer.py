@@ -402,6 +402,8 @@ class TestExecuteHandleExitSignal:
         mock_position_group.status = PositionGroupStatus.ACTIVE
         mock_position_group.side = "long"
         mock_position_group.total_filled_quantity = Decimal("0.02")
+        mock_position_group.total_invested_usd = Decimal("1000")
+        mock_position_group.total_exit_fees_usd = Decimal("0")
 
         mock_repo_class = MagicMock()
         mock_repo_instance = AsyncMock()
@@ -413,7 +415,13 @@ class TestExecuteHandleExitSignal:
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
         mock_order_service_instance.sync_orders_for_group = AsyncMock()
-        mock_order_service_instance.close_position_market = AsyncMock()
+        # Return a proper dict from close_position_market
+        mock_order_service_instance.close_position_market = AsyncMock(return_value={
+            "id": "close_order_123",
+            "status": "closed",
+            "filled": 0.02,
+            "average": 51000
+        })
         mock_order_service_class.return_value = mock_order_service_instance
 
         # Mock DB query to return filled orders
@@ -451,6 +459,8 @@ class TestExecuteHandleExitSignal:
         mock_position_group.status = PositionGroupStatus.ACTIVE
         mock_position_group.side = "short"
         mock_position_group.total_filled_quantity = Decimal("0.02")
+        mock_position_group.total_invested_usd = Decimal("1000")
+        mock_position_group.total_exit_fees_usd = Decimal("0")
 
         mock_repo_class = MagicMock()
         mock_repo_instance = AsyncMock()
@@ -462,7 +472,13 @@ class TestExecuteHandleExitSignal:
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
         mock_order_service_instance.sync_orders_for_group = AsyncMock()
-        mock_order_service_instance.close_position_market = AsyncMock()
+        # Return a proper dict from close_position_market
+        mock_order_service_instance.close_position_market = AsyncMock(return_value={
+            "id": "close_order_123",
+            "status": "closed",
+            "filled": 0.02,
+            "average": 49000
+        })
         mock_order_service_class.return_value = mock_order_service_instance
 
         # Mock DB query to return filled orders (short position uses sell)
@@ -499,6 +515,8 @@ class TestExecuteHandleExitSignal:
         mock_position_group.status = PositionGroupStatus.CLOSING
         mock_position_group.side = "long"
         mock_position_group.total_filled_quantity = Decimal("0.02")
+        mock_position_group.total_invested_usd = Decimal("1000")
+        mock_position_group.total_exit_fees_usd = Decimal("0")
 
         mock_repo_class = MagicMock()
         mock_repo_instance = AsyncMock()
@@ -510,7 +528,13 @@ class TestExecuteHandleExitSignal:
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
         mock_order_service_instance.sync_orders_for_group = AsyncMock()
-        mock_order_service_instance.close_position_market = AsyncMock()
+        # Return a proper dict from close_position_market
+        mock_order_service_instance.close_position_market = AsyncMock(return_value={
+            "id": "close_order_123",
+            "status": "closed",
+            "filled": 0.02,
+            "average": 51000
+        })
         mock_order_service_class.return_value = mock_order_service_instance
 
         # Mock DB query to return filled orders
@@ -856,6 +880,7 @@ class TestLongPositionPnLCalculation:
         mock_position_group.weighted_avg_entry = Decimal("50000")
         mock_position_group.total_invested_usd = Decimal("1000")
         mock_position_group.total_filled_quantity = Decimal("0.02")
+        mock_position_group.total_exit_fees_usd = Decimal("0")
 
         mock_repo_class = MagicMock()
         mock_repo_instance = AsyncMock()
@@ -866,7 +891,13 @@ class TestLongPositionPnLCalculation:
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
         mock_order_service_instance.sync_orders_for_group = AsyncMock()
-        mock_order_service_instance.close_position_market = AsyncMock()
+        # Return a proper dict from close_position_market
+        mock_order_service_instance.close_position_market = AsyncMock(return_value={
+            "id": "close_order_123",
+            "status": "closed",
+            "filled": 0.02,
+            "average": 55000
+        })
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
 
         # Mock DB query to return filled orders
@@ -911,6 +942,7 @@ class TestLongPositionPnLCalculation:
         mock_position_group.weighted_avg_entry = Decimal("50000")
         mock_position_group.total_invested_usd = Decimal("1000")
         mock_position_group.total_filled_quantity = Decimal("0.02")
+        mock_position_group.total_exit_fees_usd = Decimal("0")
 
         mock_repo_class = MagicMock()
         mock_repo_instance = AsyncMock()
@@ -921,7 +953,13 @@ class TestLongPositionPnLCalculation:
         mock_order_service_instance = AsyncMock()
         mock_order_service_instance.cancel_open_orders_for_group = AsyncMock()
         mock_order_service_instance.sync_orders_for_group = AsyncMock()
-        mock_order_service_instance.close_position_market = AsyncMock()
+        # Return a proper dict from close_position_market
+        mock_order_service_instance.close_position_market = AsyncMock(return_value={
+            "id": "close_order_123",
+            "status": "closed",
+            "filled": 0.02,
+            "average": 45000
+        })
         mock_order_service_class = MagicMock(return_value=mock_order_service_instance)
 
         # Mock DB query to return filled orders

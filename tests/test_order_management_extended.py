@@ -61,11 +61,13 @@ class TestSubmitOrderPrecisionErrors:
         dca_order.symbol = "BTC/USDT"
         dca_order.quantity = Decimal("0.001")
         dca_order.price = Decimal("60000")
+        dca_order.quote_amount = None  # Not a quote-based order
 
         mock_exchange_connector.place_order.side_effect = APIError("Invalid precision: lot size too small")
 
         mock_cache = AsyncMock()
-        with patch("app.core.cache.get_cache", return_value=mock_cache):
+        # get_cache is an async function, so patch it as an AsyncMock that returns mock_cache
+        with patch("app.core.cache.get_cache", new=AsyncMock(return_value=mock_cache)):
             with pytest.raises(APIError):
                 await order_service.submit_order(dca_order)
 
@@ -81,11 +83,13 @@ class TestSubmitOrderPrecisionErrors:
         dca_order.symbol = "BTC/USDT"
         dca_order.quantity = Decimal("0.001")
         dca_order.price = Decimal("60000")
+        dca_order.quote_amount = None  # Not a quote-based order
 
         mock_exchange_connector.place_order.side_effect = Exception("Step size validation failed")
 
         mock_cache = AsyncMock()
-        with patch("app.core.cache.get_cache", return_value=mock_cache):
+        # get_cache is an async function, so patch it as an AsyncMock that returns mock_cache
+        with patch("app.core.cache.get_cache", new=AsyncMock(return_value=mock_cache)):
             with pytest.raises(APIError):
                 await order_service.submit_order(dca_order)
 
