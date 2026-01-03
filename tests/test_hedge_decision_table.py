@@ -208,7 +208,9 @@ class TestHedgeDecisionTable:
             risk_action = mock_risk_repo.create.call_args[0][0]
             assert risk_action.group_id == mock_loser.id
             assert risk_action.loser_group_id == mock_loser.id
-            assert risk_action.loser_pnl_usd == mock_loser.unrealized_pnl_usd
+            # loser_pnl_usd should be the captured value BEFORE position was closed
+            # (unrealized_pnl_usd gets reset to 0 when position is closed)
+            assert risk_action.loser_pnl_usd == Decimal("-100")
 
     @pytest.mark.asyncio
     async def test_case_2_no_winner_skip_hedge(self, risk_config, mock_user, mock_loser):

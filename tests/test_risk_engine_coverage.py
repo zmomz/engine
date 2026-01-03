@@ -415,7 +415,9 @@ async def test_evaluate_user_positions_execution(mock_config):
         # RiskAction uses group_id and loser_group_id, not user_id and loser_position_id
         assert risk_action_call.group_id == loser.id
         assert risk_action_call.loser_group_id == loser.id
-        assert risk_action_call.loser_pnl_usd == loser.unrealized_pnl_usd
+        # loser_pnl_usd should be the captured value BEFORE position was closed
+        # (unrealized_pnl_usd gets reset to 0 when position is closed)
+        assert risk_action_call.loser_pnl_usd == Decimal("-100")
 
 
 # --- Additional Coverage Tests ---
