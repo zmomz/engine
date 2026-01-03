@@ -203,6 +203,10 @@ class RiskEngineService:
             loser, winners, required_usd = select_loser_and_winners(all_positions, config)
 
             if loser and winners:
+                # Capture the loss value BEFORE any position updates
+                # (unrealized_pnl_usd gets reset to 0 when position is closed)
+                captured_loser_pnl_usd = loser.unrealized_pnl_usd
+
                 logger.info(
                     f"Risk Engine: Identified loser {loser.symbol} for user {user.id} "
                     f"(loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners."
@@ -492,12 +496,12 @@ class RiskEngineService:
                     await position_group_repo.update(loser)
                     logger.error(f"Risk Engine: Loser {loser.symbol} close failed. Reverted to ACTIVE for retry.")
 
-                # Record risk action
+                # Record risk action with the captured loss value (before position was closed)
                 risk_action = RiskAction(
                     group_id=loser.id,
                     action_type=RiskActionType.OFFSET_LOSS,
                     loser_group_id=loser.id,
-                    loser_pnl_usd=loser.unrealized_pnl_usd,
+                    loser_pnl_usd=captured_loser_pnl_usd,
                     winner_details=winner_details,
                     notes=f"Simultaneous execution: {success_count} success, {error_count} errors"
                 )
