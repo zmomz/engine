@@ -319,12 +319,15 @@ class PositionManagerService:
                 total_realized_pnl += trade_pnl
                 total_exit_fees += fee_usd  # Always store in USD
                 current_qty -= qty
-                current_invested_usd = current_qty * current_avg_price
 
                 if current_qty <= 0:
                     current_qty = Decimal("0")
-                    current_invested_usd = Decimal("0")
-                    current_avg_price = Decimal("0")
+                    # Note: Do NOT zero out current_invested_usd and current_avg_price here
+                    # These values are preserved for historical record when position is closed
+                    # The invested amount represents what was put in, and avg_price is the entry
+                else:
+                    # Only recalculate invested when position still open
+                    current_invested_usd = current_qty * current_avg_price
 
         # --- 3. Update Position Group Stats ---
         position_group.weighted_avg_entry = current_avg_price
