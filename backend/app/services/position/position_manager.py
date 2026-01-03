@@ -518,15 +518,42 @@ class PositionManagerService:
         )
         pyramids = result.scalars().all()
 
+        logger.debug(
+            f"_check_pyramid_aggregate_tp: Checking {len(pyramids)} pyramids for {position_group.symbol} "
+            f"(ID: {position_group.id}), current_price={current_price}"
+        )
+
         for pyramid in pyramids:
+            # Debug: Log all orders for this pyramid
+            all_pyramid_orders = [o for o in filled_orders if o.pyramid_id == pyramid.id]
+            logger.debug(
+                f"_check_pyramid_aggregate_tp: Pyramid {pyramid.pyramid_index} has {len(all_pyramid_orders)} filled orders. "
+                f"Statuses: {[(o.leg_index, str(o.status), o.tp_hit) for o in all_pyramid_orders]}"
+            )
+
             # Skip already closed pyramids or those with no filled orders
+            # Handle both enum and string status comparison
+            def is_filled(status):
+                if status == OrderStatus.FILLED:
+                    return True
+                if hasattr(status, 'value') and status.value == 'filled':
+                    return True
+                if str(status).lower() == 'filled' or str(status) == 'OrderStatus.FILLED':
+                    return True
+                return False
+
             pyramid_filled_orders = [
                 o for o in filled_orders
                 if o.pyramid_id == pyramid.id
-                and o.status == OrderStatus.FILLED
+                and is_filled(o.status)
                 and o.leg_index != 999
                 and not o.tp_hit
             ]
+
+            logger.debug(
+                f"_check_pyramid_aggregate_tp: Pyramid {pyramid.pyramid_index} - "
+                f"{len(pyramid_filled_orders)} orders eligible for TP check"
+            )
 
             if not pyramid_filled_orders:
                 continue
@@ -536,6 +563,7 @@ class PositionManagerService:
             pyramid_tp_hit_orders = [o for o in pyramid_all_orders if o.tp_hit]
 
             if len(pyramid_tp_hit_orders) >= len(pyramid_all_orders) and len(pyramid_all_orders) > 0:
+                logger.debug(f"_check_pyramid_aggregate_tp: Pyramid {pyramid.pyramid_index} - all orders already TP'd, skipping")
                 continue
 
             # Calculate weighted average entry for this pyramid
@@ -549,6 +577,7 @@ class PositionManagerService:
                 total_value += qty * price
 
             if total_qty <= 0:
+                logger.debug(f"_check_pyramid_aggregate_tp: Pyramid {pyramid.pyramid_index} - total_qty <= 0, skipping")
                 continue
 
             pyramid_avg_entry = total_value / total_qty
@@ -567,6 +596,13 @@ class PositionManagerService:
             # TP triggers when price rises above entry + TP%
             pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
             tp_triggered = current_price >= pyramid_tp_price
+
+            logger.info(
+                f"_check_pyramid_aggregate_tp: Pyramid {pyramid.pyramid_index} TP Check - "
+                f"avg_entry={pyramid_avg_entry:.4f}, tp_percent={tp_percent}%, "
+                f"tp_target={pyramid_tp_price:.4f}, current_price={current_price}, "
+                f"triggered={tp_triggered}"
+            )
 
             if tp_triggered:
                 logger.info(

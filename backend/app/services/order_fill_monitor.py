@@ -444,10 +444,11 @@ class OrderFillMonitorService:
                 for user in users_with_keys:
                     try:
                         all_orders = orders_by_user.get(str(user.id), [])
-                        logger.debug(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
+                        logger.info(f"OrderFillMonitor: User {user.id} - Found {len(all_orders)} open/partially filled orders.")
 
                         if not all_orders:
                             # Even with no open orders, check TP for idle positions
+                            logger.info(f"OrderFillMonitor: No open orders for user {user.id}, checking idle position TPs...")
                             await self._check_aggregate_tp_for_idle_positions(session, user)
                             await self._check_pyramid_aggregate_tp_for_idle_positions(session, user)
                             await self._check_per_leg_positions_all_tps_hit(session, user)
@@ -676,9 +677,15 @@ class OrderFillMonitorService:
             positions = result.scalars().all()
 
             if not positions:
+                logger.info(f"OrderFillMonitor: No aggregate/hybrid positions found for user {user.id}")
                 return
 
-            logger.debug(f"OrderFillMonitor: Checking aggregate TP for {len(positions)} positions")
+            logger.info(f"OrderFillMonitor: Checking aggregate TP for {len(positions)} positions")
+
+            # Helper to check if order is open (handles both enum and string status)
+            def is_open_order(status):
+                status_str = str(status).lower()
+                return any(s in status_str for s in ['open', 'trigger_pending', 'partially_filled'])
 
             # Group by exchange
             positions_by_exchange: Dict[str, List[PositionGroup]] = {}
@@ -686,11 +693,9 @@ class OrderFillMonitorService:
                 # For hybrid mode, we still check aggregate TP even with open orders
                 # For pure aggregate mode, skip if there are open orders (will be handled when all orders fill)
                 if pos.tp_mode == "aggregate":
-                    has_open_orders = any(
-                        o.status in [OrderStatus.OPEN.value, OrderStatus.TRIGGER_PENDING.value, OrderStatus.PARTIALLY_FILLED.value]
-                        for o in pos.dca_orders
-                    )
-                    if has_open_orders:
+                    open_orders = [o for o in pos.dca_orders if is_open_order(o.status)]
+                    if open_orders:
+                        logger.info(f"OrderFillMonitor: Skipping aggregate TP for {pos.symbol} - has {len(open_orders)} open orders")
                         continue  # Skip aggregate mode - will be handled by order processing
 
                 ex = pos.exchange.lower()
@@ -745,6 +750,7 @@ class OrderFillMonitorService:
             current_qty = position_group.total_filled_quantity
 
             if current_qty <= 0 or current_avg_price <= 0:
+                logger.info(f"OrderFillMonitor: Aggregate TP skip for {position_group.symbol} - qty={current_qty}, avg_price={current_avg_price}")
                 return
 
             # Calculate aggregate TP target
@@ -754,6 +760,12 @@ class OrderFillMonitorService:
             else:
                 aggregate_tp_price = current_avg_price * (Decimal("1") - position_group.tp_aggregate_percent / Decimal("100"))
                 should_execute_tp = current_price <= aggregate_tp_price
+
+            logger.info(
+                f"OrderFillMonitor: Aggregate TP Check for {position_group.symbol} (ID: {str(position_group.id)[:8]}) - "
+                f"avg_entry={current_avg_price:.4f}, tp_percent={position_group.tp_aggregate_percent}%, "
+                f"tp_target={aggregate_tp_price:.4f}, current_price={current_price}, triggered={should_execute_tp}"
+            )
 
             if not should_execute_tp:
                 return
@@ -908,6 +920,8 @@ class OrderFillMonitorService:
             from datetime import datetime
             position_group_repo = self.position_group_repository_class(session)
 
+            logger.info(f"OrderFillMonitor: _check_pyramid_aggregate_tp_for_idle_positions called for user {user.id}")
+
             # Get all active/partially_filled positions for this user with pyramid_aggregate TP mode
             result = await session.execute(
                 select(PositionGroup)
@@ -923,9 +937,13 @@ class OrderFillMonitorService:
             positions = result.scalars().all()
 
             if not positions:
+                logger.info(f"OrderFillMonitor: No pyramid_aggregate positions found for user {user.id}")
                 return
 
-            logger.debug(f"OrderFillMonitor: Checking pyramid_aggregate TP for {len(positions)} positions")
+            logger.info(
+                f"OrderFillMonitor: Found {len(positions)} pyramid_aggregate positions for user {user.id}: "
+                f"{[(p.symbol, str(p.id)[:8], p.total_filled_quantity, p.tp_mode) for p in positions]}"
+            )
 
             # Group by exchange
             positions_by_exchange: Dict[str, List[PositionGroup]] = {}
@@ -991,19 +1009,47 @@ class OrderFillMonitorService:
             )
             pyramids = result.scalars().all()
 
+            logger.info(
+                f"OrderFillMonitor: Checking pyramid_aggregate TP for {position_group.symbol} "
+                f"(ID: {str(position_group.id)[:8]}) - {len(pyramids)} pyramids, current_price={current_price}"
+            )
+
             position_closed = False
 
             for pyramid in pyramids:
+                # Log all orders for this pyramid
+                all_pyramid_orders = [o for o in position_group.dca_orders if o.pyramid_id == pyramid.id]
+                logger.info(
+                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} has {len(all_pyramid_orders)} orders. "
+                    f"Statuses: {[(o.leg_index, str(o.status), o.tp_hit) for o in all_pyramid_orders]}"
+                )
+
                 # Get filled entry orders for this pyramid that haven't hit TP yet
+                # Handle both enum and string status comparison
+                def is_filled(status):
+                    if status == OrderStatus.FILLED:
+                        return True
+                    if hasattr(status, 'value') and status.value == 'filled':
+                        return True
+                    if str(status).lower() == 'filled' or str(status) == 'OrderStatus.FILLED':
+                        return True
+                    return False
+
                 pyramid_filled_orders = [
                     o for o in position_group.dca_orders
                     if o.pyramid_id == pyramid.id
-                    and o.status == OrderStatus.FILLED.value
+                    and is_filled(o.status)
                     and o.leg_index != 999
                     and not o.tp_hit
                 ]
 
+                logger.info(
+                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - "
+                    f"{len(pyramid_filled_orders)} filled orders eligible for TP check"
+                )
+
                 if not pyramid_filled_orders:
+                    logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - no eligible orders, skipping")
                     continue
 
                 # Calculate weighted average entry for this pyramid
@@ -1015,8 +1061,13 @@ class OrderFillMonitorService:
                     price = order.avg_fill_price or order.price
                     total_qty += qty
                     total_value += qty * price
+                    logger.info(
+                        f"OrderFillMonitor: Order leg {order.leg_index} - qty={qty}, price={price}, "
+                        f"filled_qty={order.filled_quantity}, avg_fill_price={order.avg_fill_price}"
+                    )
 
                 if total_qty <= 0:
+                    logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - total_qty <= 0, skipping")
                     continue
 
                 pyramid_avg_entry = total_value / total_qty
@@ -1027,6 +1078,13 @@ class OrderFillMonitorService:
                 # Calculate pyramid TP target
                 pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
                 tp_triggered = current_price >= pyramid_tp_price
+
+                logger.info(
+                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} TP Check - "
+                    f"avg_entry={pyramid_avg_entry:.4f}, tp_percent={tp_percent}%, "
+                    f"tp_target={pyramid_tp_price:.4f}, current_price={current_price}, "
+                    f"triggered={tp_triggered}"
+                )
 
                 if not tp_triggered:
                     continue

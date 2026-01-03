@@ -149,6 +149,88 @@ class RiskEngineService:
 
         return True, None
 
+    async def _refresh_positions_pnl(
+        self,
+        session: AsyncSession,
+        user: User,
+        positions: List[PositionGroup]
+    ) -> None:
+        """
+        Refresh unrealized PnL for all positions based on current market prices.
+
+        This is critical for risk timer decisions - without fresh PnL data,
+        the risk timer might not reset when a position recovers from loss to profit.
+        """
+        if not positions:
+            return
+
+        # Group positions by exchange
+        positions_by_exchange: Dict[str, List[PositionGroup]] = {}
+        for pos in positions:
+            ex = pos.exchange.lower()
+            if ex not in positions_by_exchange:
+                positions_by_exchange[ex] = []
+            positions_by_exchange[ex].append(pos)
+
+        for exchange_name, exchange_positions in positions_by_exchange.items():
+            connector = None
+            try:
+                # Get exchange connector
+                if exchange_name == "mock":
+                    exchange_keys_data = {
+                        "api_key": "mock_api_key_12345",
+                        "api_secret": "mock_api_secret_67890"
+                    }
+                else:
+                    exchange_keys_data = user.encrypted_api_keys.get(exchange_name)
+                    if not exchange_keys_data:
+                        logger.warning(f"Risk Engine: No API keys for {exchange_name}, skipping PnL refresh")
+                        continue
+
+                connector = get_exchange_connector(exchange_name, exchange_config=exchange_keys_data)
+
+                # Batch fetch prices for all symbols
+                symbols = list(set(pos.symbol for pos in exchange_positions))
+                prices = {}
+                for symbol in symbols:
+                    try:
+                        prices[symbol] = Decimal(str(await connector.get_current_price(symbol)))
+                    except Exception as e:
+                        logger.warning(f"Risk Engine: Failed to get price for {symbol}: {e}")
+
+                # Update PnL for each position
+                for pos in exchange_positions:
+                    if pos.symbol not in prices:
+                        continue
+
+                    current_price = prices[pos.symbol]
+                    avg_entry = pos.weighted_avg_entry
+                    qty = pos.total_filled_quantity
+
+                    if avg_entry and avg_entry > 0 and qty and qty > 0:
+                        # For SPOT (long positions): PnL = (current - entry) * qty
+                        unrealized_pnl_usd = (current_price - avg_entry) * qty
+                        unrealized_pnl_percent = ((current_price - avg_entry) / avg_entry) * Decimal("100")
+
+                        # Update position
+                        pos.unrealized_pnl_usd = unrealized_pnl_usd
+                        pos.unrealized_pnl_percent = unrealized_pnl_percent
+
+                        logger.debug(
+                            f"Risk Engine: Refreshed PnL for {pos.symbol}: "
+                            f"price={current_price}, entry={avg_entry}, "
+                            f"pnl_usd={unrealized_pnl_usd:.2f}, pnl_pct={unrealized_pnl_percent:.2f}%"
+                        )
+
+            except Exception as e:
+                logger.error(f"Risk Engine: Error refreshing PnL for {exchange_name}: {e}")
+            finally:
+                if connector:
+                    try:
+                        await connector.close()
+                    except Exception:
+                        pass
+
     async def _evaluate_positions(self):
         """
         Evaluates all active positions for risk management and initiates offset if conditions are met.
@@ -172,9 +254,10 @@ class RiskEngineService:
         Evaluates positions for a single user.
 
         Process:
-        1. Update timers for all positions based on current conditions
-        2. Select eligible loser and winners
-        3. Execute offset (close loser and partial close winners SIMULTANEOUSLY)
+        1. Refresh unrealized PnL for all positions based on current prices
+        2. Update timers for all positions based on current conditions
+        3. Select eligible loser and winners
+        4. Execute offset (close loser and partial close winners SIMULTANEOUSLY)
         """
         try:
             position_group_repo = self.position_group_repository_class(session)
@@ -186,7 +269,11 @@ class RiskEngineService:
             if not all_positions:
                 return
 
-            # 2. Determine Risk Config (User > Global)
+            # 2. Refresh unrealized PnL for all positions based on current prices
+            # This ensures risk timer decisions use fresh data, not stale values
+            await self._refresh_positions_pnl(session, user, all_positions)
+
+            # 3. Determine Risk Config (User > Global)
             config = self.config
             if user.risk_config:
                 try:
@@ -195,7 +282,7 @@ class RiskEngineService:
                 except Exception as e:
                     logger.warning(f"Risk Engine: Invalid config for user {user.id}, using default. Error: {e}")
 
-            # 3. Update risk timers for all positions
+            # 4. Update risk timers for all positions (now with fresh PnL data)
             await update_risk_timers(all_positions, config, session)
             await session.commit()
 

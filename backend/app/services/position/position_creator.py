@@ -390,24 +390,46 @@ async def handle_pyramid_continuation(
     orders_to_submit = []
     order_side = "buy" if signal.side == "long" else "sell"
 
+    # Use entry_order_type from DCA config (same logic as initial pyramid creation)
+    entry_type = dca_grid_config.entry_order_type
+
     for i, level in enumerate(dca_levels):
+        # Apply entry_order_type to ALL DCA orders, not just the first one
+        if entry_type == "market":
+            current_order_type = "market"
+            gap_pct = level.get('gap_percent', Decimal("0"))
+            if gap_pct <= 0:
+                # Market orders with gap_percent<=0 should be submitted immediately
+                current_status = OrderStatus.PENDING
+            else:
+                # DCA legs with gap_percent > 0 wait for order_fill_monitor to trigger
+                current_status = OrderStatus.TRIGGER_PENDING
+        else:
+            current_order_type = "limit"
+            current_status = OrderStatus.PENDING
+
         dca_order = DCAOrder(
             group_id=existing_position_group.id,
             pyramid_id=new_pyramid.id,
             leg_index=i,
             symbol=signal.symbol,
             side=order_side,
-            order_type="limit",
+            order_type=current_order_type,
             price=level['price'],
             quantity=level['quantity'],
-            status=OrderStatus.PENDING,
+            quote_amount=level.get('quote_amount'),  # USDT amount for market orders
+            status=current_status,
             gap_percent=level.get('gap_percent', Decimal("0")),
             weight_percent=level.get('weight_percent', Decimal("0")),
             tp_percent=level.get('tp_percent', Decimal("0")),
             tp_price=level.get('tp_price', Decimal("0")),
         )
         session.add(dca_order)
-        orders_to_submit.append(dca_order)
+
+        if current_status == OrderStatus.PENDING:
+            orders_to_submit.append(dca_order)
+        else:
+            logger.info(f"Pyramid order leg {i} set to {current_status} (Market Watch). Not submitting yet.")
 
     # Submit orders sequentially to avoid SQLAlchemy session conflicts
     if orders_to_submit:
