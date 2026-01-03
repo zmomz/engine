@@ -993,15 +993,15 @@ const PositionsPage: React.FC = () => {
                               {formatPrice(pyramid.entry_price)}
                             </Typography>
 
-                            {/* DCA Orders */}
-                            {pyramid.dca_orders && pyramid.dca_orders.length > 0 && (
+                            {/* DCA Orders - Entry orders only (leg_index >= 0) */}
+                            {pyramid.dca_orders && pyramid.dca_orders.filter(d => (d.leg_index ?? 0) >= 0).length > 0 && (
                               <>
                                 <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                                  DCA Orders ({pyramid.dca_orders.length})
+                                  DCA Orders ({pyramid.dca_orders.filter(d => (d.leg_index ?? 0) >= 0).length})
                                 </Typography>
                                 <Table size="small" sx={{ mt: 0.5 }}>
                                   <TableBody>
-                                    {pyramid.dca_orders.map((dca) => (
+                                    {pyramid.dca_orders.filter(d => (d.leg_index ?? 0) >= 0).map((dca) => (
                                       <TableRow key={dca.id}>
                                         <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', borderBottom: 'none' }}>
                                           {dca.order_type}
@@ -1047,6 +1047,40 @@ const PositionsPage: React.FC = () => {
                                             label={dca.status}
                                             size="small"
                                             color={dca.status === 'FILLED' ? 'success' : dca.status === 'OPEN' ? 'info' : 'default'}
+                                            sx={{ height: 16, fontSize: '0.65rem' }}
+                                          />
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </>
+                            )}
+
+                            {/* Hedge/Exit Orders - Exit orders only (leg_index < 0) */}
+                            {pyramid.dca_orders && pyramid.dca_orders.filter(d => (d.leg_index ?? 0) < 0).length > 0 && (
+                              <>
+                                <Typography variant="caption" color="warning.main" sx={{ mt: 1.5, display: 'block' }}>
+                                  Hedge Exits ({pyramid.dca_orders.filter(d => (d.leg_index ?? 0) < 0).length})
+                                </Typography>
+                                <Table size="small" sx={{ mt: 0.5 }}>
+                                  <TableBody>
+                                    {pyramid.dca_orders.filter(d => (d.leg_index ?? 0) < 0).map((dca) => (
+                                      <TableRow key={dca.id} sx={{ bgcolor: 'action.hover' }}>
+                                        <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', borderBottom: 'none' }}>
+                                          EXIT
+                                        </TableCell>
+                                        <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
+                                          {formatPrice(dca.price)}
+                                        </TableCell>
+                                        <TableCell sx={{ py: 0.5, px: 1, fontSize: '0.7rem', fontFamily: 'monospace', borderBottom: 'none' }}>
+                                          Qty: {formatQuantity(dca.filled_quantity ?? dca.quantity)}
+                                        </TableCell>
+                                        <TableCell sx={{ py: 0.5, px: 1, borderBottom: 'none' }}>
+                                          <Chip
+                                            label={dca.status}
+                                            size="small"
+                                            color={dca.status === 'FILLED' ? 'warning' : 'default'}
                                             sx={{ height: 16, fontSize: '0.65rem' }}
                                           />
                                         </TableCell>
