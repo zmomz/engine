@@ -168,7 +168,8 @@ async def execute_handle_exit_signal(
     order_service_class: type[OrderService],
     max_slippage_percent: float = 1.0,
     slippage_action: str = "warn",
-    exit_reason: str = "engine"
+    exit_reason: str = "engine",
+    update_position_stats_func: Optional[Callable] = None
 ):
     """
     Core logic for handling an exit signal within a provided session.
@@ -182,6 +183,7 @@ async def execute_handle_exit_signal(
         max_slippage_percent: Maximum acceptable slippage (default 1%)
         slippage_action: "warn" to log only, "reject" to raise error
         exit_reason: Reason for exit ("manual", "engine", "tp_hit", "risk_offset")
+        update_position_stats_func: Optional function to recalculate position stats after order sync
     """
     # Re-fetch position group with orders attached in this session
     position_group_repo = position_group_repository_class(session)
@@ -211,6 +213,14 @@ async def execute_handle_exit_signal(
         # This ensures we have accurate filled quantities before closing
         await order_service.sync_orders_for_group(position_group.id)
         logger.info(f"Synced order statuses with exchange for PositionGroup {position_group.id}")
+
+        # 1b. Update position stats after syncing orders (ensures entry fees are calculated)
+        # This is critical for accurate PnL calculation, especially for Bybit where fees are in base currency
+        if update_position_stats_func:
+            await update_position_stats_func(position_group.id, session=session)
+            logger.info(f"Updated position stats after order sync for PositionGroup {position_group.id}")
+            # Re-fetch position group with updated stats
+            position_group = await position_group_repo.get_with_orders(position_group_id)
 
         # 2. Cancel open orders
         await order_service.cancel_open_orders_for_group(position_group.id)

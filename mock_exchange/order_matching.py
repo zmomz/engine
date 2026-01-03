@@ -145,8 +145,8 @@ class OrderMatchingEngine:
             # Update or create position
             self._update_position(order, fill_price, fill_qty)
 
-            # Calculate fee (0.04% for taker, 0.02% for maker)
-            fee_rate = 0.0002 if order.type.upper() == "LIMIT" else 0.0004
+            # Calculate fee (0.1% for all orders, matching real exchanges)
+            fee_rate = 0.001
             trade_fee = trade_value * fee_rate
 
             # Accumulate fee on order

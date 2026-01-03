@@ -158,6 +158,7 @@ class PositionManagerService:
                 max_slippage_percent=max_slippage_percent,
                 slippage_action=slippage_action,
                 exit_reason=exit_reason,
+                update_position_stats_func=self.update_position_stats,
             )
         else:
             async with self.session_factory() as new_session:
@@ -170,6 +171,7 @@ class PositionManagerService:
                     max_slippage_percent=max_slippage_percent,
                     slippage_action=slippage_action,
                     exit_reason=exit_reason,
+                    update_position_stats_func=self.update_position_stats,
                 )
                 await new_session.commit()
 

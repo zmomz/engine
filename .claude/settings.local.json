@@ -123,7 +123,20 @@
       "Bash(git checkout:*)",
       "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"def test_\"\" {} | wc -l')",
       "Bash(xargs -I {} bash -c 'echo \"\"=== {} ===\"\" && grep \"\"async def\\\\|^def \"\" {} | head -15')",
-      "Bash(CI=true npm test -- --testPathPattern=\"SettingsPage.test.tsx\" --no-coverage)"
+      "Bash(CI=true npm test -- --testPathPattern=\"SettingsPage.test.tsx\" --no-coverage)",
+      "Bash(docker info:*)",
+      "Bash(CI=true npm test -- --testPathPattern=\"dcaConfig.test.ts\" --no-coverage)",
+      "Bash(CI=true npm test -- --testPathPattern=\"DCAConfigForm.test.tsx\" --no-coverage)",
+      "Bash(CI=true npm test -- --coverage)",
+      "Bash(CI=true npm test -- --coverage --watchAll=false)",
+      "Bash(CI=true npm run build:*)",
+      "Bash(__NEW_LINE__ echo \"Binance configs created\")",
+      "Bash(__NEW_LINE__ echo \"Mock tests sent\")",
+      "Bash(__NEW_LINE__ echo \"Binance tests sent\")",
+      "Bash(__NEW_LINE__ echo \"Bybit tests sent\")",
+      "Bash(__NEW_LINE__ echo \"Bybit webhooks sent\")",
+      "Bash(# Check user settings and DCA configs for Bybit docker compose exec db psql -U tv_user -d tv_engine_db -c \"\"SELECT * FROM users WHERE username = ''zmomz'';\"\")",
+      "Bash(__NEW_LINE__ echo \"\")"
     ]
   }
 }
