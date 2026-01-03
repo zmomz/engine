@@ -433,8 +433,15 @@ class RiskEngineService:
                     for winner_pg, qty_closed, task_idx in winner_close_info:
                         if not isinstance(results[task_idx], Exception):
                             # Get current price for this winner's symbol
+                            # IMPORTANT: Use the winner's exchange connector, not the loser's
                             try:
-                                winner_price = Decimal(str(await exchange_connector.get_current_price(winner_pg.symbol)))
+                                if winner_pg.exchange.lower() != loser.exchange.lower():
+                                    # Winner is on a different exchange - get appropriate connector
+                                    winner_connector = self._get_exchange_connector_for_user(user, winner_pg.exchange)
+                                    winner_price = Decimal(str(await winner_connector.get_current_price(winner_pg.symbol)))
+                                    await winner_connector.close()
+                                else:
+                                    winner_price = Decimal(str(await exchange_connector.get_current_price(winner_pg.symbol)))
                             except Exception:
                                 winner_price = winner_pg.weighted_avg_entry  # Fallback
 
