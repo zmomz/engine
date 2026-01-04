@@ -45,6 +45,11 @@ class PyramidSchema(BaseModel):
     entry_price: Decimal
     status: str
     dca_orders: List[DCAOrderSchema] = []
+    # Closure tracking for pyramid_aggregate TP
+    closed_at: datetime | None = None
+    exit_price: Decimal | None = None
+    realized_pnl_usd: Decimal | None = None
+    total_quantity: Decimal | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

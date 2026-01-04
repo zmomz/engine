@@ -136,7 +136,19 @@
       "Bash(__NEW_LINE__ echo \"Bybit tests sent\")",
       "Bash(__NEW_LINE__ echo \"Bybit webhooks sent\")",
       "Bash(# Check user settings and DCA configs for Bybit docker compose exec db psql -U tv_user -d tv_engine_db -c \"\"SELECT * FROM users WHERE username = ''zmomz'';\"\")",
-      "Bash(__NEW_LINE__ echo \"\")"
+      "Bash(__NEW_LINE__ echo \"\")",
+      "Bash(# Re-login and check positions cd c:/Users/zmzer/Documents/freelancing/engine curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" # Check risk status echo \"\"Risk status:\"\" curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/risk/status\"\")",
+      "Bash(# Test basic connectivity cd c:/Users/zmzer/Documents/freelancing/engine # Check if app is responding on health timeout 5 curl -s http://127.0.0.1:8000/api/v1/users/login -X POST -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" 2>&1 cat login_response.txt)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\zmzer\\\\Documents\\\\freelancing\\\\engine\\\\setup_risk_test.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\zmzer\\\\Documents\\\\freelancing\\\\engine\\\\send_test_signals.ps1\")",
+      "Bash(powershell:*)",
+      "Bash(# Get SOL step size curl -s \"\"http://127.0.0.1:9000/admin/symbols\"\")",
+      "Bash(# Check SOL symbol details docker compose exec mock-exchange curl -s localhost:9000/admin/symbols)",
+      "Bash(# Check current state echo \"\"=== Current Positions ===\"\" docker compose exec db psql -U tv_user -d tv_engine_db -c \"\"SELECT COUNT\\(*\\) as count FROM position_groups WHERE status = ''active'';\"\" echo \"\"\"\" echo \"\"=== Mock Exchange Symbols ===\"\" curl -s \"\"http://127.0.0.1:9000/admin/symbols\"\" | python -m json.tool)",
+      "Bash(# Login first curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" # Check existing DCA configs for mock exchange echo \"\"Checking DCA configs for mock...\"\" curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/dca-configs?exchange=mock\"\")",
+      "Bash(# Fresh login and try curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" # Now create config with verbose output curl -v -b cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/dca-configs\"\" \\\\ -H \"\"Content-Type: application/json\"\" \\\\ -d ''{\"\"exchange\"\":\"\"mock\"\",\"\"symbol\"\":\"\"BTC/USDT\"\",\"\"timeframe\"\":60,\"\"is_active\"\":true,\"\"max_pyramids\"\":2,\"\"order_type\"\":\"\"market\"\",\"\"position_size_type\"\":\"\"quote\"\",\"\"position_size\"\":100,\"\"tp_percent\"\":5.0,\"\"tp_mode\"\":\"\"aggregate\"\",\"\"dca_levels\"\":[{\"\"level\"\":0,\"\"drop_percent\"\":0,\"\"size_multiplier\"\":1.0}]}'' 2>&1)",
+      "Bash(# Refresh login curl -s -c cookies.txt -X POST \"\"http://127.0.0.1:8000/api/v1/users/login\"\" -H \"\"Content-Type: application/x-www-form-urlencoded\"\" -d \"\"username=zmomz&password=zm0mzzm0mz\"\" # Check active positions echo \"\"=== ACTIVE POSITIONS ===\"\" curl -s -b cookies.txt \"\"http://127.0.0.1:8000/api/v1/positions/active\"\")",
+      "Bash(python -c:*)"
     ]
   }
 }

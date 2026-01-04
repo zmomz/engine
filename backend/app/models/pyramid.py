@@ -25,6 +25,7 @@ class PyramidStatus(str, Enum):
     PENDING = "pending"
     SUBMITTED = "submitted"
     FILLED = "filled"
+    CLOSED = "closed"  # TP hit - pyramid sold
     CANCELLED = "cancelled"
 
 
@@ -49,6 +50,12 @@ class Pyramid(Base):
         default=PyramidStatus.PENDING,
     )
     dca_config = Column(JSON, nullable=False)
+
+    # Closure tracking for pyramid_aggregate TP
+    closed_at = Column(DateTime, nullable=True)  # When pyramid TP was hit
+    exit_price = Column(Numeric(20, 10), nullable=True)  # Price at which pyramid was sold
+    realized_pnl_usd = Column(Numeric(20, 10), nullable=True)  # PnL from this pyramid
+    total_quantity = Column(Numeric(20, 10), nullable=True)  # Total qty that was in this pyramid
 
     group = relationship("PositionGroup", back_populates="pyramids", lazy="noload")
     dca_orders = relationship(

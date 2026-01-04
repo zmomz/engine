@@ -19,9 +19,15 @@ export interface DCAOrder {
 
 export interface Pyramid {
   id: string;
+  pyramid_index: number;
   entry_price: number;
   status: string;
   dca_orders: DCAOrder[];
+  // Closure tracking for pyramid_aggregate TP
+  closed_at: string | null;
+  exit_price: number | null;
+  realized_pnl_usd: number | null;
+  total_quantity: number | null;
 }
 
 export interface PositionGroup {

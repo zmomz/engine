@@ -941,8 +941,8 @@ const PositionsPage: React.FC = () => {
                       {position.tp_mode.replace('_', ' ').toUpperCase()}
                     </Typography>
                   </Grid>
-                  {/* Show Aggregate TP Target for aggregate/hybrid modes */}
-                  {(position.tp_mode === 'aggregate' || position.tp_mode === 'hybrid' || position.tp_mode === 'pyramid_aggregate') && position.tp_aggregate_percent && (
+                  {/* Show Aggregate TP Target for aggregate/hybrid modes (NOT pyramid_aggregate - that's per-pyramid) */}
+                  {(position.tp_mode === 'aggregate' || position.tp_mode === 'hybrid') && position.tp_aggregate_percent && (
                     <Grid size={{ xs: 6, sm: 3 }}>
                       <Typography variant="caption" color="text.secondary">Aggregate TP Target</Typography>
                       <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace', color: 'success.main' }}>
@@ -963,6 +963,15 @@ const PositionsPage: React.FC = () => {
                       </Typography>
                     </Grid>
                   )}
+                  {/* Show TP percent for pyramid_aggregate mode - individual targets shown per pyramid */}
+                  {position.tp_mode === 'pyramid_aggregate' && position.tp_aggregate_percent && (
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="text.secondary">Per-Pyramid TP</Typography>
+                      <Typography variant="body2" fontWeight={600} sx={{ color: 'info.main' }}>
+                        {position.tp_aggregate_percent}% each
+                      </Typography>
+                    </Grid>
+                  )}
                 </Grid>
 
                 {/* Pyramids Section */}
@@ -978,13 +987,20 @@ const PositionsPage: React.FC = () => {
                           <CardContent sx={{ p: 2 }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                               <Typography variant="body2" fontWeight={600}>
-                                Pyramid #{idx}
+                                Pyramid #{pyramid.pyramid_index}
                               </Typography>
                               <Chip
                                 label={pyramid.status}
                                 size="small"
-                                color={pyramid.status === 'FILLED' ? 'success' : 'warning'}
-                                icon={pyramid.status === 'FILLED' ? <CheckCircleIcon /> : <PendingIcon />}
+                                color={
+                                  pyramid.status.toLowerCase() === 'closed' ? 'default' :
+                                  pyramid.status === 'FILLED' || pyramid.status.toLowerCase() === 'filled' ? 'success' : 'warning'
+                                }
+                                icon={
+                                  pyramid.status.toLowerCase() === 'closed' ? <CheckCircleIcon /> :
+                                  pyramid.status === 'FILLED' || pyramid.status.toLowerCase() === 'filled' ? <CheckCircleIcon /> : <PendingIcon />
+                                }
+                                sx={pyramid.status.toLowerCase() === 'closed' ? { bgcolor: 'grey.600', color: 'white' } : {}}
                               />
                             </Box>
 
@@ -992,6 +1008,87 @@ const PositionsPage: React.FC = () => {
                             <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace' }}>
                               {formatPrice(pyramid.entry_price)}
                             </Typography>
+
+                            {/* Show per-pyramid TP target for pyramid_aggregate mode */}
+                            {position.tp_mode === 'pyramid_aggregate' && position.tp_aggregate_percent && pyramid.status.toLowerCase() !== 'closed' && (
+                              (() => {
+                                // Calculate pyramid's weighted average from filled DCA orders
+                                // Handle status comparison for different formats
+                                const isFilledStatus = (status: string | null | undefined) => {
+                                  if (!status) return false;
+                                  const s = String(status).toLowerCase();
+                                  return s === 'filled' || s.includes('filled');
+                                };
+
+                                const filledOrders = pyramid.dca_orders?.filter(
+                                  d => (d.leg_index ?? 0) >= 0 && isFilledStatus(d.status)
+                                ) || [];
+
+                                if (filledOrders.length === 0) return null;
+
+                                let totalQty = 0;
+                                let totalValue = 0;
+                                filledOrders.forEach(order => {
+                                  // Parse as numbers - values might come as strings from API
+                                  const qty = parseFloat(String(order.filled_quantity ?? order.quantity ?? 0)) || 0;
+                                  const price = parseFloat(String(order.price ?? 0)) || 0;
+                                  if (qty > 0 && price > 0) {
+                                    totalQty += qty;
+                                    totalValue += qty * price;
+                                  }
+                                });
+
+                                if (totalQty <= 0 || totalValue <= 0) return null;
+
+                                const pyramidAvgEntry = totalValue / totalQty;
+                                const tpTarget = position.side === 'long'
+                                  ? pyramidAvgEntry * (1 + position.tp_aggregate_percent / 100)
+                                  : pyramidAvgEntry * (1 - position.tp_aggregate_percent / 100);
+
+                                // Skip if calculation resulted in NaN
+                                if (isNaN(pyramidAvgEntry) || isNaN(tpTarget)) return null;
+
+                                return (
+                                  <Box sx={{ mb: 1, p: 1, bgcolor: 'success.main', borderRadius: 1, opacity: 0.9 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Typography variant="caption" sx={{ color: 'white' }}>Pyramid TP Target</Typography>
+                                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'white', fontWeight: 600 }}>
+                                        {formatPrice(tpTarget)} ({position.tp_aggregate_percent}%)
+                                      </Typography>
+                                    </Box>
+                                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                                      Avg Entry: {formatPrice(pyramidAvgEntry)}
+                                    </Typography>
+                                  </Box>
+                                );
+                              })()
+                            )}
+
+                            {/* Show closure info for CLOSED pyramids */}
+                            {pyramid.status.toLowerCase() === 'closed' && pyramid.exit_price && (
+                              <Box sx={{ mb: 1, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="caption" color="text.secondary">Exit Price</Typography>
+                                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                                    {formatPrice(pyramid.exit_price)}
+                                  </Typography>
+                                </Box>
+                                {pyramid.realized_pnl_usd !== null && (
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Typography variant="caption" color="text.secondary">PnL</Typography>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
+                                        fontFamily: 'monospace',
+                                        color: pyramid.realized_pnl_usd >= 0 ? 'success.main' : 'error.main'
+                                      }}
+                                    >
+                                      ${safeToFixed(pyramid.realized_pnl_usd, 2)}
+                                    </Typography>
+                                  </Box>
+                                )}
+                              </Box>
+                            )}
 
                             {/* DCA Orders - Entry orders only (leg_index >= 0) */}
                             {pyramid.dca_orders && pyramid.dca_orders.filter(d => (d.leg_index ?? 0) >= 0).length > 0 && (

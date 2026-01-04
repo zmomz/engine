@@ -1015,12 +1015,18 @@ class OrderFillMonitorService:
             )
 
             position_closed = False
+            from app.models.pyramid import PyramidStatus
 
             for pyramid in pyramids:
+                # Skip already closed pyramids
+                if pyramid.status == PyramidStatus.CLOSED or str(pyramid.status) == 'closed':
+                    logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} already CLOSED, skipping")
+                    continue
+
                 # Log all orders for this pyramid
                 all_pyramid_orders = [o for o in position_group.dca_orders if o.pyramid_id == pyramid.id]
                 logger.info(
-                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} has {len(all_pyramid_orders)} orders. "
+                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} (status={pyramid.status}) has {len(all_pyramid_orders)} orders. "
                     f"Statuses: {[(o.leg_index, str(o.status), o.tp_hit) for o in all_pyramid_orders]}"
                 )
 
@@ -1125,16 +1131,22 @@ class OrderFillMonitorService:
                     for order in pyramid_filled_orders:
                         order.tp_hit = True
 
+                    # Mark pyramid as CLOSED and store closure details
+                    from app.models.pyramid import PyramidStatus
+                    pyramid.status = PyramidStatus.CLOSED
+                    pyramid.closed_at = datetime.utcnow()
+                    pyramid.exit_price = fill_price
+                    pyramid.realized_pnl_usd = pnl_usd
+                    pyramid.total_quantity = total_qty
+
                     # Update position stats
                     position_group.total_filled_quantity -= total_qty
                     position_group.realized_pnl_usd += pnl_usd
                     position_group.total_exit_fees_usd += exit_fee
 
-                    # Broadcast TP hit
-                    remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id and any(
-                        o.status == OrderStatus.FILLED.value and o.leg_index != 999 and not o.tp_hit
-                        for o in position_group.dca_orders if o.pyramid_id == p.id
-                    )])
+                    # Count remaining open pyramids (not closed)
+                    remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id and
+                        (p.status != PyramidStatus.CLOSED and p.status != PyramidStatus.CLOSED.value)])
 
                     await broadcast_tp_hit(
                         position_group=position_group,
@@ -1150,7 +1162,7 @@ class OrderFillMonitorService:
 
                     logger.info(
                         f"OrderFillMonitor: Executed Pyramid Aggregate TP for Pyramid {pyramid.pyramid_index} "
-                        f"- Realized PnL: {pnl_usd}"
+                        f"- Realized PnL: {pnl_usd}, Exit Price: {fill_price}"
                     )
 
             # Check if all pyramids are closed

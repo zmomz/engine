@@ -330,6 +330,29 @@ class PositionManagerService:
                     current_invested_usd = current_qty * current_avg_price
 
         # --- 3. Update Position Group Stats ---
+        # For hybrid/per_leg modes: recalculate weighted_avg_entry based only on entries
+        # that haven't hit their per-leg TP yet (tp_hit = false)
+        if position_group.tp_mode in ["hybrid", "per_leg"] and current_qty > 0:
+            remaining_qty = Decimal("0")
+            remaining_value = Decimal("0")
+
+            for o in filled_orders:
+                if o.side.lower() == "buy" and not o.tp_hit:
+                    qty = o.filled_quantity
+                    price = o.avg_fill_price or o.price
+                    remaining_qty += qty
+                    remaining_value += qty * price
+
+            if remaining_qty > 0:
+                # Use the remaining position's weighted average for aggregate TP calculation
+                current_avg_price = remaining_value / remaining_qty
+                # Use actual position quantity for invested calculation
+                current_invested_usd = current_qty * current_avg_price
+                logger.debug(
+                    f"Hybrid/Per-leg mode: Recalculated avg entry from remaining orders. "
+                    f"Remaining qty: {remaining_qty}, Current qty: {current_qty}, Avg price: {current_avg_price}"
+                )
+
         position_group.weighted_avg_entry = current_avg_price
         position_group.total_invested_usd = current_invested_usd
         position_group.total_filled_quantity = current_qty
