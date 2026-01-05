@@ -226,20 +226,34 @@ class OrderFillMonitorService:
                         return
 
                     # Check status of existing TP order
+                    # Store IDs (not objects) - IDs are simple values that can't be expired by concurrent operations
+                    order_group = order.group
+                    order_pyramid_id = order.pyramid_id  # Store the ID, not the object
                     updated_order = await order_service.check_tp_status(order)
+                    # Restore group relationship
+                    updated_order.group = order_group
+
                     if updated_order.tp_hit:
                         logger.info(f"TP hit for order {order.id}. Updating position stats.")
                         await session.flush()
                         await position_manager.update_position_stats(updated_order.group_id, session=session)
 
-                        # Broadcast per-leg TP hit notification - use eager-loaded pyramid
-                        if updated_order.group and updated_order.pyramid:
-                            pyramid = updated_order.pyramid
+                        # Broadcast per-leg TP hit notification
+                        # Re-fetch pyramid since concurrent update_position_stats may have cleared it
+                        pyramid = None
+                        if order_pyramid_id:
+                            from sqlalchemy import select
+                            from app.models.pyramid import Pyramid
+                            result = await session.execute(select(Pyramid).where(Pyramid.id == order_pyramid_id))
+                            pyramid = result.scalar_one_or_none()
+
+                        if updated_order.group and pyramid:
                             entry_price = updated_order.price
                             exit_price = updated_order.tp_price
                             if entry_price and exit_price:
                                 pnl_percent = ((exit_price - entry_price) / entry_price) * 100
                                 pnl_usd = (exit_price - entry_price) * updated_order.filled_quantity
+                                logger.info(f"Broadcasting per-leg TP hit for order {updated_order.id}")
                                 await broadcast_tp_hit(
                                     position_group=updated_order.group,
                                     pyramid=pyramid,
@@ -251,6 +265,8 @@ class OrderFillMonitorService:
                                     closed_quantity=updated_order.filled_quantity,
                                     leg_index=updated_order.leg_index
                                 )
+                        else:
+                            logger.warning(f"Cannot broadcast TP hit for order {updated_order.id}: group={updated_order.group is not None}, pyramid={pyramid is not None}, pyramid_id={order_pyramid_id}")
 
                         await self._trigger_risk_evaluation_on_fill(user, session)
                     return
@@ -320,8 +336,14 @@ class OrderFillMonitorService:
 
                 # Check order status on exchange
                 logger.info(f"Checking order {order.id} status on exchange...")
+                # Preserve eager-loaded relationships before refresh (refresh clears them)
+                order_group = order.group
+                order_pyramid = order.pyramid
                 updated_order = await order_service.check_order_status(order)
                 await session.refresh(updated_order)
+                # Restore relationships after refresh
+                updated_order.group = order_group
+                updated_order.pyramid = order_pyramid
 
                 logger.info(f"Order {order.id} status after check: {updated_order.status}")
 
@@ -339,14 +361,17 @@ class OrderFillMonitorService:
                         await order_service.place_tp_order(updated_order)
                         logger.info(f"✓ Successfully placed TP order for {updated_order.id}")
 
-                    # Use eager-loaded pyramid
+                    # Broadcast DCA fill notification
                     if updated_order.group and updated_order.pyramid:
+                        logger.info(f"Broadcasting DCA fill for order {updated_order.id}")
                         await broadcast_dca_fill(
                             position_group=updated_order.group,
                             order=updated_order,
                             pyramid=updated_order.pyramid,
                             session=session
                         )
+                    else:
+                        logger.warning(f"Cannot broadcast DCA fill for order {updated_order.id}: group={updated_order.group is not None}, pyramid={updated_order.pyramid is not None}")
 
                     await self._trigger_risk_evaluation_on_fill(user, session)
 
@@ -365,14 +390,17 @@ class OrderFillMonitorService:
                             await order_service.place_tp_order_for_partial_fill(updated_order)
                             logger.info(f"✓ Successfully placed partial TP order for {updated_order.id}")
 
-                        # Use eager-loaded pyramid
+                        # Broadcast DCA fill notification
                         if updated_order.group and updated_order.pyramid:
+                            logger.info(f"Broadcasting DCA fill for partial order {updated_order.id}")
                             await broadcast_dca_fill(
                                 position_group=updated_order.group,
                                 order=updated_order,
                                 pyramid=updated_order.pyramid,
                                 session=session
                             )
+                        else:
+                            logger.warning(f"Cannot broadcast DCA fill for partial order {updated_order.id}: group={updated_order.group is not None}, pyramid={updated_order.pyramid is not None}")
 
                         await self._trigger_risk_evaluation_on_fill(user, session)
 

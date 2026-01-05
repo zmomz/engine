@@ -25,6 +25,7 @@ from app.services.grid_calculator import GridCalculatorService
 from app.services.order_management import OrderService
 from app.services.telegram_signal_helper import (
     broadcast_entry_signal,
+    broadcast_exit_signal,
     broadcast_status_change,
     broadcast_tp_hit,
 )
@@ -443,6 +444,17 @@ class PositionManagerService:
                 )
                 await order_service.cancel_open_orders_for_group(group_id)
                 logger.info(f"Position {group_id} auto-closed (all TPs hit), cancelled remaining unfilled orders")
+
+                # Send exit signal for auto-close (all TPs hit)
+                try:
+                    await broadcast_exit_signal(
+                        position_group=position_group,
+                        exit_price=current_price,
+                        session=session,
+                        exit_reason="tp_hit"
+                    )
+                except Exception as tg_err:
+                    logger.warning(f"Failed to broadcast exit signal for auto-close: {tg_err}")
 
             await position_group_repo.update(position_group)
 

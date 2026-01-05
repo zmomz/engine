@@ -345,7 +345,15 @@ async def test_evaluate_user_positions_execution(mock_config):
 
     mock_exchange = AsyncMock()
     mock_exchange.get_precision_rules = AsyncMock(return_value={})
-    mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
+    # Return prices that result in correct PnL values after _refresh_positions_pnl:
+    # BTC/USD (loser): entry=50000, qty=1.0, want loss=-100 -> price=49900
+    # ETH/USD (winner): entry=2000, qty=1.0, want profit=+200 -> price=2200
+    async def mock_get_price(symbol):
+        if "BTC" in symbol:
+            return Decimal("49900")  # (49900-50000)*1.0 = -100
+        else:
+            return Decimal("2200")   # (2200-2000)*1.0 = +200
+    mock_exchange.get_current_price = mock_get_price
     mock_exchange.close = AsyncMock()
 
     # Patch dependencies - use correct import paths

@@ -163,7 +163,15 @@ class TestHedgeDecisionTable:
 
         mock_exchange = AsyncMock()
         mock_exchange.get_precision_rules = AsyncMock(return_value={})
-        mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
+        # Return prices that result in correct PnL values after _refresh_positions_pnl:
+        # BTCUSDT (loser): entry=50000, qty=0.01, want loss=-100 -> price=40000
+        # ETHUSDT (winner): entry=2000, qty=1.0, want profit=+200 -> price=2200
+        async def mock_get_price(symbol):
+            if "BTC" in symbol:
+                return Decimal("40000")  # (40000-50000)*0.01 = -100
+            else:
+                return Decimal("2200")   # (2200-2000)*1.0 = +200
+        mock_exchange.get_current_price = mock_get_price
         mock_exchange.close = AsyncMock()
 
         with (
@@ -232,14 +240,20 @@ class TestHedgeDecisionTable:
         mock_order_service_instance = mock_order_service.return_value
         mock_order_service_instance.place_market_order = AsyncMock()
 
+        mock_exchange = AsyncMock()
+        mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
+        mock_exchange.close = AsyncMock()
+
         with (
             patch("app.services.risk.risk_engine.select_loser_and_winners") as mock_select,
             patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService,
+            patch("app.services.risk.risk_engine.get_exchange_connector") as mock_get_connector,
             patch("app.services.risk.risk_engine.update_risk_timers", new_callable=AsyncMock),
             patch("app.services.risk.risk_engine.broadcast_risk_event", new_callable=AsyncMock)
         ):
             # No winners available
             mock_select.return_value = (mock_loser, [], Decimal("0"))
+            mock_get_connector.return_value = mock_exchange
             MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
 
             mock_user.risk_config = risk_config.model_dump()
@@ -279,14 +293,20 @@ class TestHedgeDecisionTable:
         mock_order_service_instance = mock_order_service.return_value
         mock_order_service_instance.place_market_order = AsyncMock()
 
+        mock_exchange = AsyncMock()
+        mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
+        mock_exchange.close = AsyncMock()
+
         with (
             patch("app.services.risk.risk_engine.select_loser_and_winners") as mock_select,
             patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService,
+            patch("app.services.risk.risk_engine.get_exchange_connector") as mock_get_connector,
             patch("app.services.risk.risk_engine.update_risk_timers", new_callable=AsyncMock),
             patch("app.services.risk.risk_engine.broadcast_risk_event", new_callable=AsyncMock)
         ):
             # No loser found
             mock_select.return_value = (None, [mock_winner], Decimal("0"))
+            mock_get_connector.return_value = mock_exchange
             MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
 
             mock_user.risk_config = risk_config.model_dump()
@@ -332,15 +352,21 @@ class TestHedgeDecisionTable:
         mock_order_service_instance = mock_order_service.return_value
         mock_order_service_instance.place_market_order = AsyncMock()
 
+        mock_exchange = AsyncMock()
+        mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
+        mock_exchange.close = AsyncMock()
+
         with (
             patch("app.services.risk.risk_engine.select_loser_and_winners") as mock_select,
             patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService,
+            patch("app.services.risk.risk_engine.get_exchange_connector") as mock_get_connector,
             patch("app.services.risk.risk_engine.update_risk_timers", new_callable=AsyncMock),
             patch("app.services.risk.risk_engine.broadcast_risk_event", new_callable=AsyncMock)
         ):
             # Loser not eligible yet
             mock_select.return_value = (None, [], Decimal("0"))  # select_loser_and_winners filters by eligibility
             MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
+            mock_get_connector.return_value = mock_exchange
 
             mock_user.risk_config = risk_config.model_dump()
 
@@ -382,14 +408,20 @@ class TestHedgeDecisionTable:
         mock_order_service_instance = mock_order_service.return_value
         mock_order_service_instance.place_market_order = AsyncMock()
 
+        mock_exchange = AsyncMock()
+        mock_exchange.get_current_price = AsyncMock(return_value=Decimal("50000"))
+        mock_exchange.close = AsyncMock()
+
         with (
             patch("app.services.risk.risk_engine.select_loser_and_winners") as mock_select,
             patch("app.services.exchange_abstraction.factory.EncryptionService") as MockEncryptionService,
+            patch("app.services.risk.risk_engine.get_exchange_connector") as mock_get_connector,
             patch("app.services.risk.risk_engine.update_risk_timers", new_callable=AsyncMock),
             patch("app.services.risk.risk_engine.broadcast_risk_event", new_callable=AsyncMock)
         ):
             # Not eligible - filtered out
             mock_select.return_value = (None, [], Decimal("0"))
+            mock_get_connector.return_value = mock_exchange
             MockEncryptionService.return_value.decrypt_keys.return_value = ("key", "secret")
 
             mock_user.risk_config = risk_config.model_dump()

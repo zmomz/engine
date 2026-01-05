@@ -119,7 +119,7 @@ class TelegramBroadcaster:
 
         group_id = self._get_position_id_short(position_group)
         side = position_group.side.upper()
-        pyramid_num = (pyramid.pyramid_index if pyramid else 0) + 1
+        pyramid_idx = pyramid.pyramid_index if pyramid else 0
         duration = self._get_duration_hours(position_group)
 
         # Header
@@ -153,7 +153,7 @@ class TelegramBroadcaster:
             # Calculate pyramid-specific TP target
             if position_group.weighted_avg_entry:
                 tp_target = position_group.weighted_avg_entry * (1 + pyramid_tp_percent / 100)
-                msg += f"🎯 P{pyramid_num} TP Target: {self._format_price(tp_target)} (+{float(pyramid_tp_percent):.1f}%)\n"
+                msg += f"🎯 P#{pyramid_idx} TP Target: {self._format_price(tp_target)} (+{float(pyramid_tp_percent):.1f}%)\n"
 
         msg += "\n"
 
@@ -177,10 +177,14 @@ class TelegramBroadcaster:
 
         # Footer with pyramid info and TP mode
         tp_mode_display = tp_mode.replace("_", " ") if tp_mode else "unknown"
-        msg += f"🔷 Pyramid {pyramid_num}/{position_group.max_pyramids} · {tp_mode_display} TP\n"
+        msg += f"🔷 Pyramid #{pyramid_idx} · {position_group.pyramid_count}/{position_group.max_pyramids} · {tp_mode_display} TP\n"
 
         if self.config.show_duration and duration:
-            msg += f"⏱️ Open: {self._format_duration(duration)}"
+            msg += f"⏱️ Open: {self._format_duration(duration)}\n"
+
+        # Add engine signature at the end
+        if self.config.engine_signature:
+            msg += f"\n─────────────────────────────\n{self.config.engine_signature}"
 
         return msg
 
@@ -205,12 +209,12 @@ class TelegramBroadcaster:
         """Build DCA leg fill notification message"""
 
         group_id = self._get_position_id_short(position_group)
-        pyramid_num = (pyramid.pyramid_index if pyramid else 0) + 1
+        pyramid_idx = pyramid.pyramid_index if pyramid else 0
         duration = self._get_duration_hours(position_group)
-        leg_num = order.leg_index + 1 if hasattr(order, 'leg_index') else filled_count
+        leg_idx = order.leg_index if hasattr(order, 'leg_index') else (filled_count - 1)
 
         # Header
-        msg = f"✅ Leg {leg_num} Filled\n"
+        msg = f"✅ Leg #{leg_idx} Filled\n"
         msg += f"{self._get_header(position_group)}\n"
         msg += f"🆔 {group_id}\n\n"
 
@@ -230,7 +234,7 @@ class TelegramBroadcaster:
         msg += "└──────────────────────────────\n\n"
 
         # Footer
-        msg += f"🔷 Pyramid {pyramid_num}/{position_group.max_pyramids} · {position_group.side.upper()}\n"
+        msg += f"🔷 Pyramid #{pyramid_idx} · {position_group.pyramid_count}/{position_group.max_pyramids} · {position_group.side.upper()}\n"
         if self.config.show_duration and duration:
             msg += f"⏱️ Filling: {self._format_duration(duration)}"
 
@@ -254,7 +258,7 @@ class TelegramBroadcaster:
         """Build status change notification message"""
 
         group_id = self._get_position_id_short(position_group)
-        pyramid_num = (pyramid.pyramid_index if pyramid else 0) + 1
+        pyramid_idx = pyramid.pyramid_index if pyramid else 0
         duration = self._get_duration_hours(position_group)
 
         # Header
@@ -282,7 +286,7 @@ class TelegramBroadcaster:
         msg += "└──────────────────────────────\n\n"
 
         # Footer
-        msg += f"🔷 Pyramid {pyramid_num}/{position_group.max_pyramids} · {position_group.side.upper()}\n"
+        msg += f"🔷 Pyramid #{pyramid_idx} · {position_group.pyramid_count}/{position_group.max_pyramids} · {position_group.side.upper()}\n"
         if tp_mode and tp_percent:
             msg += f"🎯 TP Mode: {tp_mode.replace('_', ' ')} (+{float(tp_percent):.1f}%)"
 
@@ -308,7 +312,7 @@ class TelegramBroadcaster:
 
         group_id = self._get_position_id_short(position_group)
         duration = self._get_duration_hours(position_group)
-        pyramid_num = (pyramid.pyramid_index if pyramid else 0) + 1
+        pyramid_idx = pyramid.pyramid_index if pyramid else 0
 
         # Header based on TP type
         if tp_type == "per_leg":
@@ -323,7 +327,7 @@ class TelegramBroadcaster:
 
         # Description based on type
         if tp_type == "per_leg" and leg_index is not None:
-            msg += f"Leg {leg_index + 1} closed at TP\n\n"
+            msg += f"Leg #{leg_index} closed at TP\n\n"
         else:
             msg += f"Full pyramid closed at TP\n\n"
 
@@ -343,9 +347,9 @@ class TelegramBroadcaster:
         # Result box
         msg += "┌─ Result ─────────────────────\n"
         if tp_type == "per_leg":
-            msg += f"│ Leg {leg_index + 1 if leg_index else '?'} TP hit\n"
+            msg += f"│ Leg #{leg_index if leg_index is not None else '?'} TP hit\n"
         else:
-            msg += f"│ Pyramid {pyramid_num} closed\n"
+            msg += f"│ Pyramid #{pyramid_idx} closed\n"
         msg += f"│ Pyramids remaining: {remaining_pyramids}\n"
         if position_group.total_invested_usd and remaining_pyramids > 0:
             msg += f"│ Still invested: ${self._format_price(position_group.total_invested_usd)}\n"
@@ -455,8 +459,8 @@ class TelegramBroadcaster:
         """Build failure alert message"""
 
         group_id = self._get_position_id_short(position_group)
-        pyramid_num = (pyramid.pyramid_index if pyramid else 0) + 1
-        leg_num = order.leg_index + 1 if order and hasattr(order, 'leg_index') else "?"
+        pyramid_idx = pyramid.pyramid_index if pyramid else 0
+        leg_idx = order.leg_index if order and hasattr(order, 'leg_index') else "?"
 
         # Header
         if error_type == "order_failed":
@@ -470,7 +474,7 @@ class TelegramBroadcaster:
         msg += f"🆔 {group_id}\n\n"
 
         if error_type == "order_failed" and order:
-            msg += f"❌ Leg {leg_num} failed to place\n\n"
+            msg += f"❌ Leg #{leg_idx} failed to place\n\n"
 
         # Error details box
         msg += "┌─ Error Details ──────────────\n"
@@ -494,7 +498,7 @@ class TelegramBroadcaster:
         else:
             msg += "Review error and take action."
 
-        msg += f"\n\n🔷 Pyramid {pyramid_num}/{position_group.max_pyramids} · {position_group.side.upper()}"
+        msg += f"\n\n🔷 Pyramid #{pyramid_idx} · {position_group.pyramid_count}/{position_group.max_pyramids} · {position_group.side.upper()}"
 
         return msg
 
@@ -513,18 +517,18 @@ class TelegramBroadcaster:
         """Build new pyramid added notification message"""
 
         group_id = self._get_position_id_short(position_group)
-        pyramid_num = pyramid.pyramid_index + 1
+        pyramid_idx = pyramid.pyramid_index
         duration = self._get_duration_hours(position_group)
 
         # Header
-        msg = f"🔺 Pyramid {pyramid_num} Added\n"
+        msg = f"🔺 Pyramid #{pyramid_idx} Added\n"
         msg += f"{self._get_header(position_group)}\n"
         msg += f"🆔 {group_id}\n\n"
 
         msg += "New pyramid entry triggered!\n\n"
 
         # Pyramid levels box
-        msg += f"┌─ Pyramid {pyramid_num} Levels ───────────\n"
+        msg += f"┌─ Pyramid #{pyramid_idx} Levels ──────────\n"
         for i, price in enumerate(entry_prices):
             weight = weights[i] if i < len(weights) else 0
             price_str = self._format_price(price) if price else "TBD"
@@ -532,16 +536,20 @@ class TelegramBroadcaster:
         msg += "└──────────────────────────────\n\n"
 
         # Summary
-        msg += f"📊 Total pyramids: {pyramid_num}/{position_group.max_pyramids}\n"
+        msg += f"📊 Total pyramids: {position_group.pyramid_count}/{position_group.max_pyramids}\n"
         if position_group.total_invested_usd:
             msg += f"💰 Previously invested: ${self._format_price(position_group.total_invested_usd)}\n"
         if tp_percent:
             # Calculate TP target from base entry
             if position_group.base_entry_price:
                 tp_target = position_group.base_entry_price * (1 + tp_percent / 100)
-                msg += f"🎯 P{pyramid_num} TP Target: {self._format_price(tp_target)} (+{float(tp_percent):.1f}%)\n"
+                msg += f"🎯 P#{pyramid_idx} TP Target: {self._format_price(tp_target)} (+{float(tp_percent):.1f}%)\n"
 
         msg += f"\n🔷 {position_group.side.upper()} · Open {self._format_duration(duration)}"
+
+        # Add engine signature at the end
+        if self.config.engine_signature:
+            msg += f"\n\n─────────────────────────────\n{self.config.engine_signature}"
 
         return msg
 
@@ -610,6 +618,10 @@ class TelegramBroadcaster:
         msg += "└──────────────────────────────\n\n"
 
         msg += f"💡 {description}"
+
+        # Add engine signature at the end
+        if self.config.engine_signature:
+            msg += f"\n\n─────────────────────────────\n{self.config.engine_signature}"
 
         return msg
 

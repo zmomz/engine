@@ -2,7 +2,6 @@
 Position and pyramid creation logic.
 Handles creating new positions from signals and adding pyramids.
 """
-import asyncio
 import json
 import logging
 import uuid
@@ -216,13 +215,13 @@ async def create_position_group_from_signal(
         if entry_type == "market":
             current_order_type = "market"
             gap_pct = level.get('gap_percent', Decimal("0"))
-            if gap_pct <= 0:
-                # Market orders with gap_percent<=0 should be submitted immediately
+            if gap_pct >= 0:
+                # Market orders with gap_percent>=0 should be submitted immediately
                 # gap_percent=0: entry at current price
-                # gap_percent<0: price is already better than target (submit now)
+                # gap_percent>0: price is already better than target (submit now)
                 current_status = OrderStatus.PENDING
             else:
-                # DCA legs with gap_percent > 0 wait for order_fill_monitor to trigger
+                # DCA legs with gap_percent < 0 wait for order_fill_monitor to trigger
                 current_status = OrderStatus.TRIGGER_PENDING
         else:
             current_order_type = "limit"
@@ -287,8 +286,11 @@ async def create_position_group_from_signal(
     await update_risk_timer_func(new_position_group.id, risk_config, session=session)
     await update_position_stats_func(new_position_group.id, session=session)
 
-    # Broadcast initial entry signal to Telegram (fire-and-forget for performance)
-    asyncio.create_task(broadcast_entry_signal(new_position_group, new_pyramid, session))
+    # Broadcast initial entry signal to Telegram
+    try:
+        await broadcast_entry_signal(new_position_group, new_pyramid, session)
+    except Exception as tg_err:
+        logger.warning(f"Failed to broadcast entry signal for new position: {tg_err}")
 
     return new_position_group
 
@@ -398,11 +400,11 @@ async def handle_pyramid_continuation(
         if entry_type == "market":
             current_order_type = "market"
             gap_pct = level.get('gap_percent', Decimal("0"))
-            if gap_pct <= 0:
-                # Market orders with gap_percent<=0 should be submitted immediately
+            if gap_pct >= 0:
+                # Market orders with gap_percent>=0 should be submitted immediately
                 current_status = OrderStatus.PENDING
             else:
-                # DCA legs with gap_percent > 0 wait for order_fill_monitor to trigger
+                # DCA legs with gap_percent < 0 wait for order_fill_monitor to trigger
                 current_status = OrderStatus.TRIGGER_PENDING
         else:
             current_order_type = "limit"
@@ -446,8 +448,15 @@ async def handle_pyramid_continuation(
     await update_risk_timer_func(existing_position_group.id, risk_config, session=session)
     await update_position_stats_func(existing_position_group.id, session=session)
 
-    # Broadcast notifications to Telegram (fire-and-forget for performance)
-    asyncio.create_task(broadcast_pyramid_added(existing_position_group, new_pyramid, session))
-    asyncio.create_task(broadcast_entry_signal(existing_position_group, new_pyramid, session))
+    # Broadcast notifications to Telegram
+    try:
+        await broadcast_pyramid_added(existing_position_group, new_pyramid, session)
+    except Exception as tg_err:
+        logger.warning(f"Failed to broadcast pyramid added: {tg_err}")
+
+    try:
+        await broadcast_entry_signal(existing_position_group, new_pyramid, session)
+    except Exception as tg_err:
+        logger.warning(f"Failed to broadcast entry signal for pyramid: {tg_err}")
 
     return existing_position_group

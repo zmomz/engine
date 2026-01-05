@@ -1,5 +1,4 @@
 {
-  "exchange": "mock",
   "risk_config": {
     "max_open_positions_global": 10,
     "max_open_positions_per_symbol": 1,
@@ -45,7 +44,7 @@
   "dca_configurations": [
     {
       "pair": "BTC/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "limit",
       "dca_levels": [
@@ -92,7 +91,7 @@
     },
     {
       "pair": "ETH/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "market",
       "dca_levels": [
@@ -121,7 +120,7 @@
     },
     {
       "pair": "SOL/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "limit",
       "dca_levels": [
@@ -183,7 +182,7 @@
     },
     {
       "pair": "XRP/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "market",
       "dca_levels": [
@@ -207,7 +206,7 @@
     },
     {
       "pair": "DOGE/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "limit",
       "dca_levels": [
@@ -259,7 +258,7 @@
     },
     {
       "pair": "ADA/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "market",
       "dca_levels": [
@@ -278,7 +277,7 @@
     },
     {
       "pair": "TRX/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "market",
       "dca_levels": [
@@ -362,7 +361,7 @@
     },
     {
       "pair": "LINK/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "market",
       "dca_levels": [
@@ -404,7 +403,7 @@
     },
     {
       "pair": "LTC/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "limit",
       "dca_levels": [
@@ -461,7 +460,7 @@
     },
     {
       "pair": "AVAX/USDT",
-      "timeframe": 60,
+      "timeframe": 1,
       "exchange": "mock",
       "entry_order_type": "market",
       "dca_levels": [

@@ -156,19 +156,21 @@ async def broadcast_entry_signal(
         aggregate_tp = None
         pyramid_tp_percent = None
 
+        # Build entry prices and weights directly from DCA orders
+        # (not from config, as order might be in different order than config levels)
+        for order in dca_orders:
+            entry_prices.append(order.price if order.status == OrderStatus.FILLED else None)
+            # Use the order's actual weight_percent, not config index
+            weights.append(int(float(order.weight_percent or 0)))
+
+            # Calculate TP price for per_leg mode
+            if tp_mode == "per_leg" and order.tp_price:
+                tp_prices.append(order.tp_price)
+            else:
+                tp_prices.append(None)
+
         if dca_config and dca_config.dca_levels:
             dca_levels = dca_config.dca_levels
-
-            for i, order in enumerate(dca_orders):
-                entry_prices.append(order.price if order.status == OrderStatus.FILLED else None)
-
-                if i < len(dca_levels):
-                    weights.append(int(float(dca_levels[i].get('weight_percent', 0))))
-                else:
-                    weights.append(0)
-
-            # Calculate TP prices based on mode
-            tp_prices = _calculate_tp_prices(entry_prices, dca_levels, tp_mode)
 
             # Calculate aggregate/pyramid_aggregate TP
             if tp_mode in ["aggregate", "hybrid"] and dca_config.tp_settings:
@@ -188,12 +190,6 @@ async def broadcast_entry_signal(
                 else:
                     agg_percent = dca_config.tp_settings.get('tp_aggregate_percent', 0)
                     pyramid_tp_percent = Decimal(str(agg_percent)) if agg_percent else None
-
-        else:
-            # Fallback without DCA config
-            for order in dca_orders:
-                entry_prices.append(order.price if order.status == OrderStatus.FILLED else None)
-                weights.append(int(100 / len(dca_orders)) if dca_orders else 0)
 
         # Calculate filled count
         filled_count = sum(1 for p in entry_prices if p is not None)
@@ -386,9 +382,17 @@ async def broadcast_status_change(
         # Get TP percent from position group if available
         tp_percent = position_group.tp_aggregate_percent
 
-        # Get fill counts
-        filled_count = position_group.filled_dca_legs or 0
-        total_count = position_group.total_dca_legs or 0
+        # Compute fill counts dynamically from all DCA orders across all pyramids
+        # (position_group fields may be stale if pyramids were recently added)
+        result = await session.execute(
+            select(DCAOrder).where(
+                DCAOrder.group_id == position_group.id,
+                DCAOrder.leg_index != 999  # Exclude exit orders
+            )
+        )
+        all_entry_orders = result.scalars().all()
+        total_count = len(all_entry_orders)
+        filled_count = sum(1 for o in all_entry_orders if o.status == OrderStatus.FILLED and not o.tp_hit)
 
         # Create broadcaster and send
         broadcaster = TelegramBroadcaster(config)
@@ -602,27 +606,20 @@ async def broadcast_pyramid_added(
         )
         dca_orders = result.scalars().all()
 
-        # Build entry prices and weights
+        # Build entry prices and weights directly from DCA orders
         entry_prices: List[Optional[Decimal]] = [order.price for order in dca_orders]
-        weights: List[int] = []
+        weights: List[int] = [int(float(order.weight_percent or 0)) for order in dca_orders]
         tp_percent = None
 
-        if dca_config and dca_config.dca_levels:
-            dca_levels = dca_config.dca_levels
-            weights = _extract_weights_from_levels(dca_levels)
-
+        if dca_config and dca_config.tp_settings:
             # Get pyramid-specific TP
-            if dca_config.tp_settings:
-                pyramid_tp_percents = dca_config.tp_settings.get('pyramid_tp_percents', {})
-                pyramid_key = str(pyramid.pyramid_index)
-                if pyramid_key in pyramid_tp_percents:
-                    tp_percent = Decimal(str(pyramid_tp_percents[pyramid_key]))
-                else:
-                    agg_percent = dca_config.tp_settings.get('tp_aggregate_percent', 0)
-                    tp_percent = Decimal(str(agg_percent)) if agg_percent else None
-        else:
-            # Fallback
-            weights = [int(100 / len(dca_orders))] * len(dca_orders) if dca_orders else []
+            pyramid_tp_percents = dca_config.tp_settings.get('pyramid_tp_percents', {})
+            pyramid_key = str(pyramid.pyramid_index)
+            if pyramid_key in pyramid_tp_percents:
+                tp_percent = Decimal(str(pyramid_tp_percents[pyramid_key]))
+            else:
+                agg_percent = dca_config.tp_settings.get('tp_aggregate_percent', 0)
+                tp_percent = Decimal(str(agg_percent)) if agg_percent else None
 
         # Create broadcaster and send
         broadcaster = TelegramBroadcaster(config)

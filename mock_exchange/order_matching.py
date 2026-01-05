@@ -209,21 +209,43 @@ class OrderMatchingEngine:
                 # Direction change or new position
                 position.entry_price = fill_price
 
-            position.quantity = new_qty
-
-            # If position is closed, calculate realized PnL
-            if abs(new_qty) < abs(old_qty):
-                # Partial or full close
-                closed_qty = abs(old_qty) - abs(new_qty)
+            # For SPOT trading: position cannot go negative (no shorts)
+            # Clamp to 0 to prevent phantom short positions
+            if new_qty < 0:
+                # Calculate realized PnL for the closed portion before clamping
+                closed_qty = old_qty  # All of the old position is closed
                 if old_qty > 0:  # Was long
                     pnl = (fill_price - old_entry) * closed_qty
-                else:  # Was short
-                    pnl = (old_entry - fill_price) * closed_qty
-                position.realized_pnl += pnl
+                    position.realized_pnl += pnl
+                new_qty = 0
+                position.quantity = 0
+                logger.warning(
+                    f"SPOT mode: Prevented negative position for {order.symbol}. "
+                    f"Sell qty exceeded position, clamped to 0."
+                )
+            else:
+                position.quantity = new_qty
+
+                # If position is closed, calculate realized PnL
+                if abs(new_qty) < abs(old_qty):
+                    # Partial or full close
+                    closed_qty = abs(old_qty) - abs(new_qty)
+                    if old_qty > 0:  # Was long
+                        pnl = (fill_price - old_entry) * closed_qty
+                    else:  # Was short (shouldn't happen in spot)
+                        pnl = (old_entry - fill_price) * closed_qty
+                    position.realized_pnl += pnl
 
             position.updated_at = datetime.utcnow()
         else:
-            # Create new position
+            # Create new position - only for BUY orders in SPOT mode
+            # SELL without existing position is invalid in spot trading
+            if qty_delta < 0:
+                logger.warning(
+                    f"SPOT mode: Ignoring SELL order for {order.symbol} - no existing position to close."
+                )
+                return
+
             position = Position(
                 api_key_id=order.api_key_id,
                 symbol=order.symbol,

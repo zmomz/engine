@@ -26,7 +26,7 @@ from app.schemas.grid_config import RiskEngineConfig
 from app.services.exchange_abstraction.factory import get_exchange_connector
 from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.order_management import OrderService
-from app.services.telegram_signal_helper import broadcast_risk_event
+from app.services.telegram_signal_helper import broadcast_risk_event, broadcast_exit_signal
 
 # Import from split modules
 from app.services.risk.risk_selector import (
@@ -515,6 +515,17 @@ class RiskEngineService:
                     loser.closed_at = datetime.utcnow()
                     await position_group_repo.update(loser)
                     logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSED. Realized PnL: {realized_pnl}, Exit fee: {estimated_exit_fee}")
+
+                    # Send exit signal to Telegram for risk offset close
+                    try:
+                        await broadcast_exit_signal(
+                            position_group=loser,
+                            exit_price=current_price,
+                            session=session,
+                            exit_reason="risk_offset"
+                        )
+                    except Exception as tg_err:
+                        logger.warning(f"Risk Engine: Failed to broadcast exit signal for loser: {tg_err}")
 
                     # Update hedge tracking for successful winner closes
                     for winner_pg, qty_closed, task_idx in winner_close_info:
