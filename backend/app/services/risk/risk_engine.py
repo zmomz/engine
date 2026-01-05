@@ -36,11 +36,15 @@ from app.services.risk.risk_selector import (
 )
 from app.services.risk.risk_timer import update_risk_timers
 from app.services.risk.risk_executor import calculate_partial_close_quantities
+from app.core.distributed_lock import get_lock_manager
 
 from fastapi import HTTPException, status
 
 # Lock TTL for offset execution (60 seconds)
 OFFSET_LOCK_TTL = 60
+# Position lock settings (must match OrderFillMonitor for deadlock prevention)
+POSITION_LOCK_TTL = 30
+POSITION_LOCK_TIMEOUT = 10
 
 logger = logging.getLogger(__name__)
 
@@ -299,16 +303,45 @@ class RiskEngineService:
                     f"(loss: {loser.unrealized_pnl_usd} USD) and {len(winners)} winners."
                 )
 
-                # Acquire distributed lock to prevent concurrent offset execution for same loser
-                cache = await get_cache()
-                lock_resource = f"risk_offset:{loser.id}"
-                lock_id = str(uuid.uuid4())
-                lock_acquired = await cache.acquire_lock(lock_resource, lock_id, OFFSET_LOCK_TTL)
+                # Acquire position locks for ALL positions involved (loser + winners)
+                # This prevents deadlocks with OrderFillMonitor which uses the same lock pattern
+                lock_manager = get_lock_manager()
+                all_position_ids = sorted([str(loser.id)] + [str(w.id) for w in winners])
+                acquired_position_locks = []
 
-                if not lock_acquired:
+                for pos_id in all_position_ids:
+                    lock_resource = f"position:{pos_id}"
+                    try:
+                        success, lock_id = await lock_manager.acquire(
+                            lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT
+                        )
+                        if success:
+                            acquired_position_locks.append((lock_resource, lock_id))
+                        else:
+                            logger.warning(f"Risk Engine: Could not acquire lock for position {pos_id}. Skipping offset.")
+                            for res, lk in acquired_position_locks:
+                                await lock_manager.release(res, lk)
+                            return
+                    except Exception as lock_err:
+                        logger.warning(f"Risk Engine: Lock acquisition failed for {pos_id}: {lock_err}. Skipping offset.")
+                        for res, lk in acquired_position_locks:
+                            await lock_manager.release(res, lk)
+                        return
+
+                logger.debug(f"Risk Engine: Acquired {len(acquired_position_locks)} position locks for offset execution")
+
+                # Also acquire the offset-specific lock to prevent duplicate offset attempts
+                cache = await get_cache()
+                offset_lock_resource = f"risk_offset:{loser.id}"
+                offset_lock_id = str(uuid.uuid4())
+                offset_lock_acquired = await cache.acquire_lock(offset_lock_resource, offset_lock_id, OFFSET_LOCK_TTL)
+
+                if not offset_lock_acquired:
                     logger.warning(
                         f"Risk Engine: Another offset execution in progress for {loser.symbol}. Skipping."
                     )
+                    for res, lk in acquired_position_locks:
+                        await lock_manager.release(res, lk)
                     return
 
                 try:
@@ -322,7 +355,9 @@ class RiskEngineService:
                             exchange_config = encrypted_data[target_exchange]
                         elif "encrypted_data" not in encrypted_data:
                             logger.error(f"Risk Engine: Keys for {target_exchange} not found for user {user.id}. Skipping.")
-                            await cache.release_lock(lock_resource, lock_id)
+                            await cache.release_lock(offset_lock_resource, offset_lock_id)
+                            for res, lk in acquired_position_locks:
+                                await lock_manager.release(res, lk)
                             return
                         else:
                             exchange_config = {"encrypted_data": encrypted_data}
@@ -330,7 +365,9 @@ class RiskEngineService:
                         exchange_config = {"encrypted_data": encrypted_data}
                     else:
                         logger.error(f"Risk Engine: Invalid format for encrypted_api_keys for user {user.id}. Skipping.")
-                        await cache.release_lock(lock_resource, lock_id)
+                        await cache.release_lock(offset_lock_resource, offset_lock_id)
+                        for res, lk in acquired_position_locks:
+                            await lock_manager.release(res, lk)
                         return
 
                     exchange_connector = get_exchange_connector(
@@ -339,7 +376,9 @@ class RiskEngineService:
                     )
                 except Exception as e:
                     logger.error(f"Risk Engine: Failed to initialize exchange connector for user {user.id}: {e}")
-                    await cache.release_lock(lock_resource, lock_id)
+                    await cache.release_lock(offset_lock_resource, offset_lock_id)
+                    for res, lk in acquired_position_locks:
+                        await lock_manager.release(res, lk)
                     return
 
                 # Fetch dynamic fee rate from exchange (fallback to 0.1% if unavailable)
@@ -372,7 +411,9 @@ class RiskEngineService:
 
                 if not close_plan and required_usd > 0:
                     logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
-                    await cache.release_lock(lock_resource, lock_id)
+                    await cache.release_lock(offset_lock_resource, offset_lock_id)
+                    for res, lk in acquired_position_locks:
+                        await lock_manager.release(res, lk)
                     return
 
                 # Get pyramid for loser
@@ -382,7 +423,9 @@ class RiskEngineService:
                 loser_pyramid = loser_pyramid_result.scalar_one_or_none()
                 if not loser_pyramid:
                     logger.error(f"Risk Engine: No pyramid found for loser {loser.symbol}. Cannot place close order.")
-                    await cache.release_lock(lock_resource, lock_id)
+                    await cache.release_lock(offset_lock_resource, offset_lock_id)
+                    for res, lk in acquired_position_locks:
+                        await lock_manager.release(res, lk)
                     return
 
                 # Mark loser as CLOSING before placing orders to prevent re-selection
@@ -649,10 +692,14 @@ class RiskEngineService:
                 except Exception as close_err:
                     logger.debug(f"Risk Engine: Error closing exchange connector: {close_err}")
                 finally:
-                    # Always release the distributed lock
-                    released = await cache.release_lock(lock_resource, lock_id)
+                    # Always release all locks
+                    released = await cache.release_lock(offset_lock_resource, offset_lock_id)
                     if not released:
                         logger.warning(f"Risk Engine: Failed to release offset lock for {loser.symbol}")
+                    # Release position locks
+                    for res, lk in acquired_position_locks:
+                        await lock_manager.release(res, lk)
+                    logger.debug(f"Risk Engine: Released {len(acquired_position_locks)} position locks")
             else:
                 logger.debug(f"Risk Engine: No eligible loser or winners found for user {user.id}.")
         except Exception as e:

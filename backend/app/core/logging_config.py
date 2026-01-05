@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from app.core.config import settings
+from app.core.correlation import CorrelationIdFilter
 
 class SensitiveDataFilter(logging.Filter):
     """
@@ -39,18 +40,20 @@ def setup_logging():
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path
 
-    # Create formatters
+    # Create formatters - include correlation_id for request tracing
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        "%(asctime)s - %(name)s - %(levelname)s - [%(correlation_id)s] - %(message)s"
     )
 
-    # Sensitive Data Filter
+    # Filters
     sensitive_filter = SensitiveDataFilter()
+    correlation_filter = CorrelationIdFilter()
 
     # Console Handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.addFilter(sensitive_filter)
+    console_handler.addFilter(correlation_filter)
 
     # File Handler (Rotating)
     # Rotates when file size reaches 10MB, keeps 5 backup files
@@ -59,6 +62,7 @@ def setup_logging():
     )
     file_handler.setFormatter(formatter)
     file_handler.addFilter(sensitive_filter)
+    file_handler.addFilter(correlation_filter)
 
     # Root Logger Configuration
     root_logger = logging.getLogger()

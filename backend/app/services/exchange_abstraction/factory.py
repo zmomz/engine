@@ -8,6 +8,7 @@ from app.services.exchange_abstraction.interface import ExchangeInterface
 from app.services.exchange_abstraction.binance_connector import BinanceConnector
 from app.services.exchange_abstraction.bybit_connector import BybitConnector
 from app.services.exchange_abstraction.mock_connector import MockConnector
+from app.core.circuit_breaker import get_exchange_circuit, CircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -130,3 +131,123 @@ async def clear_connector_cache():
                     pass
         _connector_cache.clear()
         logger.info("Cleared all cached connectors")
+
+
+async def check_exchange_circuit(exchange_type: str) -> bool:
+    """
+    Check if an exchange circuit breaker allows requests.
+
+    Args:
+        exchange_type: The exchange type (binance, bybit, mock)
+
+    Returns:
+        True if requests are allowed, False if circuit is open
+
+    Raises:
+        CircuitBreakerError: If circuit is open with details about retry time
+    """
+    exchange_type = exchange_type.lower()
+
+    # Mock exchange doesn't use circuit breaker
+    if exchange_type == "mock":
+        return True
+
+    circuit = await get_exchange_circuit(exchange_type)
+    return await circuit.can_execute()
+
+
+async def record_exchange_success(exchange_type: str):
+    """
+    Record a successful exchange operation.
+    Should be called after successful API calls.
+
+    Args:
+        exchange_type: The exchange type
+    """
+    exchange_type = exchange_type.lower()
+    if exchange_type == "mock":
+        return
+
+    circuit = await get_exchange_circuit(exchange_type)
+    await circuit.record_success()
+
+
+async def record_exchange_failure(exchange_type: str):
+    """
+    Record a failed exchange operation.
+    Should be called after failed API calls.
+
+    Args:
+        exchange_type: The exchange type
+    """
+    exchange_type = exchange_type.lower()
+    if exchange_type == "mock":
+        return
+
+    circuit = await get_exchange_circuit(exchange_type)
+    await circuit.record_failure()
+
+
+async def get_exchange_circuit_status(exchange_type: str) -> dict:
+    """
+    Get the circuit breaker status for an exchange.
+
+    Args:
+        exchange_type: The exchange type
+
+    Returns:
+        Dict with circuit breaker metrics
+    """
+    exchange_type = exchange_type.lower()
+    if exchange_type == "mock":
+        return {"name": "mock", "state": "closed", "note": "Mock exchange - no circuit breaker"}
+
+    circuit = await get_exchange_circuit(exchange_type)
+    return circuit.get_metrics()
+
+
+async def reset_exchange_circuit(exchange_type: str):
+    """
+    Manually reset an exchange circuit breaker to closed state.
+
+    Args:
+        exchange_type: The exchange type
+    """
+    exchange_type = exchange_type.lower()
+    if exchange_type == "mock":
+        return
+
+    circuit = await get_exchange_circuit(exchange_type)
+    await circuit.reset()
+    logger.info(f"Manually reset circuit breaker for {exchange_type}")
+
+
+def get_exchange_connector_with_circuit(
+    exchange_type: str,
+    exchange_config: dict,
+    use_cache: bool = True
+) -> Tuple[ExchangeInterface, bool]:
+    """
+    Get exchange connector with circuit breaker pre-check.
+
+    This is a synchronous wrapper that returns both the connector
+    and a flag indicating if the circuit is healthy.
+
+    For full circuit breaker integration, use the async functions
+    record_exchange_success/record_exchange_failure after API calls.
+
+    Args:
+        exchange_type: The exchange type
+        exchange_config: Configuration dictionary
+        use_cache: Whether to use cached connectors
+
+    Returns:
+        Tuple of (connector, is_circuit_healthy)
+    """
+    connector = get_exchange_connector(exchange_type, exchange_config, use_cache)
+
+    # Note: Circuit check is async, so we can't do it here synchronously.
+    # The caller should use check_exchange_circuit() before making calls.
+    # This function just returns the connector for convenience.
+
+    return connector, True

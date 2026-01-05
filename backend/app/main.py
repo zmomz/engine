@@ -26,6 +26,8 @@ from app.schemas.grid_config import RiskEngineConfig
 from app.core.logging_config import setup_logging
 from app.core.config import settings
 from app.core.cache import get_cache
+from app.core.correlation import CorrelationIdMiddleware
+from app.core.watchdog import setup_watchdog, get_watchdog
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -57,11 +59,16 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Correlation-ID", "X-Request-ID"],
+    expose_headers=["X-Correlation-ID"],
 )
 
 if os.getenv("TESTING") != "true":
     app.add_middleware(SlowAPIMiddleware)
+
+# Correlation ID Middleware - for request tracing across the system
+# Added last so it runs first (middleware stack is LIFO)
+app.add_middleware(CorrelationIdMiddleware)
 
 
 
@@ -69,11 +76,24 @@ async def try_become_leader() -> bool:
     """
     Try to become the leader worker for running background tasks.
     Uses Redis distributed lock to ensure only one worker runs background tasks.
+
+    On first attempt, if the lock exists, we check if it's stale (holder not renewing)
+    and clear it if needed.
     """
     try:
         cache = await get_cache()
-        # Try to acquire leader lock with 60 second TTL
-        # The lock will be renewed by a background task
+
+        # First attempt to acquire the lock
+        acquired = await cache.acquire_lock("background_task_leader", WORKER_ID, ttl_seconds=60)
+        if acquired:
+            return True
+
+        # Lock exists - check if it might be stale (from a crashed process)
+        # Wait a bit and try again - if the holder is alive, they'll renew it
+        # If they're dead, the lock will expire and we can acquire it
+        await asyncio.sleep(2)
+
+        # Second attempt after waiting
         acquired = await cache.acquire_lock("background_task_leader", WORKER_ID, ttl_seconds=60)
         return acquired
     except Exception as e:
@@ -161,6 +181,11 @@ async def startup_event():
         )
         await app.state.risk_engine_service.start_monitoring_task()
         logger.info("Risk Engine monitoring task started (polling every 60 seconds)")
+
+        # Setup and start the watchdog for background task monitoring
+        app.state.watchdog = await setup_watchdog(app)
+        await app.state.watchdog.start()
+        logger.info("Watchdog started - monitoring background tasks")
     else:
         logger.info(f"Worker {WORKER_ID} is a FOLLOWER - background tasks will be handled by leader")
 
@@ -173,6 +198,11 @@ async def shutdown_event():
 
     # Only stop background tasks if this worker was the leader
     if getattr(app.state, 'is_leader', False):
+        # Stop watchdog first
+        if hasattr(app.state, "watchdog"):
+            await app.state.watchdog.stop()
+            logger.info("Watchdog stopped")
+
         if hasattr(app.state, "order_fill_monitor"):
             await app.state.order_fill_monitor.stop_monitoring_task()
         if hasattr(app.state, "queue_manager_service"):

@@ -1,3 +1,4 @@
+import asyncio
 import ccxt.async_support as ccxt
 from typing import Literal
 from app.services.exchange_abstraction.interface import ExchangeInterface
@@ -6,6 +7,11 @@ from app.core.cache import get_cache
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class OrderCancellationError(ccxt.NetworkError):
+    """Raised when order cancellation fails after retries."""
+    pass
 
 class BinanceConnector(ExchangeInterface):
     """
@@ -174,9 +180,62 @@ class BinanceConnector(ExchangeInterface):
     @map_exchange_errors
     async def cancel_order(self, order_id: str, symbol: str = None):
         """
-        Cancels an existing order by its ID.
+        Cancels an existing order by its ID with retry logic and status verification.
+
+        Args:
+            order_id: The exchange order ID
+            symbol: Trading pair symbol
+
+        Returns:
+            Cancel result dictionary with order status
+
+        Raises:
+            OrderCancellationError: If cancellation fails after retries
+            ccxt.OrderNotFound: If order is not found on exchange
         """
-        return await self.exchange.cancel_order(order_id, symbol)
+        max_retries = 3
+        retry_delay = 0.5  # seconds
+
+        for i in range(max_retries):
+            try:
+                # Attempt to cancel the order
+                cancel_result = await self.exchange.cancel_order(order_id, symbol)
+                logger.info(f"Order {order_id} cancelled successfully on attempt {i+1}.")
+                return cancel_result
+            except ccxt.OrderNotFound:
+                # Order not found - might already be cancelled or filled
+                logger.warning(f"Order {order_id} not found during cancellation. Verifying status...")
+                break  # Go to verification
+            except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+                # Network or exchange issues - retry
+                logger.warning(f"Cancellation attempt {i+1} for order {order_id} failed: {e}")
+                if i < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (i + 1))  # Progressive delay
+                continue
+
+        # After retries, verify the order status
+        try:
+            order_status = await self.get_order_status(order_id, symbol)
+            status = order_status.get('status', '').lower()
+
+            if status in ['canceled', 'cancelled', 'closed', 'filled', 'expired']:
+                logger.info(f"Order {order_id} is no longer active (status: {status}). "
+                           "Considered successfully cancelled/closed.")
+                return {'id': order_id, 'status': status}
+            else:
+                # Still active after all attempts
+                raise OrderCancellationError(
+                    f"Failed to cancel order {order_id} after {max_retries} attempts. "
+                    f"Current status: {status}"
+                )
+        except ccxt.OrderNotFound:
+            # Order not found after cancellation attempts - likely already cancelled
+            logger.info(f"Order {order_id} not found after cancellation attempts. Assumed cancelled.")
+            return {'id': order_id, 'status': 'canceled'}
+        except OrderCancellationError:
+            raise
+        except Exception as e:
+            raise OrderCancellationError(f"Failed to verify cancellation of order {order_id}: {e}")
 
     @map_exchange_errors
     async def get_current_price(self, symbol: str) -> float:

@@ -34,12 +34,24 @@ from app.models.dca_order import DCAOrder, OrderStatus
 from app.models.pyramid import Pyramid
 from app.schemas.grid_config import RiskEngineConfig, DCAGridConfig
 from app.core.security import EncryptionService
+from app.core.distributed_lock import get_lock_manager, DistributedLockManager
 from app.services.telegram_signal_helper import broadcast_dca_fill, broadcast_tp_hit
+from app.utils.status_utils import (
+    is_order_filled, is_order_open, is_order_active,
+    is_pyramid_closed, normalize_order_status
+)
 
 logger = logging.getLogger(__name__)
 
 # Semaphore to limit concurrent order processing (prevent overwhelming exchange APIs)
 MAX_CONCURRENT_ORDERS = 10
+
+# Lock TTL for position updates (seconds)
+POSITION_LOCK_TTL = 30
+
+# Lock acquisition timeout (seconds)
+POSITION_LOCK_TIMEOUT = 10
+
 
 class OrderFillMonitorService:
     def __init__(
@@ -61,35 +73,29 @@ class OrderFillMonitorService:
         self.polling_interval_seconds = polling_interval_seconds
         self._running = False
         self._monitor_task = None
-        # Position-level locks to prevent concurrent updates to the same position group
-        # This prevents deadlocks when aggregate TP and order processing try to update the same row
-        self._position_locks: Dict[str, asyncio.Lock] = {}
-        self._locks_lock = asyncio.Lock()  # Lock to protect the locks dictionary
+        # Use distributed lock manager for position-level locks
+        # This works across multiple worker processes via Redis
+        self._lock_manager: DistributedLockManager = get_lock_manager()
         try:
             self.encryption_service = EncryptionService()
         except Exception as e:
             logger.error(f"OrderFillMonitor failed to init encryption service: {e}")
             self.encryption_service = None
 
-    async def _get_position_lock(self, group_id: str) -> asyncio.Lock:
+    def _get_position_lock_resource(self, group_id: str) -> str:
         """
-        Get or create an asyncio.Lock for a specific position group.
-        This ensures only one task can update a position group at a time,
-        preventing database deadlocks.
+        Get the lock resource identifier for a position group.
+        Format: position:{group_id}
         """
-        async with self._locks_lock:
-            if group_id not in self._position_locks:
-                self._position_locks[group_id] = asyncio.Lock()
-            return self._position_locks[group_id]
+        return f"position:{group_id}"
 
     async def _cleanup_position_lock(self, group_id: str):
         """
         Remove a position lock when the position is closed.
         Prevents memory leaks from accumulated locks.
         """
-        async with self._locks_lock:
-            if group_id in self._position_locks:
-                del self._position_locks[group_id]
+        resource = self._get_position_lock_resource(group_id)
+        await self._lock_manager.cleanup(resource)
 
     async def _trigger_risk_evaluation_on_fill(self, user, session: AsyncSession):
         """
@@ -261,10 +267,10 @@ class OrderFillMonitorService:
                         logger.info(f"TP hit for order {order.id}. Updating position stats.")
                         await session.flush()
 
-                        # Acquire position lock to prevent deadlock with aggregate TP check
+                        # Acquire distributed position lock to prevent deadlock with aggregate TP check
                         group_id_str = str(updated_order.group_id)
-                        position_lock = await self._get_position_lock(group_id_str)
-                        async with position_lock:
+                        lock_resource = self._get_position_lock_resource(group_id_str)
+                        async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                             await position_manager.update_position_stats(updated_order.group_id, session=session)
 
                         # Broadcast per-leg TP hit notification
@@ -334,10 +340,10 @@ class OrderFillMonitorService:
                         logger.info(f"Triggered Order {order.id} status is now {order.status}")
 
                         if order.status == OrderStatus.FILLED.value:
-                            # Acquire position lock to prevent deadlock with aggregate TP check
+                            # Acquire distributed position lock to prevent deadlock with aggregate TP check
                             group_id_str = str(order.group_id)
-                            position_lock = await self._get_position_lock(group_id_str)
-                            async with position_lock:
+                            lock_resource = self._get_position_lock_resource(group_id_str)
+                            async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                                 await position_manager.update_position_stats(order.group_id, session=session)
                             # Only place per-leg TP orders if tp_mode supports it
                             if order.group and order.group.tp_mode in ["per_leg", "hybrid"]:
@@ -388,10 +394,10 @@ class OrderFillMonitorService:
                     await session.flush()
 
                     logger.info(f"Order {order.id} FILLED - updating position stats")
-                    # Acquire position lock to prevent deadlock with aggregate TP check
+                    # Acquire distributed position lock to prevent deadlock with aggregate TP check
                     group_id_str = str(updated_order.group_id)
-                    position_lock = await self._get_position_lock(group_id_str)
-                    async with position_lock:
+                    lock_resource = self._get_position_lock_resource(group_id_str)
+                    async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                         await position_manager.update_position_stats(updated_order.group_id, session=session)
                     # Only place per-leg TP orders if tp_mode supports it
                     if updated_order.group and updated_order.group.tp_mode in ["per_leg", "hybrid"]:
@@ -421,10 +427,10 @@ class OrderFillMonitorService:
                             f"Order {order.id} PARTIALLY_FILLED ({updated_order.filled_quantity}/{updated_order.quantity}) "
                             f"- updating position stats"
                         )
-                        # Acquire position lock to prevent deadlock with aggregate TP check
+                        # Acquire distributed position lock to prevent deadlock with aggregate TP check
                         group_id_str = str(updated_order.group_id)
-                        position_lock = await self._get_position_lock(group_id_str)
-                        async with position_lock:
+                        lock_resource = self._get_position_lock_resource(group_id_str)
+                        async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                             await position_manager.update_position_stats(updated_order.group_id, session=session)
                         # Only place per-leg TP orders if tp_mode supports it
                         if updated_order.group and updated_order.group.tp_mode in ["per_leg", "hybrid"]:
@@ -751,18 +757,14 @@ class OrderFillMonitorService:
 
             logger.info(f"OrderFillMonitor: Checking aggregate TP for {len(positions)} positions")
 
-            # Helper to check if order is open (handles both enum and string status)
-            def is_open_order(status):
-                status_str = str(status).lower()
-                return any(s in status_str for s in ['open', 'trigger_pending', 'partially_filled'])
-
             # Group by exchange
             positions_by_exchange: Dict[str, List[PositionGroup]] = {}
             for pos in positions:
                 # For hybrid mode, we still check aggregate TP even with open orders
                 # For pure aggregate mode, skip if there are open orders (will be handled when all orders fill)
                 if pos.tp_mode == "aggregate":
-                    open_orders = [o for o in pos.dca_orders if is_open_order(o.status)]
+                    # Use status utility for consistent enum/string comparison
+                    open_orders = [o for o in pos.dca_orders if is_order_active(o.status)]
                     if open_orders:
                         logger.info(f"OrderFillMonitor: Skipping aggregate TP for {pos.symbol} - has {len(open_orders)} open orders")
                         continue  # Skip aggregate mode - will be handled by order processing
@@ -859,11 +861,11 @@ class OrderFillMonitorService:
 
             pnl_percent = position_group.tp_aggregate_percent
 
-            # Acquire position lock to prevent deadlock with order processing
+            # Acquire distributed position lock to prevent deadlock with order processing
             group_id_str = str(position_group.id)
-            position_lock = await self._get_position_lock(group_id_str)
+            lock_resource = self._get_position_lock_resource(group_id_str)
 
-            async with position_lock:
+            async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                 # Broadcast TP hit
                 await broadcast_tp_hit(
                     position_group=position_group,
@@ -976,11 +978,11 @@ class OrderFillMonitorService:
                     f"- all {len(filled_entries)} TPs hit"
                 )
 
-                # Acquire position lock to prevent deadlock with order processing
+                # Acquire distributed position lock to prevent deadlock with order processing
                 group_id_str = str(pos.id)
-                position_lock = await self._get_position_lock(group_id_str)
+                lock_resource = self._get_position_lock_resource(group_id_str)
 
-                async with position_lock:
+                async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                     pos.status = PositionGroupStatus.CLOSED
                     pos.closed_at = datetime.utcnow()
                     pos.total_filled_quantity = Decimal("0")
@@ -1101,14 +1103,14 @@ class OrderFillMonitorService:
             position_closed = False
             from app.models.pyramid import PyramidStatus
 
-            # Acquire position lock to prevent deadlock with order processing
+            # Acquire distributed position lock to prevent deadlock with order processing
             group_id_str = str(position_group.id)
-            position_lock = await self._get_position_lock(group_id_str)
+            lock_resource = self._get_position_lock_resource(group_id_str)
 
-            async with position_lock:
+            async with self._lock_manager.lock(lock_resource, ttl=POSITION_LOCK_TTL, timeout=POSITION_LOCK_TIMEOUT):
                 for pyramid in pyramids:
-                    # Skip already closed pyramids
-                    if pyramid.status == PyramidStatus.CLOSED or str(pyramid.status) == 'closed':
+                    # Skip already closed pyramids - using status utility for consistent comparison
+                    if is_pyramid_closed(pyramid.status):
                         logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} already CLOSED, skipping")
                         continue
 
@@ -1120,20 +1122,11 @@ class OrderFillMonitorService:
                     )
 
                     # Get filled entry orders for this pyramid that haven't hit TP yet
-                    # Handle both enum and string status comparison
-                    def is_filled(status):
-                        if status == OrderStatus.FILLED:
-                            return True
-                        if hasattr(status, 'value') and status.value == 'filled':
-                            return True
-                        if str(status).lower() == 'filled' or str(status) == 'OrderStatus.FILLED':
-                            return True
-                        return False
-
+                    # Using status utility for consistent enum/string comparison
                     pyramid_filled_orders = [
                         o for o in position_group.dca_orders
                         if o.pyramid_id == pyramid.id
-                        and is_filled(o.status)
+                        and is_order_filled(o.status)
                         and o.leg_index != 999
                         and not o.tp_hit
                     ]
@@ -1233,9 +1226,8 @@ class OrderFillMonitorService:
                         position_group.realized_pnl_usd += pnl_usd
                         position_group.total_exit_fees_usd += exit_fee
 
-                        # Count remaining open pyramids (not closed)
-                        remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id and
-                            (p.status != PyramidStatus.CLOSED and p.status != PyramidStatus.CLOSED.value)])
+                        # Count remaining open pyramids (not closed) - using status utility
+                        remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id and not is_pyramid_closed(p.status)])
 
                         await broadcast_tp_hit(
                             position_group=position_group,

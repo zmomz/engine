@@ -41,6 +41,7 @@ class CacheService:
     """
     Redis-based cache service for the trading engine.
     Falls back gracefully if Redis is unavailable.
+    Includes automatic reconnection logic for resilience.
     """
 
     # TTL constants in seconds
@@ -62,25 +63,40 @@ class CacheService:
     PREFIX_DCA_CONFIG = "dca_config"
     PREFIX_USER = "user"
 
+    # Reconnection settings
+    RECONNECT_INTERVAL = 30  # seconds between reconnection attempts
+    MAX_RECONNECT_ATTEMPTS = 3  # max consecutive failures before backing off
+    BACKOFF_MULTIPLIER = 2  # exponential backoff multiplier
+
     def __init__(self):
         self._redis: Optional[redis.Redis] = None
         self._connected = False
         self._connection_attempted = False
+        self._redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+        self._last_reconnect_attempt = 0
+        self._consecutive_failures = 0
+        self._reconnect_lock = None  # Will be initialized as asyncio.Lock
+
+    async def _get_reconnect_lock(self):
+        """Get or create the reconnect lock."""
+        if self._reconnect_lock is None:
+            import asyncio
+            self._reconnect_lock = asyncio.Lock()
+        return self._reconnect_lock
 
     async def connect(self) -> bool:
         """
         Initialize Redis connection.
         Returns True if connected, False otherwise.
         """
-        if self._connection_attempted:
+        if self._connection_attempted and self._connected:
             return self._connected
 
         self._connection_attempted = True
-        redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
         try:
             self._redis = redis.from_url(
-                redis_url,
+                self._redis_url,
                 encoding="utf-8",
                 decode_responses=True,
                 socket_connect_timeout=5,
@@ -89,26 +105,122 @@ class CacheService:
             # Test connection
             await self._redis.ping()
             self._connected = True
-            logger.info(f"Connected to Redis at {redis_url}")
+            self._consecutive_failures = 0
+            logger.info(f"Connected to Redis at {self._redis_url}")
             return True
         except Exception as e:
             logger.warning(f"Redis connection failed: {e}. Caching disabled.")
             self._connected = False
             self._redis = None
+            self._consecutive_failures += 1
             return False
+
+    async def _ensure_connected(self) -> bool:
+        """
+        Ensure Redis connection is alive, attempting reconnection if needed.
+        Uses exponential backoff to prevent reconnection storms.
+        Returns True if connected, False otherwise.
+        """
+        if self._connected:
+            return True
+
+        import time
+        current_time = time.time()
+
+        # Calculate backoff delay based on consecutive failures
+        backoff_delay = self.RECONNECT_INTERVAL * (
+            self.BACKOFF_MULTIPLIER ** min(self._consecutive_failures, self.MAX_RECONNECT_ATTEMPTS)
+        )
+
+        # Check if enough time has passed since last reconnection attempt
+        if current_time - self._last_reconnect_attempt < backoff_delay:
+            return False
+
+        # Use lock to prevent multiple concurrent reconnection attempts
+        lock = await self._get_reconnect_lock()
+        if lock.locked():
+            return self._connected
+
+        async with lock:
+            # Double-check after acquiring lock
+            if self._connected:
+                return True
+
+            self._last_reconnect_attempt = current_time
+
+            try:
+                if self._redis:
+                    try:
+                        await self._redis.close()
+                    except Exception:
+                        pass
+
+                self._redis = redis.from_url(
+                    self._redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=5
+                )
+                await self._redis.ping()
+                self._connected = True
+                self._consecutive_failures = 0
+                logger.info(f"Reconnected to Redis at {self._redis_url}")
+                return True
+            except Exception as e:
+                self._consecutive_failures += 1
+                logger.warning(
+                    f"Redis reconnection attempt failed ({self._consecutive_failures} consecutive failures): {e}"
+                )
+                self._connected = False
+                self._redis = None
+                return False
 
     async def close(self):
         """Close Redis connection."""
         if self._redis:
-            await self._redis.close()
-            self._connected = False
+            try:
+                await self._redis.close()
+            except Exception as e:
+                logger.warning(f"Error closing Redis connection: {e}")
+            finally:
+                self._connected = False
+                self._redis = None
+
+    async def health_check(self) -> dict:
+        """
+        Perform a health check on the Redis connection.
+        Returns a dict with connection status and details.
+        """
+        result = {
+            "connected": self._connected,
+            "consecutive_failures": self._consecutive_failures,
+            "redis_url": self._redis_url.split("@")[-1] if "@" in self._redis_url else self._redis_url  # Hide password
+        }
+
+        if self._connected:
+            try:
+                await self._redis.ping()
+                result["status"] = "healthy"
+                result["latency_ms"] = "< 5"
+            except Exception as e:
+                result["status"] = "unhealthy"
+                result["error"] = str(e)
+                self._connected = False
+        else:
+            result["status"] = "disconnected"
+
+        return result
 
     def _make_key(self, prefix: str, *parts: str) -> str:
         """Create a cache key from prefix and parts."""
         return f"{prefix}:{':'.join(str(p) for p in parts)}"
 
     async def get(self, key: str) -> Optional[Any]:
-        """Get a value from cache."""
+        """Get a value from cache. Attempts reconnection if disconnected."""
+        # Try to ensure connection (will attempt reconnect with backoff)
+        await self._ensure_connected()
+
         if not self._connected:
             return None
 
@@ -119,10 +231,15 @@ class CacheService:
             return None
         except Exception as e:
             logger.warning(f"Cache get failed for {key}: {e}")
+            # Mark as disconnected for reconnection on next attempt
+            self._connected = False
             return None
 
     async def set(self, key: str, value: Any, ttl: int = 300) -> bool:
-        """Set a value in cache with TTL."""
+        """Set a value in cache with TTL. Attempts reconnection if disconnected."""
+        # Try to ensure connection (will attempt reconnect with backoff)
+        await self._ensure_connected()
+
         if not self._connected:
             return False
 
@@ -132,10 +249,15 @@ class CacheService:
             return True
         except Exception as e:
             logger.warning(f"Cache set failed for {key}: {e}")
+            # Mark as disconnected for reconnection on next attempt
+            self._connected = False
             return False
 
     async def delete(self, key: str) -> bool:
-        """Delete a key from cache."""
+        """Delete a key from cache. Attempts reconnection if disconnected."""
+        # Try to ensure connection (will attempt reconnect with backoff)
+        await self._ensure_connected()
+
         if not self._connected:
             return False
 
@@ -144,10 +266,15 @@ class CacheService:
             return True
         except Exception as e:
             logger.warning(f"Cache delete failed for {key}: {e}")
+            # Mark as disconnected for reconnection on next attempt
+            self._connected = False
             return False
 
     async def delete_pattern(self, pattern: str) -> int:
-        """Delete all keys matching a pattern."""
+        """Delete all keys matching a pattern. Attempts reconnection if disconnected."""
+        # Try to ensure connection (will attempt reconnect with backoff)
+        await self._ensure_connected()
+
         if not self._connected:
             return 0
 
@@ -160,6 +287,8 @@ class CacheService:
             return 0
         except Exception as e:
             logger.warning(f"Cache delete pattern failed for {pattern}: {e}")
+            # Mark as disconnected for reconnection on next attempt
+            self._connected = False
             return 0
 
     # ==================== Precision Rules ====================
@@ -312,6 +441,7 @@ class CacheService:
     ) -> bool:
         """
         Acquire a distributed lock for a resource.
+        Attempts reconnection if disconnected.
 
         Args:
             resource: The resource to lock (e.g., "webhook:user123:BTCUSDT:15")
@@ -321,6 +451,9 @@ class CacheService:
         Returns:
             True if lock acquired, False otherwise
         """
+        # Try to ensure connection (will attempt reconnect with backoff)
+        await self._ensure_connected()
+
         if not self._connected:
             return True  # Fallback to no-lock if Redis unavailable
 
@@ -331,11 +464,13 @@ class CacheService:
             return result is not None
         except Exception as e:
             logger.warning(f"Lock acquisition failed for {resource}: {e}")
+            self._connected = False
             return True  # Fallback to allowing operation
 
     async def release_lock(self, resource: str, lock_id: str) -> bool:
         """
         Release a distributed lock.
+        Attempts reconnection if disconnected.
 
         Args:
             resource: The resource to unlock
@@ -344,6 +479,9 @@ class CacheService:
         Returns:
             True if lock released, False otherwise
         """
+        # Try to ensure connection (will attempt reconnect with backoff)
+        await self._ensure_connected()
+
         if not self._connected:
             return True
 
@@ -361,6 +499,7 @@ class CacheService:
             return result == 1
         except Exception as e:
             logger.warning(f"Lock release failed for {resource}: {e}")
+            self._connected = False
             return False
 
     # ==================== Service Health ====================

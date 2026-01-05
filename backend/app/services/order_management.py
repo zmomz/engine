@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import random
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_DOWN
-from typing import Dict, Any, Optional
+from enum import Enum
+from typing import Dict, Any, Optional, List
 import uuid
 import ccxt # Added for exchange exceptions
 
@@ -14,6 +17,38 @@ from app.repositories.position_group import PositionGroupRepository
 from app.models.dca_order import DCAOrder, OrderStatus, OrderType
 from app.models.position_group import PositionGroup, PositionGroupStatus
 from app.exceptions import APIError, ExchangeConnectionError, SlippageExceededError
+
+
+class CancellationStatus(Enum):
+    """Status of order cancellation attempt."""
+    SUCCESS = "success"                  # Order successfully cancelled
+    ALREADY_CANCELLED = "already_cancelled"  # Order was already cancelled
+    ALREADY_FILLED = "already_filled"    # Order was already filled
+    NOT_FOUND = "not_found"              # Order not found on exchange
+    FAILED = "failed"                    # Cancellation failed
+    VERIFICATION_FAILED = "verification_failed"  # Could not verify cancellation
+
+
+@dataclass
+class CancellationResult:
+    """Result of an order cancellation attempt with verification."""
+    order_id: uuid.UUID
+    exchange_order_id: Optional[str]
+    status: CancellationStatus
+    exchange_status: Optional[str] = None
+    verified: bool = False
+    error_message: Optional[str] = None
+    attempts: int = 0
+
+    @property
+    def is_terminal(self) -> bool:
+        """Check if the order is in a terminal state (no longer active)."""
+        return self.status in [
+            CancellationStatus.SUCCESS,
+            CancellationStatus.ALREADY_CANCELLED,
+            CancellationStatus.ALREADY_FILLED,
+            CancellationStatus.NOT_FOUND
+        ]
 
 
 def round_to_tick_size(value: Decimal, tick_size: Decimal) -> Decimal:
@@ -41,13 +76,16 @@ class OrderService:
     async def submit_order(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Submits a DCA order to the exchange and updates its status in the database.
-        Includes retry logic with exponential backoff for transient network errors.
+        Includes retry logic with exponential backoff and jitter for transient network errors.
 
         For market orders with quote_amount set, uses quote-based ordering (spend exact USDT).
         For limit orders or orders without quote_amount, uses base-based ordering.
+
+        Jitter is added to prevent thundering herd problem when multiple orders retry simultaneously.
         """
         max_retries = 3
         base_delay = 1  # seconds
+        jitter_factor = 0.5  # Add up to 50% random jitter
 
         for attempt in range(max_retries):
             try:
@@ -87,8 +125,14 @@ class OrderService:
                 return dca_order
             except ExchangeConnectionError as e:
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"Attempt {attempt + 1} failed due to connection error. Retrying in {delay} seconds...")
+                    # Exponential backoff with jitter to prevent thundering herd
+                    base_wait = base_delay * (2 ** attempt)
+                    jitter = random.uniform(0, base_wait * jitter_factor)
+                    delay = base_wait + jitter
+                    logger.warning(
+                        f"Attempt {attempt + 1} failed due to connection error. "
+                        f"Retrying in {delay:.2f}s (base: {base_wait}s, jitter: {jitter:.2f}s)..."
+                    )
                     await asyncio.sleep(delay)
                 else:
                     dca_order.status = OrderStatus.FAILED.value
@@ -123,36 +167,170 @@ class OrderService:
     async def cancel_order(self, dca_order: DCAOrder) -> DCAOrder:
         """
         Cancels a DCA order on the exchange and updates its status in the database.
-        Handles OrderNotFound gracefully.
+        Uses cancel_order_verified internally for robust cancellation with verification.
+
+        Args:
+            dca_order: The order to cancel
+
+        Returns:
+            Updated DCAOrder with cancelled status
+
+        Raises:
+            APIError: If cancellation fails and order is still active
+        """
+        result = await self.cancel_order_verified(dca_order)
+
+        if result.is_terminal:
+            # Order is no longer active (cancelled, filled, or not found)
+            if result.status == CancellationStatus.ALREADY_FILLED:
+                # Don't change status if it was already filled
+                logger.info(f"Order {dca_order.id} was already filled, not marking as cancelled")
+            else:
+                dca_order.status = OrderStatus.CANCELLED.value
+                dca_order.cancelled_at = datetime.utcnow()
+                await self.dca_order_repository.update(dca_order)
+            return dca_order
+        else:
+            # Cancellation failed
+            dca_order.status = OrderStatus.FAILED.value
+            await self.dca_order_repository.update(dca_order)
+            raise APIError(f"Failed to cancel order: {result.error_message}")
+
+    async def cancel_order_verified(
+        self,
+        dca_order: DCAOrder,
+        max_verification_attempts: int = 3,
+        verification_delay: float = 0.5
+    ) -> CancellationResult:
+        """
+        Cancels a DCA order with verification of the final state.
+
+        This method provides detailed feedback about the cancellation attempt
+        and verifies the order state on the exchange after cancellation.
+
+        Args:
+            dca_order: The order to cancel
+            max_verification_attempts: Maximum attempts to verify cancellation
+            verification_delay: Delay between verification attempts in seconds
+
+        Returns:
+            CancellationResult with detailed status information
         """
         if not dca_order.exchange_order_id:
             logger.warning(f"Order {dca_order.id} has no exchange_order_id, marking as CANCELLED.")
-            dca_order.status = OrderStatus.CANCELLED.value
-            await self.dca_order_repository.update(dca_order)
-            return dca_order
+            return CancellationResult(
+                order_id=dca_order.id,
+                exchange_order_id=None,
+                status=CancellationStatus.NOT_FOUND,
+                verified=True,
+                attempts=0
+            )
 
+        attempts = 0
+        cancel_succeeded = False
+        error_message = None
+
+        # Step 1: Attempt cancellation
         try:
             await self.exchange_connector.cancel_order(
                 order_id=dca_order.exchange_order_id,
                 symbol=dca_order.symbol
             )
+            cancel_succeeded = True
+            logger.info(f"Cancel request sent for order {dca_order.exchange_order_id}")
         except ccxt.OrderNotFound:
-            logger.warning(f"Order {dca_order.exchange_order_id} not found on exchange during cancellation. Assuming already closed/cancelled.")
-        except APIError as e:
-            # Re-raise APIErrors to be handled by the caller
-            dca_order.status = OrderStatus.FAILED.value
-            await self.dca_order_repository.update(dca_order)
-            raise e
+            logger.warning(
+                f"Order {dca_order.exchange_order_id} not found during cancellation. "
+                "Will verify status."
+            )
         except Exception as e:
-            dca_order.status = OrderStatus.FAILED.value
-            await self.dca_order_repository.update(dca_order)
-            raise APIError(f"Failed to cancel order: {e}") from e
+            error_message = str(e)
+            logger.error(f"Cancel request failed for order {dca_order.exchange_order_id}: {e}")
 
-        # If cancellation was successful or order was not found, mark as cancelled
-        dca_order.status = OrderStatus.CANCELLED.value
-        dca_order.cancelled_at = datetime.utcnow()
-        await self.dca_order_repository.update(dca_order)
-        return dca_order
+        # Step 2: Verify the order status on exchange
+        for attempt in range(max_verification_attempts):
+            attempts = attempt + 1
+            try:
+                await asyncio.sleep(verification_delay * (attempt + 1))  # Progressive delay
+
+                order_status = await self.exchange_connector.get_order_status(
+                    order_id=dca_order.exchange_order_id,
+                    symbol=dca_order.symbol
+                )
+
+                exchange_status = order_status.get('status', '').lower()
+                logger.debug(f"Verification attempt {attempts}: order {dca_order.exchange_order_id} status = {exchange_status}")
+
+                # Check if order is in a terminal state
+                if exchange_status in ['canceled', 'cancelled']:
+                    return CancellationResult(
+                        order_id=dca_order.id,
+                        exchange_order_id=dca_order.exchange_order_id,
+                        status=CancellationStatus.SUCCESS if cancel_succeeded else CancellationStatus.ALREADY_CANCELLED,
+                        exchange_status=exchange_status,
+                        verified=True,
+                        attempts=attempts
+                    )
+                elif exchange_status in ['closed', 'filled']:
+                    return CancellationResult(
+                        order_id=dca_order.id,
+                        exchange_order_id=dca_order.exchange_order_id,
+                        status=CancellationStatus.ALREADY_FILLED,
+                        exchange_status=exchange_status,
+                        verified=True,
+                        attempts=attempts
+                    )
+                elif exchange_status in ['expired', 'rejected']:
+                    return CancellationResult(
+                        order_id=dca_order.id,
+                        exchange_order_id=dca_order.exchange_order_id,
+                        status=CancellationStatus.ALREADY_CANCELLED,
+                        exchange_status=exchange_status,
+                        verified=True,
+                        attempts=attempts
+                    )
+                # Order is still active, continue verification attempts
+
+            except ccxt.OrderNotFound:
+                # Order not found - likely already cancelled
+                logger.info(f"Order {dca_order.exchange_order_id} not found during verification. Assuming cancelled.")
+                return CancellationResult(
+                    order_id=dca_order.id,
+                    exchange_order_id=dca_order.exchange_order_id,
+                    status=CancellationStatus.NOT_FOUND,
+                    verified=True,
+                    attempts=attempts
+                )
+            except Exception as e:
+                logger.warning(f"Verification attempt {attempts} failed: {e}")
+                if attempt == max_verification_attempts - 1:
+                    error_message = f"Verification failed: {e}"
+
+        # Verification exhausted without confirming terminal state
+        if cancel_succeeded:
+            # Cancel was sent but couldn't verify - assume success with warning
+            logger.warning(
+                f"Could not verify cancellation of order {dca_order.exchange_order_id} "
+                f"after {attempts} attempts. Cancel request was accepted."
+            )
+            return CancellationResult(
+                order_id=dca_order.id,
+                exchange_order_id=dca_order.exchange_order_id,
+                status=CancellationStatus.SUCCESS,
+                verified=False,
+                attempts=attempts,
+                error_message="Cancellation sent but verification incomplete"
+            )
+        else:
+            # Cancel failed and couldn't verify
+            return CancellationResult(
+                order_id=dca_order.id,
+                exchange_order_id=dca_order.exchange_order_id,
+                status=CancellationStatus.VERIFICATION_FAILED,
+                verified=False,
+                attempts=attempts,
+                error_message=error_message or "Could not cancel or verify order status"
+            )
 
     async def place_tp_order(
         self,
@@ -696,6 +874,7 @@ class OrderService:
         expected_price: Decimal = None,
         max_slippage_percent: float = None,
         slippage_action: str = "warn",
+        pre_check_slippage: bool = True,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -708,7 +887,8 @@ class OrderService:
             max_slippage_percent: Maximum allowed slippage percentage (e.g., 1.0 = 1%)
             slippage_action: What to do when slippage exceeds threshold:
                 - "warn": Log warning only (default, backward compatible)
-                - "reject": Raise SlippageExceededError (order still executed, caller handles)
+                - "reject": Raise SlippageExceededError (order still executed for post-check, rejected for pre-check)
+            pre_check_slippage: If True, checks slippage against current price BEFORE execution (default True)
         """
         try:
             # Extract pyramid_id from kwargs before passing to exchange
@@ -716,6 +896,38 @@ class OrderService:
 
             # Ensure side is uppercase
             side_value = side.upper()
+
+            # Pre-execution slippage check
+            if pre_check_slippage and expected_price and max_slippage_percent is not None:
+                try:
+                    current_price = Decimal(str(await self.exchange_connector.get_current_price(symbol)))
+
+                    if current_price > 0:
+                        # Estimate slippage based on current price
+                        if side_value == "BUY":
+                            # For buys, slippage is positive when current price > expected
+                            estimated_slippage = float((current_price - expected_price) / expected_price * 100)
+                        else:
+                            # For sells, slippage is positive when current price < expected
+                            estimated_slippage = float((expected_price - current_price) / expected_price * 100)
+
+                        if estimated_slippage > max_slippage_percent:
+                            slippage_msg = (
+                                f"Pre-execution slippage check failed for {symbol} {side_value}: "
+                                f"expected {expected_price}, current {current_price}, "
+                                f"estimated slippage {estimated_slippage:.2f}% > max {max_slippage_percent}%"
+                            )
+
+                            if slippage_action == "reject":
+                                logger.error(slippage_msg)
+                                raise SlippageExceededError(slippage_msg)
+                            else:
+                                logger.warning(slippage_msg + " - proceeding with order")
+                except SlippageExceededError:
+                    raise  # Re-raise slippage error
+                except Exception as e:
+                    # Don't fail the order if pre-check fails - log and continue
+                    logger.warning(f"Pre-execution slippage check failed for {symbol}: {e} - proceeding with order")
 
             exchange_order_data = await self.exchange_connector.place_order(
                 symbol=symbol,

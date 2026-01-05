@@ -1,6 +1,7 @@
 import time
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -10,6 +11,14 @@ from app.core.cache import get_cache
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _measure_query_latency(session: AsyncSession) -> float:
+    """Measure database query latency in milliseconds."""
+    start = time.perf_counter()
+    await session.execute(text("SELECT 1"))
+    end = time.perf_counter()
+    return (end - start) * 1000  # Convert to milliseconds
 
 
 @router.get("/")
@@ -27,6 +36,178 @@ async def db_health_check(session: AsyncSession = Depends(get_db_session)):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Database connection failed: {e}",
         )
+
+
+@router.get("/db/detailed")
+async def db_detailed_health_check(session: AsyncSession = Depends(get_db_session)):
+    """
+    Comprehensive database health check with detailed metrics.
+
+    Returns:
+        - Connection status
+        - Query latency (ms)
+        - Pool statistics
+        - Table row counts for key tables
+    """
+    result = {
+        "status": "ok",
+        "healthy": True,
+        "timestamp": time.time(),
+        "connection": {"status": "connected"},
+        "latency": {},
+        "pool": {},
+        "tables": {}
+    }
+
+    try:
+        # Measure query latency (multiple samples for accuracy)
+        latencies = []
+        for _ in range(3):
+            latency = await _measure_query_latency(session)
+            latencies.append(latency)
+
+        avg_latency = sum(latencies) / len(latencies)
+        result["latency"] = {
+            "avg_ms": round(avg_latency, 2),
+            "min_ms": round(min(latencies), 2),
+            "max_ms": round(max(latencies), 2),
+            "samples": len(latencies)
+        }
+
+        # Latency thresholds
+        if avg_latency > 100:
+            result["status"] = "degraded"
+            result["latency"]["warning"] = "High latency detected"
+        elif avg_latency > 500:
+            result["healthy"] = False
+            result["latency"]["warning"] = "Critical latency"
+
+    except Exception as e:
+        result["status"] = "error"
+        result["healthy"] = False
+        result["connection"] = {"status": "error", "error": str(e)}
+        return result
+
+    try:
+        # Get connection pool statistics from the engine
+        bind = session.get_bind()
+        if hasattr(bind, 'pool'):
+            pool = bind.pool
+            result["pool"] = {
+                "size": getattr(pool, 'size', None),
+                "checked_in": getattr(pool, 'checkedin', lambda: None)() if hasattr(pool, 'checkedin') else None,
+                "checked_out": getattr(pool, 'checkedout', lambda: None)() if hasattr(pool, 'checkedout') else None,
+                "overflow": getattr(pool, 'overflow', lambda: None)() if hasattr(pool, 'overflow') else None,
+            }
+    except Exception as e:
+        result["pool"] = {"error": str(e)}
+
+    try:
+        # Get row counts for key tables (lightweight check)
+        tables_to_check = [
+            "users",
+            "position_groups",
+            "dca_orders"
+        ]
+
+        for table in tables_to_check:
+            try:
+                count_result = await session.execute(
+                    text(f"SELECT COUNT(*) FROM {table}")
+                )
+                count = count_result.scalar()
+                result["tables"][table] = {"row_count": count}
+            except Exception:
+                # Table might not exist or other issue - skip
+                pass
+
+    except Exception as e:
+        result["tables"]["error"] = str(e)
+
+    return result
+
+
+@router.get("/watchdog")
+async def watchdog_health_check(request: Request):
+    """
+    Get the status of the task watchdog and all monitored tasks.
+
+    Returns health status for:
+    - OrderFillMonitor
+    - QueueManager
+    - RiskEngine
+    """
+    try:
+        # Check if watchdog exists on app state
+        if not hasattr(request.app.state, "watchdog"):
+            return {
+                "status": "not_running",
+                "message": "Watchdog not started (this worker may not be the leader)"
+            }
+
+        watchdog = request.app.state.watchdog
+        summary = watchdog.get_summary()
+
+        # Determine overall status
+        if summary["unhealthy"] > 0:
+            overall_status = "unhealthy"
+        elif summary["degraded"] > 0:
+            overall_status = "degraded"
+        else:
+            overall_status = "healthy"
+
+        return {
+            "status": overall_status,
+            "summary": {
+                "healthy_tasks": summary["healthy"],
+                "degraded_tasks": summary["degraded"],
+                "unhealthy_tasks": summary["unhealthy"],
+                "total_tasks": summary["total"]
+            },
+            "tasks": summary["tasks"]
+        }
+    except Exception as e:
+        logger.error(f"Watchdog health check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@router.get("/circuit-breakers")
+async def circuit_breakers_health_check():
+    """
+    Get the status of all exchange circuit breakers.
+
+    Returns the state (closed, open, half_open) for each exchange.
+    """
+    try:
+        from app.core.circuit_breaker import get_circuit_registry
+
+        registry = get_circuit_registry()
+        metrics = registry.get_all_metrics()
+
+        # Determine overall status
+        has_open = any(m.get("state") == "open" for m in metrics.values())
+        has_half_open = any(m.get("state") == "half_open" for m in metrics.values())
+
+        if has_open:
+            overall_status = "degraded"
+        elif has_half_open:
+            overall_status = "recovering"
+        else:
+            overall_status = "healthy"
+
+        return {
+            "status": overall_status,
+            "circuits": metrics
+        }
+    except Exception as e:
+        logger.error(f"Circuit breaker health check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 
 @router.get("/redis")
@@ -121,9 +302,12 @@ async def services_health_check():
 
 
 @router.get("/comprehensive")
-async def comprehensive_health_check(session: AsyncSession = Depends(get_db_session)):
+async def comprehensive_health_check(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session)
+):
     """
-    Comprehensive health check including database, Redis, and all services.
+    Comprehensive health check including database, Redis, services, watchdog, and circuit breakers.
     """
     result = {
         "status": "ok",
@@ -133,10 +317,17 @@ async def comprehensive_health_check(session: AsyncSession = Depends(get_db_sess
 
     overall_healthy = True
 
-    # Check database
+    # Check database with latency
     try:
-        await session.execute(text("SELECT 1"))
-        result["components"]["database"] = {"status": "ok", "healthy": True}
+        latency = await _measure_query_latency(session)
+        db_healthy = latency < 500  # 500ms threshold
+        result["components"]["database"] = {
+            "status": "ok" if db_healthy else "degraded",
+            "healthy": db_healthy,
+            "latency_ms": round(latency, 2)
+        }
+        if not db_healthy:
+            overall_healthy = False
     except Exception as e:
         overall_healthy = False
         result["components"]["database"] = {"status": "error", "healthy": False, "error": str(e)}
@@ -161,6 +352,25 @@ async def comprehensive_health_check(session: AsyncSession = Depends(get_db_sess
     except Exception as e:
         overall_healthy = False
         result["components"]["services"] = {"status": "error", "error": str(e)}
+
+    # Check circuit breakers
+    try:
+        circuits_result = await circuit_breakers_health_check()
+        result["components"]["circuit_breakers"] = circuits_result
+        if circuits_result.get("status") == "degraded":
+            overall_healthy = False
+    except Exception as e:
+        result["components"]["circuit_breakers"] = {"status": "error", "error": str(e)}
+
+    # Check watchdog (if available)
+    try:
+        watchdog_result = await watchdog_health_check(request)
+        if watchdog_result.get("status") != "not_running":
+            result["components"]["watchdog"] = watchdog_result
+            if watchdog_result.get("status") not in ["healthy", "not_running"]:
+                overall_healthy = False
+    except Exception as e:
+        result["components"]["watchdog"] = {"status": "error", "error": str(e)}
 
     result["status"] = "ok" if overall_healthy else "degraded"
 
