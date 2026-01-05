@@ -61,11 +61,35 @@ class OrderFillMonitorService:
         self.polling_interval_seconds = polling_interval_seconds
         self._running = False
         self._monitor_task = None
+        # Position-level locks to prevent concurrent updates to the same position group
+        # This prevents deadlocks when aggregate TP and order processing try to update the same row
+        self._position_locks: Dict[str, asyncio.Lock] = {}
+        self._locks_lock = asyncio.Lock()  # Lock to protect the locks dictionary
         try:
             self.encryption_service = EncryptionService()
         except Exception as e:
             logger.error(f"OrderFillMonitor failed to init encryption service: {e}")
             self.encryption_service = None
+
+    async def _get_position_lock(self, group_id: str) -> asyncio.Lock:
+        """
+        Get or create an asyncio.Lock for a specific position group.
+        This ensures only one task can update a position group at a time,
+        preventing database deadlocks.
+        """
+        async with self._locks_lock:
+            if group_id not in self._position_locks:
+                self._position_locks[group_id] = asyncio.Lock()
+            return self._position_locks[group_id]
+
+    async def _cleanup_position_lock(self, group_id: str):
+        """
+        Remove a position lock when the position is closed.
+        Prevents memory leaks from accumulated locks.
+        """
+        async with self._locks_lock:
+            if group_id in self._position_locks:
+                del self._position_locks[group_id]
 
     async def _trigger_risk_evaluation_on_fill(self, user, session: AsyncSession):
         """
@@ -236,7 +260,12 @@ class OrderFillMonitorService:
                     if updated_order.tp_hit:
                         logger.info(f"TP hit for order {order.id}. Updating position stats.")
                         await session.flush()
-                        await position_manager.update_position_stats(updated_order.group_id, session=session)
+
+                        # Acquire position lock to prevent deadlock with aggregate TP check
+                        group_id_str = str(updated_order.group_id)
+                        position_lock = await self._get_position_lock(group_id_str)
+                        async with position_lock:
+                            await position_manager.update_position_stats(updated_order.group_id, session=session)
 
                         # Broadcast per-leg TP hit notification
                         # Re-fetch pyramid since concurrent update_position_stats may have cleared it
@@ -305,7 +334,11 @@ class OrderFillMonitorService:
                         logger.info(f"Triggered Order {order.id} status is now {order.status}")
 
                         if order.status == OrderStatus.FILLED.value:
-                            await position_manager.update_position_stats(order.group_id, session=session)
+                            # Acquire position lock to prevent deadlock with aggregate TP check
+                            group_id_str = str(order.group_id)
+                            position_lock = await self._get_position_lock(group_id_str)
+                            async with position_lock:
+                                await position_manager.update_position_stats(order.group_id, session=session)
                             # Only place per-leg TP orders if tp_mode supports it
                             if order.group and order.group.tp_mode in ["per_leg", "hybrid"]:
                                 await order_service.place_tp_order(order)
@@ -355,7 +388,11 @@ class OrderFillMonitorService:
                     await session.flush()
 
                     logger.info(f"Order {order.id} FILLED - updating position stats")
-                    await position_manager.update_position_stats(updated_order.group_id, session=session)
+                    # Acquire position lock to prevent deadlock with aggregate TP check
+                    group_id_str = str(updated_order.group_id)
+                    position_lock = await self._get_position_lock(group_id_str)
+                    async with position_lock:
+                        await position_manager.update_position_stats(updated_order.group_id, session=session)
                     # Only place per-leg TP orders if tp_mode supports it
                     if updated_order.group and updated_order.group.tp_mode in ["per_leg", "hybrid"]:
                         await order_service.place_tp_order(updated_order)
@@ -384,7 +421,11 @@ class OrderFillMonitorService:
                             f"Order {order.id} PARTIALLY_FILLED ({updated_order.filled_quantity}/{updated_order.quantity}) "
                             f"- updating position stats"
                         )
-                        await position_manager.update_position_stats(updated_order.group_id, session=session)
+                        # Acquire position lock to prevent deadlock with aggregate TP check
+                        group_id_str = str(updated_order.group_id)
+                        position_lock = await self._get_position_lock(group_id_str)
+                        async with position_lock:
+                            await position_manager.update_position_stats(updated_order.group_id, session=session)
                         # Only place per-leg TP orders if tp_mode supports it
                         if updated_order.group and updated_order.group.tp_mode in ["per_leg", "hybrid"]:
                             await order_service.place_tp_order_for_partial_fill(updated_order)
@@ -818,50 +859,58 @@ class OrderFillMonitorService:
 
             pnl_percent = position_group.tp_aggregate_percent
 
-            # Broadcast TP hit
-            await broadcast_tp_hit(
-                position_group=position_group,
-                pyramid=None,
-                tp_type="aggregate",
-                tp_price=aggregate_tp_price,
-                pnl_percent=pnl_percent,
-                session=session,
-                pnl_usd=unrealized_pnl,
-                closed_quantity=current_qty,
-                remaining_pyramids=0
-            )
+            # Acquire position lock to prevent deadlock with order processing
+            group_id_str = str(position_group.id)
+            position_lock = await self._get_position_lock(group_id_str)
 
-            # Cancel any remaining open orders
-            await order_service.cancel_open_orders_for_group(position_group.id)
+            async with position_lock:
+                # Broadcast TP hit
+                await broadcast_tp_hit(
+                    position_group=position_group,
+                    pyramid=None,
+                    tp_type="aggregate",
+                    tp_price=aggregate_tp_price,
+                    pnl_percent=pnl_percent,
+                    session=session,
+                    pnl_usd=unrealized_pnl,
+                    closed_quantity=current_qty,
+                    remaining_pyramids=0
+                )
 
-            # Place market close order (don't record in DB - just execute on exchange)
-            close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
-            await order_service.place_market_order(
-                user_id=user.id,
-                exchange=position_group.exchange,
-                symbol=position_group.symbol,
-                side=close_side,
-                quantity=current_qty,
-                position_group_id=position_group.id,
-                record_in_db=False
-            )
+                # Cancel any remaining open orders
+                await order_service.cancel_open_orders_for_group(position_group.id)
 
-            # Mark position as closed
-            from datetime import datetime
-            position_group.status = PositionGroupStatus.CLOSED
-            position_group.closed_at = datetime.utcnow()
-            position_group.total_filled_quantity = Decimal("0")
-            position_group.unrealized_pnl_usd = Decimal("0")
+                # Place market close order (don't record in DB - just execute on exchange)
+                close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                await order_service.place_market_order(
+                    user_id=user.id,
+                    exchange=position_group.exchange,
+                    symbol=position_group.symbol,
+                    side=close_side,
+                    quantity=current_qty,
+                    position_group_id=position_group.id,
+                    record_in_db=False
+                )
 
-            # Calculate realized PnL including hedge value
-            total_exit_value = current_qty * current_price
-            hedge_profit = (position_group.total_hedged_value_usd or Decimal("0")) - (
-                (position_group.total_hedged_qty or Decimal("0")) * current_avg_price
-            )
-            realized_pnl = unrealized_pnl + hedge_profit
-            position_group.realized_pnl_usd = realized_pnl
+                # Mark position as closed
+                from datetime import datetime
+                position_group.status = PositionGroupStatus.CLOSED
+                position_group.closed_at = datetime.utcnow()
+                position_group.total_filled_quantity = Decimal("0")
+                position_group.unrealized_pnl_usd = Decimal("0")
 
-            await position_group_repo.update(position_group)
+                # Calculate realized PnL including hedge value
+                total_exit_value = current_qty * current_price
+                hedge_profit = (position_group.total_hedged_value_usd or Decimal("0")) - (
+                    (position_group.total_hedged_qty or Decimal("0")) * current_avg_price
+                )
+                realized_pnl = unrealized_pnl + hedge_profit
+                position_group.realized_pnl_usd = realized_pnl
+
+                await position_group_repo.update(position_group)
+
+                # Clean up the lock since position is now closed
+                await self._cleanup_position_lock(group_id_str)
 
             logger.info(
                 f"OrderFillMonitor: Executed Aggregate TP for idle position {position_group.symbol} "
@@ -927,14 +976,21 @@ class OrderFillMonitorService:
                     f"- all {len(filled_entries)} TPs hit"
                 )
 
-                pos.status = PositionGroupStatus.CLOSED
-                pos.closed_at = datetime.utcnow()
-                pos.total_filled_quantity = Decimal("0")
-                pos.unrealized_pnl_usd = Decimal("0")
+                # Acquire position lock to prevent deadlock with order processing
+                group_id_str = str(pos.id)
+                position_lock = await self._get_position_lock(group_id_str)
 
-                await position_group_repo.update(pos)
+                async with position_lock:
+                    pos.status = PositionGroupStatus.CLOSED
+                    pos.closed_at = datetime.utcnow()
+                    pos.total_filled_quantity = Decimal("0")
+                    pos.unrealized_pnl_usd = Decimal("0")
 
-                logger.info(f"OrderFillMonitor: Position {pos.id} closed - all per-leg TPs hit")
+                    await position_group_repo.update(pos)
+
+                    logger.info(f"OrderFillMonitor: Position {pos.id} closed - all per-leg TPs hit")
+                    # Clean up the lock since position is now closed
+                    await self._cleanup_position_lock(group_id_str)
 
         except Exception as e:
             logger.error(f"OrderFillMonitor: Error in _check_per_leg_positions_all_tps_hit: {e}")
@@ -1045,173 +1101,180 @@ class OrderFillMonitorService:
             position_closed = False
             from app.models.pyramid import PyramidStatus
 
-            for pyramid in pyramids:
-                # Skip already closed pyramids
-                if pyramid.status == PyramidStatus.CLOSED or str(pyramid.status) == 'closed':
-                    logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} already CLOSED, skipping")
-                    continue
+            # Acquire position lock to prevent deadlock with order processing
+            group_id_str = str(position_group.id)
+            position_lock = await self._get_position_lock(group_id_str)
 
-                # Log all orders for this pyramid
-                all_pyramid_orders = [o for o in position_group.dca_orders if o.pyramid_id == pyramid.id]
-                logger.info(
-                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} (status={pyramid.status}) has {len(all_pyramid_orders)} orders. "
-                    f"Statuses: {[(o.leg_index, str(o.status), o.tp_hit) for o in all_pyramid_orders]}"
-                )
+            async with position_lock:
+                for pyramid in pyramids:
+                    # Skip already closed pyramids
+                    if pyramid.status == PyramidStatus.CLOSED or str(pyramid.status) == 'closed':
+                        logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} already CLOSED, skipping")
+                        continue
 
-                # Get filled entry orders for this pyramid that haven't hit TP yet
-                # Handle both enum and string status comparison
-                def is_filled(status):
-                    if status == OrderStatus.FILLED:
-                        return True
-                    if hasattr(status, 'value') and status.value == 'filled':
-                        return True
-                    if str(status).lower() == 'filled' or str(status) == 'OrderStatus.FILLED':
-                        return True
-                    return False
-
-                pyramid_filled_orders = [
-                    o for o in position_group.dca_orders
-                    if o.pyramid_id == pyramid.id
-                    and is_filled(o.status)
-                    and o.leg_index != 999
-                    and not o.tp_hit
-                ]
-
-                logger.info(
-                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - "
-                    f"{len(pyramid_filled_orders)} filled orders eligible for TP check"
-                )
-
-                if not pyramid_filled_orders:
-                    logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - no eligible orders, skipping")
-                    continue
-
-                # Calculate weighted average entry for this pyramid
-                total_qty = Decimal("0")
-                total_value = Decimal("0")
-
-                for order in pyramid_filled_orders:
-                    qty = order.filled_quantity or order.quantity
-                    price = order.avg_fill_price or order.price
-                    total_qty += qty
-                    total_value += qty * price
+                    # Log all orders for this pyramid
+                    all_pyramid_orders = [o for o in position_group.dca_orders if o.pyramid_id == pyramid.id]
                     logger.info(
-                        f"OrderFillMonitor: Order leg {order.leg_index} - qty={qty}, price={price}, "
-                        f"filled_qty={order.filled_quantity}, avg_fill_price={order.avg_fill_price}"
+                        f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} (status={pyramid.status}) has {len(all_pyramid_orders)} orders. "
+                        f"Statuses: {[(o.leg_index, str(o.status), o.tp_hit) for o in all_pyramid_orders]}"
                     )
 
-                if total_qty <= 0:
-                    logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - total_qty <= 0, skipping")
-                    continue
+                    # Get filled entry orders for this pyramid that haven't hit TP yet
+                    # Handle both enum and string status comparison
+                    def is_filled(status):
+                        if status == OrderStatus.FILLED:
+                            return True
+                        if hasattr(status, 'value') and status.value == 'filled':
+                            return True
+                        if str(status).lower() == 'filled' or str(status) == 'OrderStatus.FILLED':
+                            return True
+                        return False
 
-                pyramid_avg_entry = total_value / total_qty
+                    pyramid_filled_orders = [
+                        o for o in position_group.dca_orders
+                        if o.pyramid_id == pyramid.id
+                        and is_filled(o.status)
+                        and o.leg_index != 999
+                        and not o.tp_hit
+                    ]
 
-                # Use tp_aggregate_percent for pyramid TP
-                tp_percent = position_group.tp_aggregate_percent
+                    logger.info(
+                        f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - "
+                        f"{len(pyramid_filled_orders)} filled orders eligible for TP check"
+                    )
 
-                # Calculate pyramid TP target
-                pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
-                tp_triggered = current_price >= pyramid_tp_price
+                    if not pyramid_filled_orders:
+                        logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - no eligible orders, skipping")
+                        continue
 
-                logger.info(
-                    f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} TP Check - "
-                    f"avg_entry={pyramid_avg_entry:.4f}, tp_percent={tp_percent}%, "
-                    f"tp_target={pyramid_tp_price:.4f}, current_price={current_price}, "
-                    f"triggered={tp_triggered}"
-                )
+                    # Calculate weighted average entry for this pyramid
+                    total_qty = Decimal("0")
+                    total_value = Decimal("0")
 
-                if not tp_triggered:
-                    continue
-
-                logger.info(
-                    f"OrderFillMonitor: Pyramid Aggregate TP Triggered for Pyramid {pyramid.pyramid_index} "
-                    f"in Group {position_group.id} at {current_price} (Target: {pyramid_tp_price})"
-                )
-
-                # Execute market sell for this pyramid's quantity
-                order_service = self.order_service_class(
-                    session=session,
-                    user=user,
-                    exchange_connector=connector
-                )
-
-                # Place market close order
-                close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
-                sell_result = await order_service.place_market_order(
-                    user_id=user.id,
-                    exchange=position_group.exchange,
-                    symbol=position_group.symbol,
-                    side=close_side,
-                    quantity=total_qty,
-                    position_group_id=position_group.id,
-                    record_in_db=False,
-                    pyramid_id=pyramid.id
-                )
-
-                if sell_result:
-                    fill_price = Decimal(str(sell_result.get("avgPrice", sell_result.get("avg_fill_price", current_price))))
-                    exit_fee = Decimal(str(sell_result.get("cumulative_fee", sell_result.get("fee", 0)) or 0))
-
-                    # Calculate PnL
-                    pnl_usd = (fill_price - pyramid_avg_entry) * total_qty - exit_fee
-
-                    # Mark orders as TP hit
                     for order in pyramid_filled_orders:
-                        order.tp_hit = True
+                        qty = order.filled_quantity or order.quantity
+                        price = order.avg_fill_price or order.price
+                        total_qty += qty
+                        total_value += qty * price
+                        logger.info(
+                            f"OrderFillMonitor: Order leg {order.leg_index} - qty={qty}, price={price}, "
+                            f"filled_qty={order.filled_quantity}, avg_fill_price={order.avg_fill_price}"
+                        )
 
-                    # Mark pyramid as CLOSED and store closure details
-                    from app.models.pyramid import PyramidStatus
-                    pyramid.status = PyramidStatus.CLOSED
-                    pyramid.closed_at = datetime.utcnow()
-                    pyramid.exit_price = fill_price
-                    pyramid.realized_pnl_usd = pnl_usd
-                    pyramid.total_quantity = total_qty
+                    if total_qty <= 0:
+                        logger.info(f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} - total_qty <= 0, skipping")
+                        continue
 
-                    # Update position stats
-                    position_group.total_filled_quantity -= total_qty
-                    position_group.realized_pnl_usd += pnl_usd
-                    position_group.total_exit_fees_usd += exit_fee
+                    pyramid_avg_entry = total_value / total_qty
 
-                    # Count remaining open pyramids (not closed)
-                    remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id and
-                        (p.status != PyramidStatus.CLOSED and p.status != PyramidStatus.CLOSED.value)])
+                    # Use tp_aggregate_percent for pyramid TP
+                    tp_percent = position_group.tp_aggregate_percent
 
-                    await broadcast_tp_hit(
-                        position_group=position_group,
-                        pyramid=pyramid,
-                        tp_type="pyramid_aggregate",
-                        tp_price=pyramid_tp_price,
-                        pnl_percent=tp_percent,
-                        session=session,
-                        pnl_usd=pnl_usd,
-                        closed_quantity=total_qty,
-                        remaining_pyramids=remaining_pyramids
-                    )
+                    # Calculate pyramid TP target
+                    pyramid_tp_price = pyramid_avg_entry * (Decimal("1") + tp_percent / Decimal("100"))
+                    tp_triggered = current_price >= pyramid_tp_price
 
                     logger.info(
-                        f"OrderFillMonitor: Executed Pyramid Aggregate TP for Pyramid {pyramid.pyramid_index} "
-                        f"- Realized PnL: {pnl_usd}, Exit Price: {fill_price}"
+                        f"OrderFillMonitor: Pyramid {pyramid.pyramid_index} TP Check - "
+                        f"avg_entry={pyramid_avg_entry:.4f}, tp_percent={tp_percent}%, "
+                        f"tp_target={pyramid_tp_price:.4f}, current_price={current_price}, "
+                        f"triggered={tp_triggered}"
                     )
 
-            # Check if all pyramids are closed
-            if position_group.total_filled_quantity <= 0:
-                position_group.status = PositionGroupStatus.CLOSED
-                position_group.closed_at = datetime.utcnow()
-                position_group.unrealized_pnl_usd = Decimal("0")
-                position_closed = True
+                    if not tp_triggered:
+                        continue
 
-                # Cancel any remaining open orders on the exchange
-                order_service = self.order_service_class(
-                    session=session,
-                    user=user,
-                    exchange_connector=connector
-                )
-                await order_service.cancel_open_orders_for_group(position_group.id)
+                    logger.info(
+                        f"OrderFillMonitor: Pyramid Aggregate TP Triggered for Pyramid {pyramid.pyramid_index} "
+                        f"in Group {position_group.id} at {current_price} (Target: {pyramid_tp_price})"
+                    )
 
-            await position_group_repo.update(position_group)
+                    # Execute market sell for this pyramid's quantity
+                    order_service = self.order_service_class(
+                        session=session,
+                        user=user,
+                        exchange_connector=connector
+                    )
 
-            if position_closed:
-                logger.info(f"OrderFillMonitor: Position {position_group.id} closed - all pyramid TPs executed")
+                    # Place market close order
+                    close_side = "SELL" if position_group.side.lower() == "long" else "BUY"
+                    sell_result = await order_service.place_market_order(
+                        user_id=user.id,
+                        exchange=position_group.exchange,
+                        symbol=position_group.symbol,
+                        side=close_side,
+                        quantity=total_qty,
+                        position_group_id=position_group.id,
+                        record_in_db=False,
+                        pyramid_id=pyramid.id
+                    )
+
+                    if sell_result:
+                        fill_price = Decimal(str(sell_result.get("avgPrice", sell_result.get("avg_fill_price", current_price))))
+                        exit_fee = Decimal(str(sell_result.get("cumulative_fee", sell_result.get("fee", 0)) or 0))
+
+                        # Calculate PnL
+                        pnl_usd = (fill_price - pyramid_avg_entry) * total_qty - exit_fee
+
+                        # Mark orders as TP hit
+                        for order in pyramid_filled_orders:
+                            order.tp_hit = True
+
+                        # Mark pyramid as CLOSED and store closure details
+                        from app.models.pyramid import PyramidStatus
+                        pyramid.status = PyramidStatus.CLOSED
+                        pyramid.closed_at = datetime.utcnow()
+                        pyramid.exit_price = fill_price
+                        pyramid.realized_pnl_usd = pnl_usd
+                        pyramid.total_quantity = total_qty
+
+                        # Update position stats
+                        position_group.total_filled_quantity -= total_qty
+                        position_group.realized_pnl_usd += pnl_usd
+                        position_group.total_exit_fees_usd += exit_fee
+
+                        # Count remaining open pyramids (not closed)
+                        remaining_pyramids = len([p for p in pyramids if p.id != pyramid.id and
+                            (p.status != PyramidStatus.CLOSED and p.status != PyramidStatus.CLOSED.value)])
+
+                        await broadcast_tp_hit(
+                            position_group=position_group,
+                            pyramid=pyramid,
+                            tp_type="pyramid_aggregate",
+                            tp_price=pyramid_tp_price,
+                            pnl_percent=tp_percent,
+                            session=session,
+                            pnl_usd=pnl_usd,
+                            closed_quantity=total_qty,
+                            remaining_pyramids=remaining_pyramids
+                        )
+
+                        logger.info(
+                            f"OrderFillMonitor: Executed Pyramid Aggregate TP for Pyramid {pyramid.pyramid_index} "
+                            f"- Realized PnL: {pnl_usd}, Exit Price: {fill_price}"
+                        )
+
+                # Check if all pyramids are closed
+                if position_group.total_filled_quantity <= 0:
+                    position_group.status = PositionGroupStatus.CLOSED
+                    position_group.closed_at = datetime.utcnow()
+                    position_group.unrealized_pnl_usd = Decimal("0")
+                    position_closed = True
+
+                    # Cancel any remaining open orders on the exchange
+                    order_service = self.order_service_class(
+                        session=session,
+                        user=user,
+                        exchange_connector=connector
+                    )
+                    await order_service.cancel_open_orders_for_group(position_group.id)
+
+                await position_group_repo.update(position_group)
+
+                if position_closed:
+                    logger.info(f"OrderFillMonitor: Position {position_group.id} closed - all pyramid TPs executed")
+                    # Clean up the lock since position is now closed
+                    await self._cleanup_position_lock(group_id_str)
 
         except Exception as e:
             logger.error(
