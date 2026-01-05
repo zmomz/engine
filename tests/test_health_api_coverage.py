@@ -244,8 +244,13 @@ async def test_comprehensive_health_check_all_ok(client: AsyncClient):
         "risk_engine": {"status": "running", "last_heartbeat": current_time - 30, "metrics": {}}
     })
 
-    with patch("app.api.health.get_cache", return_value=mock_cache):
-        response = await client.get("/api/v1/health/comprehensive")
+    # Mock watchdog health check to return healthy status
+    mock_watchdog_result = {"status": "healthy", "summary": {"healthy_tasks": 3, "degraded_tasks": 0, "unhealthy_tasks": 0}}
+
+    # get_cache is async, so we need AsyncMock for the patch
+    with patch("app.api.health.get_cache", new=AsyncMock(return_value=mock_cache)):
+        with patch("app.api.health.watchdog_health_check", new=AsyncMock(return_value=mock_watchdog_result)):
+            response = await client.get("/api/v1/health/comprehensive")
 
     assert response.status_code == 200
     data = response.json()

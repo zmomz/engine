@@ -883,11 +883,12 @@ async def test_create_position_group_market_entry_order(
         total_capital_usd=Decimal("1000")
     )
 
-    # When entry_order_type="market" and gap_percent <= 0, orders are PENDING
-    # and submitted immediately. Both levels have gap_percent <= 0 (0.0 and -0.5)
-    # so both should be submitted.
+    # When entry_order_type="market", orders with gap_percent >= 0 are PENDING
+    # and submitted immediately. Orders with gap_percent < 0 are TRIGGER_PENDING.
+    # Level 1: gap_percent=0.0 -> submitted (gap >= 0)
+    # Level 2: gap_percent=-0.5 -> TRIGGER_PENDING (gap < 0, waits for price)
     mock_order_service_instance = mock_order_service_class.return_value
-    assert mock_order_service_instance.submit_order.call_count == 2
+    assert mock_order_service_instance.submit_order.call_count == 1
 
 
 @pytest.mark.asyncio

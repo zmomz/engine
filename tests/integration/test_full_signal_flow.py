@@ -74,7 +74,7 @@ async def test_full_signal_flow_new_position(
         pyramid_custom_capitals={}
     )
     db_session.add(dca_config)
-    await db_session.commit()
+    await db_session.flush()
 
     webhook_payload = {
         "user_id": str(test_user.id),
@@ -168,7 +168,7 @@ async def test_full_signal_flow_new_position(
     await queue_manager.promote_highest_priority_signal(session=db_session)
 
     # 3. Verify database state
-    await db_session.commit() # Ensure transaction is committed so we can read the data
+    await db_session.flush() # Ensure transaction is committed so we can read the data
     
     # Check PositionGroup
     result = await db_session.execute(select(PositionGroup).where(PositionGroup.user_id == test_user.id))

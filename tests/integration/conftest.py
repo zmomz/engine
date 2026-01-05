@@ -1,4 +1,6 @@
 import pytest
+import httpx
+import os
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.main import app
@@ -23,6 +25,172 @@ from app.repositories.dca_order import DCAOrderRepository
 from app.core.security import create_access_token
 from unittest.mock import patch, MagicMock
 from contextlib import asynccontextmanager
+
+# =============================================================================
+# Integration Test User Configuration
+# =============================================================================
+# This dedicated test user is used for integration tests that hit the real
+# Docker environment. Using a separate user prevents tests from modifying
+# real user data.
+
+# Detect if running in Docker or locally
+_IN_DOCKER = os.path.exists("/.dockerenv") or os.environ.get("DOCKER_CONTAINER")
+INTEGRATION_BASE_URL = "http://app:8000" if _IN_DOCKER else "http://127.0.0.1:8000"
+INTEGRATION_MOCK_URL = "http://mock-exchange:9000" if _IN_DOCKER else "http://127.0.0.1:9000"
+
+# Integration test user credentials - DO NOT use real user accounts
+INTEGRATION_TEST_USER = "integration_test_user"
+INTEGRATION_TEST_PASSWORD = "integration_test_password_123"
+INTEGRATION_TEST_EMAIL = "integration_test@example.com"
+
+# These will be populated after user registration
+_integration_user_webhook_id: str = None
+_integration_user_webhook_secret: str = None
+
+
+async def ensure_integration_test_user_exists() -> dict:
+    """
+    Ensures the integration test user exists in the real database.
+    Creates the user if it doesn't exist, or logs in if it does.
+
+    Returns:
+        dict with keys: user_id, webhook_id, webhook_secret, access_token
+    """
+    global _integration_user_webhook_id, _integration_user_webhook_secret
+
+    # Quick health check first (3 second timeout) - fail fast if Docker not running
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as health_client:
+            health_response = await health_client.get(f"{INTEGRATION_BASE_URL}/api/v1/health/")
+            if health_response.status_code != 200:
+                raise RuntimeError(f"App health check failed: {health_response.status_code}")
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as e:
+        raise RuntimeError(f"Docker app not available at {INTEGRATION_BASE_URL}: {e}")
+
+    async with httpx.AsyncClient(timeout=30.0, base_url=INTEGRATION_BASE_URL) as client:
+        # First try to login
+        login_response = await client.post(
+            "/api/v1/users/login",
+            data={"username": INTEGRATION_TEST_USER, "password": INTEGRATION_TEST_PASSWORD}
+        )
+
+        if login_response.status_code == 200:
+            # User exists, get the token
+            tokens = login_response.json()
+            access_token = tokens["access_token"]
+
+            # Get user profile to retrieve webhook info
+            profile_response = await client.get(
+                "/api/v1/users/me",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+
+            if profile_response.status_code == 200:
+                profile = profile_response.json()
+                _integration_user_webhook_id = profile.get("id")
+                _integration_user_webhook_secret = profile.get("webhook_secret")
+
+                return {
+                    "user_id": _integration_user_webhook_id,
+                    "webhook_id": _integration_user_webhook_id,
+                    "webhook_secret": _integration_user_webhook_secret,
+                    "access_token": access_token
+                }
+
+        # User doesn't exist, register it
+        register_response = await client.post(
+            "/api/v1/users/register",
+            json={
+                "username": INTEGRATION_TEST_USER,
+                "email": INTEGRATION_TEST_EMAIL,
+                "password": INTEGRATION_TEST_PASSWORD
+            }
+        )
+
+        if register_response.status_code in (200, 201):
+            user_data = register_response.json()
+            _integration_user_webhook_id = user_data.get("id")
+            _integration_user_webhook_secret = user_data.get("webhook_secret")
+
+            # Login to get access token
+            login_response = await client.post(
+                "/api/v1/users/login",
+                data={"username": INTEGRATION_TEST_USER, "password": INTEGRATION_TEST_PASSWORD}
+            )
+            tokens = login_response.json()
+            access_token = tokens["access_token"]
+
+            # Configure mock exchange API keys for the test user
+            await client.post(
+                "/api/v1/settings/api-keys",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={
+                    "exchange": "mock",
+                    "api_key": "test_api_key",
+                    "secret_key": "test_secret_key"
+                }
+            )
+
+            return {
+                "user_id": _integration_user_webhook_id,
+                "webhook_id": _integration_user_webhook_id,
+                "webhook_secret": _integration_user_webhook_secret,
+                "access_token": access_token
+            }
+
+        raise RuntimeError(
+            f"Failed to create/login integration test user. "
+            f"Login status: {login_response.status_code}, "
+            f"Register status: {register_response.status_code}"
+        )
+
+
+def get_integration_test_credentials() -> tuple:
+    """
+    Returns the integration test user credentials.
+    Use this in test files instead of hardcoding credentials.
+
+    Returns:
+        tuple: (TEST_USER, TEST_PASSWORD, WEBHOOK_ID, WEBHOOK_SECRET)
+    """
+    return (
+        INTEGRATION_TEST_USER,
+        INTEGRATION_TEST_PASSWORD,
+        _integration_user_webhook_id,
+        _integration_user_webhook_secret
+    )
+
+
+# NOTE: Removed session-scoped event_loop fixture to allow pytest-asyncio
+# to create fresh event loops per test, avoiding interference between tests
+# that use db_session directly vs HTTP requests to Docker app.
+#
+# @pytest.fixture(scope="session")
+# def event_loop():
+#     """Create an instance of the default event loop for the test session."""
+#     import asyncio
+#     loop = asyncio.get_event_loop_policy().new_event_loop()
+#     yield loop
+#     loop.close()
+
+
+@pytest.fixture(scope="session")
+async def integration_test_user_credentials():
+    """
+    Session-scoped fixture that ensures the integration test user exists
+    and returns the credentials for use in tests.
+
+    Usage in tests:
+        async def test_something(integration_test_user_credentials):
+            creds = integration_test_user_credentials
+            webhook_id = creds["webhook_id"]
+            webhook_secret = creds["webhook_secret"]
+    """
+    try:
+        credentials = await ensure_integration_test_user_exists()
+        return credentials
+    except Exception as e:
+        pytest.skip(f"Could not setup integration test user: {e}")
 
 class MockEncryptionService:
     """A mock EncryptionService that always returns mock keys to avoid real decryption."""

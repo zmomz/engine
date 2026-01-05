@@ -70,6 +70,9 @@ async def test_binance_live_flow(
         # If price is 50,000, entry at 49,000
         entry_price = float(current_price) * 0.98
 
+    except (ccxt.NetworkError, ccxt.RequestTimeout, ccxt.ExchangeNotAvailable) as e:
+        await exchange.close()
+        pytest.skip(f"Binance Testnet is unreachable: {e}")
     finally:
         await exchange.close()
 
@@ -84,7 +87,7 @@ async def test_binance_live_flow(
         }
     }
     db_session.add(test_user)
-    await db_session.commit()
+    await db_session.flush()
     await db_session.refresh(test_user)
     print(f"[Setup] Configured user with Binance API keys")
 
@@ -109,7 +112,7 @@ async def test_binance_live_flow(
         pyramid_custom_capitals={}
     )
     db_session.add(dca_config)
-    await db_session.commit()
+    await db_session.flush()
     print(f"[Setup] Created DCA configuration for BTC/USDT timeframe 15 on BINANCE")
 
     # Set up app dependency override to use our db_session (without mocking encryption)
@@ -235,7 +238,7 @@ async def test_binance_live_flow(
             await queue_manager.promote_highest_priority_signal(session=db_session)
 
             # 3. Verify DB
-            await db_session.commit()
+            await db_session.flush()
             result = await db_session.execute(select(PositionGroup).where(PositionGroup.user_id == test_user.id))
             position_group = result.scalars().first()
             print(f"[Test] PositionGroup retrieved from DB: {position_group}")

@@ -62,7 +62,7 @@ async def test_exchange_api_timeout_on_order_submission(
         pyramid_custom_capitals={}
     )
     db_session.add(dca_config)
-    await db_session.commit()
+    await db_session.flush()
 
     # 0. Set up mock exchange to simulate a TimeoutError
     mock_exchange_connector = MagicMock()
@@ -173,7 +173,7 @@ async def test_exchange_api_timeout_on_order_submission(
         await queue_manager.promote_highest_priority_signal(session=db_session)
 
         # Commit to ensure changes are visible
-        await db_session.commit()
+        await db_session.flush()
 
         # 3. Verify
         # Expect place_order to have been called (and failed with TimeoutError)

@@ -246,8 +246,8 @@ class TestCreatePositionGroupFromSignal:
         # Should still complete successfully using alternative symbol format
 
     @pytest.mark.asyncio
-    async def test_market_order_with_positive_gap_gets_trigger_pending(self, mock_dependencies):
-        """Test market orders with positive gap_percent get TRIGGER_PENDING status."""
+    async def test_market_order_with_positive_gap_gets_submitted(self, mock_dependencies):
+        """Test market orders with gap_percent >= 0 get PENDING status and are submitted."""
         mock_dependencies["dca_config"].entry_order_type = "market"
         mock_dependencies["grid_calc"].calculate_order_quantities.return_value = [
             {"price": Decimal("50000"), "quantity": Decimal("0.01"), "gap_percent": Decimal("0"),
@@ -273,9 +273,10 @@ class TestCreatePositionGroupFromSignal:
                     update_position_stats_func=mock_dependencies["update_stats"],
                 )
 
-        # Only the first order (gap=0) should be submitted
-        # Second order (gap=2) should be TRIGGER_PENDING and not submitted
-        assert mock_dependencies["order_service"].submit_order.call_count == 1
+        # Both orders have gap_percent >= 0, so both should be submitted immediately
+        # gap=0: at entry price -> submit
+        # gap=2 (positive): price already better than target -> submit
+        assert mock_dependencies["order_service"].submit_order.call_count == 2
 
     @pytest.mark.asyncio
     async def test_handles_order_submission_failure(self, mock_dependencies):

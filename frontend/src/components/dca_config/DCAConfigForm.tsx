@@ -125,7 +125,7 @@ const DCALevelsEditor: React.FC<{
                 </Paper>
             ))}
 
-            <Button variant="outlined" onClick={() => append({ gap_percent: 1, weight_percent: 0, tp_percent: 1 })} sx={{ mt: 1 }} size="small">
+            <Button variant="outlined" onClick={() => append({ gap_percent: -1, weight_percent: 0, tp_percent: 1 })} sx={{ mt: 1 }} size="small">
                 Add Level
             </Button>
         </Box>

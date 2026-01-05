@@ -35,6 +35,7 @@ import {
   BackupRestoreCard,
   SettingsSectionCard,
 } from '../components/settings';
+import type { BackupData } from '../components/settings/BackupRestoreCard';
 import type { UserSettings } from '../store/configStore';
 import type {
   DCAConfiguration,
@@ -42,7 +43,6 @@ import type {
   DCAConfigurationUpdate,
   EntryOrderType,
   TPMode,
-  DCALevelConfig,
   TPSettings
 } from '../api/dcaConfig';
 
@@ -55,29 +55,7 @@ interface SettingsUpdatePayload extends Partial<UserSettings> {
   account_type?: string;
 }
 
-// Type for backup data structure (matches backupDataSchema from BackupRestoreCard)
-interface BackupDCALevel {
-  percent_of_total: number;
-  deviation_percent: number;
-  tp_percent?: number;
-}
-
-interface BackupDCAConfig {
-  pair: string;
-  timeframe: string;
-  exchange: string;
-  entry_order_type?: string;
-  dca_levels?: BackupDCALevel[];
-  pyramid_specific_levels?: Record<string, BackupDCALevel[]>;
-  tp_mode?: string;
-  tp_settings?: Record<string, unknown>;
-  max_pyramids?: number;
-}
-
-interface BackupData {
-  risk_config?: Record<string, unknown>;
-  dca_configurations?: BackupDCAConfig[];
-}
+// BackupData type is imported from BackupRestoreCard
 
 // Zod Schemas
 const telegramConfigSchema = z.object({
@@ -465,8 +443,10 @@ const SettingsPage: React.FC = () => {
       let updatedCount = 0;
 
       for (const dcaConfig of parsed.dca_configurations) {
-        // Convert backup timeframe (string like "15") to number for comparison
-        const timeframeNum = parseInt(dcaConfig.timeframe, 10);
+        // Convert backup timeframe (string or number) to number for comparison
+        const timeframeNum = typeof dcaConfig.timeframe === 'number'
+          ? dcaConfig.timeframe
+          : parseInt(dcaConfig.timeframe, 10);
         const existing = existingConfigs.find(
           (c: DCAConfiguration) =>
             c.pair === dcaConfig.pair &&
@@ -474,37 +454,38 @@ const SettingsPage: React.FC = () => {
             c.timeframe === timeframeNum
         );
 
-        // Convert backup DCA levels to API format
-        const convertLevels = (levels?: BackupDCALevel[]): DCALevelConfig[] | undefined => {
-          if (!levels) return undefined;
-          return levels.map(level => ({
-            gap_percent: level.deviation_percent,
-            weight_percent: level.percent_of_total,
-            tp_percent: level.tp_percent ?? 0,
-          }));
-        };
+        // DCA levels from backup already use correct field names (gap_percent, weight_percent, tp_percent)
+        const dcaLevels = dcaConfig.dca_levels?.map(level => ({
+          gap_percent: level.gap_percent,
+          weight_percent: level.weight_percent,
+          tp_percent: level.tp_percent ?? 0,
+        }));
 
-        const convertPyramidLevels = (levels?: Record<string, BackupDCALevel[]>): Record<string, DCALevelConfig[]> | undefined => {
-          if (!levels) return undefined;
-          const result: Record<string, DCALevelConfig[]> = {};
-          for (const [key, value] of Object.entries(levels)) {
-            result[key] = value.map(level => ({
-              gap_percent: level.deviation_percent,
-              weight_percent: level.percent_of_total,
-              tp_percent: level.tp_percent ?? 0,
-            }));
-          }
-          return result;
-        };
+        const pyramidLevels = dcaConfig.pyramid_specific_levels
+          ? Object.fromEntries(
+              Object.entries(dcaConfig.pyramid_specific_levels).map(([key, levels]) => [
+                key,
+                levels.map(level => ({
+                  gap_percent: level.gap_percent,
+                  weight_percent: level.weight_percent,
+                  tp_percent: level.tp_percent ?? 0,
+                }))
+              ])
+            )
+          : undefined;
 
         if (existing) {
           const updateData: DCAConfigurationUpdate = {
             entry_order_type: dcaConfig.entry_order_type as EntryOrderType | undefined,
-            dca_levels: convertLevels(dcaConfig.dca_levels),
-            pyramid_specific_levels: convertPyramidLevels(dcaConfig.pyramid_specific_levels),
+            dca_levels: dcaLevels,
+            pyramid_specific_levels: pyramidLevels,
             tp_mode: dcaConfig.tp_mode as TPMode | undefined,
             tp_settings: dcaConfig.tp_settings as TPSettings | undefined,
             max_pyramids: dcaConfig.max_pyramids,
+            // Capital override settings
+            use_custom_capital: dcaConfig.use_custom_capital,
+            custom_capital_usd: dcaConfig.custom_capital_usd,
+            pyramid_custom_capitals: dcaConfig.pyramid_custom_capitals,
           };
           await dcaConfigApi.update(existing.id, updateData);
           updatedCount++;
@@ -514,11 +495,15 @@ const SettingsPage: React.FC = () => {
             timeframe: timeframeNum,
             exchange: dcaConfig.exchange,
             entry_order_type: (dcaConfig.entry_order_type as EntryOrderType) ?? 'limit',
-            dca_levels: convertLevels(dcaConfig.dca_levels) ?? [],
-            pyramid_specific_levels: convertPyramidLevels(dcaConfig.pyramid_specific_levels),
+            dca_levels: dcaLevels ?? [],
+            pyramid_specific_levels: pyramidLevels,
             tp_mode: (dcaConfig.tp_mode as TPMode) ?? 'per_leg',
             tp_settings: (dcaConfig.tp_settings as TPSettings) ?? {},
             max_pyramids: dcaConfig.max_pyramids,
+            // Capital override settings
+            use_custom_capital: dcaConfig.use_custom_capital,
+            custom_capital_usd: dcaConfig.custom_capital_usd,
+            pyramid_custom_capitals: dcaConfig.pyramid_custom_capitals,
           };
           await dcaConfigApi.create(createData);
           createdCount++;

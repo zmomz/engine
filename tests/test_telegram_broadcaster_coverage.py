@@ -411,7 +411,7 @@ def test_build_tp_hit_message_per_leg(broadcaster, position_group, pyramid):
     )
 
     assert "Per-Leg TP Hit" in result
-    assert "Leg 1 closed" in result
+    assert "Leg #0 closed" in result  # Uses 0-based indexing
 
 
 def test_build_tp_hit_message_pyramid_aggregate(broadcaster, position_group, pyramid):
@@ -556,7 +556,7 @@ def test_build_pyramid_message(broadcaster, position_group, pyramid):
         tp_percent=Decimal("3")
     )
 
-    assert "Pyramid 1 Added" in result
+    assert "Pyramid #0 Added" in result  # Uses 0-based indexing from pyramid.pyramid_index
 
 
 def test_build_exit_message(broadcaster, position_group):

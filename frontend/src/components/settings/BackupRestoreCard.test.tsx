@@ -320,6 +320,7 @@ describe('BackupRestoreCard', () => {
         <BackupRestoreCard settings={defaultSettings} onRestore={mockOnRestore} />
       );
 
+      // DCA levels use gap_percent (0 or negative) and weight_percent (0-100)
       const backupWithDCA = JSON.stringify({
         exchange: 'binance',
         risk_config: {},
@@ -330,8 +331,8 @@ describe('BackupRestoreCard', () => {
             exchange: 'binance',
             entry_order_type: 'market',
             dca_levels: [
-              { percent_of_total: 50, deviation_percent: 1 },
-              { percent_of_total: 50, deviation_percent: 2 },
+              { weight_percent: 50, gap_percent: 0, tp_percent: 2 },
+              { weight_percent: 50, gap_percent: -2, tp_percent: 1.5 },
             ],
             tp_mode: 'per_leg',
             max_pyramids: 2,

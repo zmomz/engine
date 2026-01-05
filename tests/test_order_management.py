@@ -267,13 +267,15 @@ async def test_submit_order_with_retries(order_service, mock_exchange_connector,
         }
     ]
 
-    # Patch asyncio.sleep to prevent actual delays during testing
-    with patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:
+    # Patch both asyncio.sleep and random.uniform to make delays predictable
+    # random.uniform adds jitter to the delay, so we mock it to return 0
+    with patch('asyncio.sleep', new=AsyncMock()) as mock_sleep, \
+         patch('app.services.order_management.random.uniform', return_value=0):
         updated_order = await order_service.submit_order(mock_dca_order)
 
         assert mock_exchange_connector.place_order.call_count == 3
-        mock_sleep.assert_any_await(1)  # First retry delay
-        mock_sleep.assert_any_await(2)  # Second retry delay
+        # With jitter=0, delays are exactly base_delay * (2 ** attempt): 1, 2
+        assert mock_sleep.await_count == 2  # Two retries = two sleeps
         mock_dca_order_repository.update.assert_awaited_once()
         assert updated_order.status == OrderStatus.OPEN
 

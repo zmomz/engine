@@ -152,10 +152,14 @@ class TestCancelOrderExceptionHandling:
     async def test_cancel_order_order_not_found(self, order_service, mock_exchange_connector):
         """Test cancel_order when order not found on exchange."""
         dca_order = MagicMock()
+        dca_order.id = uuid.uuid4()
         dca_order.exchange_order_id = "order_123"
         dca_order.symbol = "BTC/USDT"
 
+        # Cancel raises OrderNotFound
         mock_exchange_connector.cancel_order.side_effect = ccxt.OrderNotFound("Order not found")
+        # Verification also raises OrderNotFound - order truly doesn't exist
+        mock_exchange_connector.get_order_status.side_effect = ccxt.OrderNotFound("Order not found")
 
         result = await order_service.cancel_order(dca_order)
 

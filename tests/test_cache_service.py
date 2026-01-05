@@ -147,13 +147,14 @@ class TestCacheServiceClose:
     async def test_close_connected(self):
         """Test closing an active connection."""
         cache = CacheService()
-        cache._redis = AsyncMock()
-        cache._redis.close = AsyncMock()
+        mock_redis = AsyncMock()
+        mock_redis.close = AsyncMock()
+        cache._redis = mock_redis
         cache._connected = True
 
         await cache.close()
 
-        cache._redis.close.assert_called_once()
+        mock_redis.close.assert_called_once()
         assert cache._connected is False
 
     @pytest.mark.asyncio
@@ -244,11 +245,14 @@ class TestCacheServiceSet:
 
     @pytest.mark.asyncio
     async def test_set_not_connected(self):
-        """Test set when not connected."""
+        """Test set when not connected and reconnection fails."""
         cache = CacheService()
         cache._connected = False
+        cache._connection_attempted = True  # Prevent reconnection attempts
 
-        result = await cache.set("test_key", {"data": "value"})
+        # Mock _ensure_connected to return False (simulating failed reconnection)
+        with patch.object(cache, '_ensure_connected', new=AsyncMock(return_value=False)):
+            result = await cache.set("test_key", {"data": "value"})
 
         assert result is False
 
@@ -283,11 +287,14 @@ class TestCacheServiceDelete:
 
     @pytest.mark.asyncio
     async def test_delete_not_connected(self):
-        """Test delete when not connected."""
+        """Test delete when not connected and reconnection fails."""
         cache = CacheService()
         cache._connected = False
+        cache._connection_attempted = True  # Prevent reconnection attempts
 
-        result = await cache.delete("test_key")
+        # Mock _ensure_connected to return False (simulating failed reconnection)
+        with patch.object(cache, '_ensure_connected', new=AsyncMock(return_value=False)):
+            result = await cache.delete("test_key")
 
         assert result is False
 

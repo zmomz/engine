@@ -263,10 +263,6 @@ class RiskEngineConfig(BaseModel):
         description="Maximum realized loss in USD. When reached, queue stops releasing trades but risk engine continues."
     )
 
-    # Position Sizing
-    risk_per_position_percent: Decimal = Field(Decimal("10.0"), description="Percentage of available capital to allocate to a single position group.")
-    risk_per_position_cap_usd: Optional[Decimal] = Field(None, description="Maximum absolute USD amount to allocate to a single position group (optional cap).")
-
     # Post-trade Risk Management - Timer Conditions
     loss_threshold_percent: Decimal = Field(
         default=Decimal("-1.5"),
@@ -334,8 +330,6 @@ class RiskEngineConfig(BaseModel):
             'loss_threshold_percent',
             'max_total_exposure_usd',
             'max_realized_loss_usd',
-            'risk_per_position_percent',
-            'risk_per_position_cap_usd'
         ]
         for key in decimal_fields:
             if key in values and isinstance(values[key], float):
@@ -357,7 +351,9 @@ class RiskEngineConfig(BaseModel):
             'reset_timer_on_replacement',
             'min_close_notional',
             'cancel_orders_on_partial_close',
-            'post_full_wait_minutes'
+            'post_full_wait_minutes',
+            'risk_per_position_percent',
+            'risk_per_position_cap_usd',
         ]
         for field in deprecated_fields:
             values.pop(field, None)

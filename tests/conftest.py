@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 import asyncio
 import os
 import uuid
@@ -49,7 +50,13 @@ async def test_db_engine():
             "Please set DATABASE_URL to a test database (e.g., ending in '_test')."
         )
 
-    engine = create_async_engine(DATABASE_URL, echo=False)
+    # Use NullPool to avoid connection pooling issues in tests
+    # Each connection is created fresh and closed immediately after use
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        poolclass=NullPool
+    )
 
     # Create ENUM types in a separate transaction - they persist even if already exist
     from sqlalchemy import text
@@ -76,22 +83,39 @@ async def test_db_engine():
 
     yield engine
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    # Dispose all connections before dropping tables to avoid transaction conflicts
+    await engine.dispose()
+
+    # Create a fresh engine for cleanup with NullPool
+    cleanup_engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
+    try:
+        async with cleanup_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    finally:
+        await cleanup_engine.dispose()
 
 @pytest.fixture(scope="function")
 async def db_session(test_db_engine):
     async_session = sessionmaker(
         test_db_engine, class_=AsyncSession, expire_on_commit=False
     )
-    async with async_session() as session:
+    session = async_session()
+    try:
+        yield session
+    finally:
+        # Always rollback to clean up any failed transactions
+        # This prevents "InFailedSQLTransactionError" from cascading to other tests
         try:
-            yield session
-        finally:
-            # Always rollback to clean up any failed transactions
-            # This prevents "InFailedSQLTransactionError" from cascading to other tests
+            # Give any pending operations a small window to complete
+            await asyncio.sleep(0)
             await session.rollback()
+        except Exception:
+            pass
+        try:
             await session.close()
+        except Exception:
+            # Force close if normal close fails
+            pass
 
 
 @pytest.fixture(scope="function")
@@ -110,8 +134,15 @@ async def create_user_with_configs(db_session: AsyncSession):
             return [convert_decimals_to_str(elem) for elem in obj]
         return obj
 
-    async def _factory(username: str = "testuser", email: str = "test@example.com",
+    async def _factory(username: str = None, email: str = None,
                        webhook_secret: str = "secret") -> User:
+        # Generate unique username and email to avoid constraint violations
+        unique_id = uuid.uuid4().hex[:8]
+        if username is None:
+            username = f"testuser_{unique_id}"
+        if email is None:
+            email = f"test_{unique_id}@example.com"
+
         hashed_pwd = get_password_hash(TEST_PASSWORD)
 
         # Generate valid encrypted keys
@@ -137,8 +168,7 @@ async def create_user_with_configs(db_session: AsyncSession):
             risk_config=convert_decimals_to_str(risk_config_data)
         )
         db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
+        await db_session.flush()  # Use flush instead of commit
         return user
     
     return _factory

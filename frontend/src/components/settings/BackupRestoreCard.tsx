@@ -9,22 +9,31 @@ import { z } from 'zod';
 import type { DCAConfiguration } from '../../api/dcaConfig';
 
 // Schema for validating backup file structure
+// DCA level fields:
+// - gap_percent: deviation from entry price (0 or negative, e.g., 0, -1, -2, -3)
+// - weight_percent: percentage of capital for this level (0-100, must sum to 100)
+// - tp_percent: take profit percentage for this level (positive)
+// Using z.coerce.number() to handle both string and number inputs from backup files
 const dcaLevelSchema = z.object({
-  percent_of_total: z.number().min(0).max(100),
-  deviation_percent: z.number().min(0),
-  tp_percent: z.number().min(0).optional(),
+  gap_percent: z.coerce.number().max(0),  // Must be 0 or negative
+  weight_percent: z.coerce.number().min(0).max(100),
+  tp_percent: z.coerce.number().min(0).optional(),
 });
 
 const dcaConfigSchema = z.object({
   pair: z.string().min(1),
-  timeframe: z.string().min(1),
+  timeframe: z.union([z.string().min(1), z.number()]),  // Accept both string and number
   exchange: z.string().min(1),
   entry_order_type: z.string().optional(),
   dca_levels: z.array(dcaLevelSchema).optional(),
   pyramid_specific_levels: z.record(z.array(dcaLevelSchema)).optional(),
   tp_mode: z.string().optional(),
   tp_settings: z.record(z.unknown()).optional(),
-  max_pyramids: z.number().min(1).max(100).optional(),
+  max_pyramids: z.coerce.number().min(0).max(100).optional(),  // Allow 0 (no pyramids)
+  // Capital override settings
+  use_custom_capital: z.boolean().optional(),
+  custom_capital_usd: z.coerce.number().min(0).optional(),
+  pyramid_custom_capitals: z.record(z.coerce.number()).optional(),
 });
 
 const riskConfigSchema = z.object({
@@ -52,6 +61,9 @@ const backupDataSchema = z.object({
   dca_configurations: z.array(dcaConfigSchema).optional(),
 });
 
+// Export type for use in parent components
+export type BackupData = z.infer<typeof backupDataSchema>;
+
 // Type for settings prop (matches UserSettings from authStore)
 interface SettingsType {
   risk_config?: Record<string, unknown>;
@@ -73,6 +85,33 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
       const { dcaConfigApi } = await import('../../api/dcaConfig');
       const dcaConfigs = await dcaConfigApi.getAll();
 
+      // Helper to convert string numbers to actual numbers for cleaner backup output
+      const toNumber = (val: string | number | undefined): number | undefined => {
+        if (val === undefined || val === null) return undefined;
+        const num = typeof val === 'string' ? parseFloat(val) : val;
+        return isNaN(num) ? undefined : num;
+      };
+
+      const convertDcaLevels = (levels: DCAConfiguration['dca_levels']) =>
+        levels?.map(level => ({
+          gap_percent: toNumber(level.gap_percent) ?? 0,
+          weight_percent: toNumber(level.weight_percent) ?? 0,
+          tp_percent: toNumber(level.tp_percent) ?? 0,
+        }));
+
+      const convertPyramidLevels = (levels: DCAConfiguration['pyramid_specific_levels']) => {
+        if (!levels) return undefined;
+        const result: Record<string, { gap_percent: number; weight_percent: number; tp_percent: number }[]> = {};
+        for (const [key, value] of Object.entries(levels)) {
+          result[key] = value.map(level => ({
+            gap_percent: toNumber(level.gap_percent) ?? 0,
+            weight_percent: toNumber(level.weight_percent) ?? 0,
+            tp_percent: toNumber(level.tp_percent) ?? 0,
+          }));
+        }
+        return result;
+      };
+
       const backupData = {
         risk_config: settings?.risk_config,
         dca_configurations: dcaConfigs.map((config: DCAConfiguration) => ({
@@ -80,11 +119,19 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
           timeframe: config.timeframe,
           exchange: config.exchange,
           entry_order_type: config.entry_order_type,
-          dca_levels: config.dca_levels,
-          pyramid_specific_levels: config.pyramid_specific_levels,
+          dca_levels: convertDcaLevels(config.dca_levels),
+          pyramid_specific_levels: convertPyramidLevels(config.pyramid_specific_levels),
           tp_mode: config.tp_mode,
           tp_settings: config.tp_settings,
           max_pyramids: config.max_pyramids,
+          // Capital override settings
+          use_custom_capital: config.use_custom_capital,
+          custom_capital_usd: toNumber(config.custom_capital_usd),
+          pyramid_custom_capitals: config.pyramid_custom_capitals
+            ? Object.fromEntries(
+                Object.entries(config.pyramid_custom_capitals).map(([k, v]) => [k, toNumber(v) ?? 0])
+              )
+            : undefined,
         })),
       };
 

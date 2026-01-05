@@ -289,10 +289,14 @@ class TestShutdownEvent:
         mock_risk_engine = MagicMock()
         mock_risk_engine.stop_monitoring_task = AsyncMock()
 
+        mock_watchdog = MagicMock()
+        mock_watchdog.stop = AsyncMock()
+
         mock_renewal_task = MagicMock()
         mock_renewal_task.cancel = MagicMock()
 
-        with patch('app.main.get_cache', return_value=mock_cache):
+        # get_cache is async, so we need AsyncMock for the patch
+        with patch('app.main.get_cache', new=AsyncMock(return_value=mock_cache)):
             from app.main import shutdown_event, app
 
             # Set up app state as if it was leader
@@ -300,11 +304,13 @@ class TestShutdownEvent:
             app.state.order_fill_monitor = mock_order_monitor
             app.state.queue_manager_service = mock_queue_manager
             app.state.risk_engine_service = mock_risk_engine
+            app.state.watchdog = mock_watchdog
             app.state.leader_renewal_task = mock_renewal_task
 
             await shutdown_event()
 
             # Verify all services were stopped
+            mock_watchdog.stop.assert_called_once()
             mock_order_monitor.stop_monitoring_task.assert_called_once()
             mock_queue_manager.stop_promotion_task.assert_called_once()
             mock_risk_engine.stop_monitoring_task.assert_called_once()
