@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -12,6 +13,7 @@ import {
   Tooltip,
   Divider
 } from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import StopIcon from '@mui/icons-material/Stop';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -30,6 +32,7 @@ import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { safeToFixed, safeNumber } from '../utils/formatters';
 
 const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   const { data, loading, error, fetchDashboardData } = useDashboardStore();
   const {
     status: riskStatus,
@@ -87,7 +90,10 @@ const DashboardPage: React.FC = () => {
     if (riskStatus?.engine_force_stopped) {
       return { label: 'Stopped', color: 'error' as const, icon: <StopIcon fontSize="small" /> };
     }
-    if (riskStatus?.engine_paused_by_loss_limit) {
+    // Check if loss limit exceeded (frontend calculation)
+    const limit = safeNumber(riskStatus?.max_realized_loss_usd ?? 500);
+    const loss = Math.abs(Math.min(0, safeNumber(riskStatus?.daily_realized_pnl ?? 0)));
+    if (loss >= limit || riskStatus?.engine_paused_by_loss_limit) {
       return { label: 'Paused', color: 'warning' as const, icon: <PauseIcon fontSize="small" /> };
     }
     return { label: 'Running', color: 'success' as const, icon: <CheckCircleIcon fontSize="small" /> };
@@ -405,7 +411,7 @@ const DashboardPage: React.FC = () => {
 
               {/* Control Buttons */}
               <Box sx={{ display: 'flex', gap: 1, mb: 3, flexWrap: 'wrap' }}>
-                {riskStatus?.engine_force_stopped ? (
+                {riskStatus?.engine_force_stopped || lossLimitUsage >= 100 ? (
                   <Button
                     variant="contained"
                     color="success"
@@ -438,9 +444,23 @@ const DashboardPage: React.FC = () => {
               </Box>
 
               {/* Warning messages */}
-              {riskStatus?.engine_paused_by_loss_limit && (
-                <Alert severity="warning" sx={{ mb: 2 }} icon={<WarningAmberIcon />}>
-                  Queue paused: Loss limit reached. No new trades until reset.
+              {lossLimitUsage >= 100 && (
+                <Alert
+                  severity="warning"
+                  sx={{ mb: 2 }}
+                  icon={<WarningAmberIcon />}
+                  action={
+                    <Button
+                      color="inherit"
+                      size="small"
+                      startIcon={<SettingsIcon />}
+                      onClick={() => navigate('/settings')}
+                    >
+                      Adjust Limit
+                    </Button>
+                  }
+                >
+                  Queue paused: Loss limit reached. Increase the limit in Settings to resume.
                 </Alert>
               )}
               {riskStatus?.engine_force_stopped && (

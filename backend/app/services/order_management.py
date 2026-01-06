@@ -332,6 +332,88 @@ class OrderService:
                 error_message=error_message or "Could not cancel or verify order status"
             )
 
+    async def _find_existing_tp_order(self, dca_order: DCAOrder) -> Optional[Dict[str, Any]]:
+        """
+        Check exchange for an existing TP order that matches this DCA order.
+
+        This prevents duplicate TP orders when a deadlock causes DB rollback
+        after TP was already placed on the exchange.
+
+        Args:
+            dca_order: The filled DCA order to find TP for
+
+        Returns:
+            Exchange order data if matching TP found, None otherwise
+        """
+        try:
+            # Determine expected TP parameters
+            tp_side = "sell" if dca_order.side.lower() == "buy" else "buy"
+            expected_qty = dca_order.filled_quantity
+
+            # Calculate expected TP price
+            if dca_order.avg_fill_price and dca_order.avg_fill_price > 0 and dca_order.tp_percent > 0:
+                if dca_order.side.lower() == "buy":
+                    expected_tp_price = dca_order.avg_fill_price * (Decimal("1") + dca_order.tp_percent / Decimal("100"))
+                else:
+                    expected_tp_price = dca_order.avg_fill_price * (Decimal("1") - dca_order.tp_percent / Decimal("100"))
+            else:
+                expected_tp_price = dca_order.tp_price
+
+            if not expected_tp_price:
+                return None
+
+            # Fetch open orders from exchange
+            # Try different methods depending on connector type
+            open_orders = []
+            try:
+                if hasattr(self.exchange_connector, 'get_open_orders'):
+                    open_orders = await self.exchange_connector.get_open_orders(dca_order.symbol)
+                elif hasattr(self.exchange_connector, 'fetch_open_orders'):
+                    open_orders = await self.exchange_connector.fetch_open_orders(dca_order.symbol)
+            except Exception as fetch_err:
+                logger.debug(f"Could not fetch open orders for duplicate TP check: {fetch_err}")
+                return None
+
+            if not open_orders:
+                return None
+
+            # Look for a matching TP order
+            # Match criteria: same symbol, opposite side, similar price (within 0.5%), similar quantity
+            price_tolerance = expected_tp_price * Decimal("0.005")  # 0.5% tolerance
+            qty_tolerance = expected_qty * Decimal("0.01")  # 1% tolerance
+
+            for order in open_orders:
+                order_side = order.get("side", "").lower()
+                order_price = Decimal(str(order.get("price", 0)))
+                order_qty = Decimal(str(order.get("amount", order.get("quantity", order.get("qty", 0)))))
+                order_type = order.get("type", "").lower()
+
+                # Must be a limit order on the TP side
+                if order_side != tp_side or order_type != "limit":
+                    continue
+
+                # Check price match
+                if abs(order_price - expected_tp_price) > price_tolerance:
+                    continue
+
+                # Check quantity match
+                if abs(order_qty - expected_qty) > qty_tolerance:
+                    continue
+
+                # Found a match!
+                logger.warning(
+                    f"Found potential duplicate TP on exchange: order_id={order.get('id')}, "
+                    f"price={order_price} (expected {expected_tp_price}), "
+                    f"qty={order_qty} (expected {expected_qty})"
+                )
+                return order
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error checking for existing TP order: {e}")
+            return None
+
     async def place_tp_order(
         self,
         dca_order: DCAOrder,
@@ -355,6 +437,17 @@ class OrderService:
             return dca_order
 
         try:
+            # SAFEGUARD: Check exchange for existing TP orders to prevent duplicates
+            # This handles the case where a previous TP was placed but DB was rolled back
+            existing_tp = await self._find_existing_tp_order(dca_order)
+            if existing_tp:
+                logger.info(
+                    f"Found existing TP order {existing_tp['id']} on exchange for order {dca_order.id}. "
+                    f"Linking instead of creating duplicate."
+                )
+                dca_order.tp_order_id = existing_tp["id"]
+                await self.dca_order_repository.update(dca_order)
+                return dca_order
             # Determine TP side
             tp_side = "SELL" if dca_order.side.upper() == "BUY" else "BUY"
 
@@ -438,6 +531,17 @@ class OrderService:
             return dca_order
 
         try:
+            # SAFEGUARD: Check exchange for existing TP orders to prevent duplicates
+            existing_tp = await self._find_existing_tp_order(dca_order)
+            if existing_tp:
+                logger.info(
+                    f"Found existing TP order {existing_tp['id']} on exchange for partial fill {dca_order.id}. "
+                    f"Linking instead of creating duplicate."
+                )
+                dca_order.tp_order_id = existing_tp["id"]
+                await self.dca_order_repository.update(dca_order)
+                return dca_order
+
             # Determine TP side
             tp_side = "SELL" if dca_order.side.upper() == "BUY" else "BUY"
 

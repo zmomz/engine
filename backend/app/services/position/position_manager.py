@@ -210,12 +210,26 @@ class PositionManagerService:
 
     async def _execute_update_position_stats(self, session: AsyncSession, group_id: uuid.UUID) -> Optional[PositionGroup]:
         position_group_repo = self.position_group_repository_class(session)
+
+        # Expire the position group from session cache to ensure fresh data
+        # This prevents stale relationship data when orders fill in rapid succession
+        try:
+            cached_pg = await session.get(PositionGroup, group_id)
+            if cached_pg:
+                await session.refresh(cached_pg)
+                session.expire(cached_pg)
+        except Exception:
+            pass  # Object not in session, will load fresh
+
         position_group = await position_group_repo.get_with_orders(group_id, refresh=True)
         if not position_group:
             logger.error(f"PositionGroup {group_id} not found for stats update.")
             return None
 
-        all_orders = list(position_group.dca_orders)
+        # Get all orders via direct query to avoid relationship caching issues
+        orders_query = select(DCAOrder).where(DCAOrder.group_id == group_id)
+        orders_result = await session.execute(orders_query)
+        all_orders = list(orders_result.scalars().all())
 
         # --- 1. Update Pyramid Statuses ---
         pyramid_orders = {}
@@ -395,8 +409,9 @@ class PositionManagerService:
                 position_group.unrealized_pnl_usd = Decimal("0")
                 position_group.unrealized_pnl_percent = Decimal("0")
 
-            # Update Legs Count
-            filled_entry_legs = sum(1 for o in filled_orders if o.leg_index != 999 and not o.tp_hit)
+            # Update Legs Count - count all filled entry orders (excluding TP fill records with leg_index=999)
+            # Note: tp_hit flag should NOT affect this count - filled_dca_legs means "entry orders that filled"
+            filled_entry_legs = sum(1 for o in filled_orders if o.leg_index != 999)
             position_group.filled_dca_legs = filled_entry_legs
 
             # Status Transition Logic

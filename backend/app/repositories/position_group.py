@@ -175,6 +175,19 @@ class PositionGroupRepository(BaseRepository[PositionGroup]):
         )
         return result.scalars().first()
 
+    async def get_closing_by_user(self, user_id: uuid.UUID) -> list[PositionGroup]:
+        """
+        Retrieves all position groups in 'closing' status for a given user.
+        Used for recovery of stuck closing positions.
+        """
+        result = await self.session.execute(
+            select(self.model).where(
+                self.model.user_id == user_id,
+                self.model.status == "closing"
+            )
+        )
+        return result.scalars().all()
+
     async def get_daily_realized_pnl(self, user_id: uuid.UUID, query_date: date = None) -> Decimal:
         """
         Calculates the total realized PnL for a user on a specific date (UTC).
