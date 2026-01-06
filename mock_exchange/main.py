@@ -12,7 +12,7 @@ from decimal import Decimal, ROUND_DOWN
 from fastapi import FastAPI, HTTPException, Depends, Request, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import httpx
@@ -41,6 +41,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Global exception handler - returns JSON with actual error details
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return JSON with details."""
+    import traceback
+    error_detail = {
+        "error": str(exc),
+        "type": type(exc).__name__,
+        "path": str(request.url.path),
+        "traceback": traceback.format_exc()
+    }
+    logger.error(f"Unhandled exception: {error_detail}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "type": type(exc).__name__, "traceback": traceback.format_exc()}
+    )
 
 
 # ============================================================================
