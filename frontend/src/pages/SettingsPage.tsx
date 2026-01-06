@@ -53,6 +53,7 @@ interface SettingsUpdatePayload extends Partial<UserSettings> {
   key_target_exchange?: string;
   testnet?: boolean;
   account_type?: string;
+  secure_signals?: boolean;
 }
 
 // BackupData type is imported from BackupRestoreCard
@@ -143,6 +144,7 @@ const appSettingsSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   email: z.string().email('Invalid email address'),
   webhook_secret: z.string().optional(),
+  secure_signals: z.boolean(),
 });
 
 const formSchema = z.object({
@@ -241,6 +243,7 @@ const SettingsPage: React.FC = () => {
         username: settings?.username || '',
         email: settings?.email || '',
         webhook_secret: settings?.webhook_secret || '',
+        secure_signals: settings?.secure_signals ?? true,
       },
       telegramSettings: {
         enabled: false,
@@ -298,6 +301,7 @@ const SettingsPage: React.FC = () => {
           username: settings.username,
           email: settings.email,
           webhook_secret: settings.webhook_secret,
+          secure_signals: settings.secure_signals ?? true,
         },
         telegramSettings: {
           // Defaults merged with saved settings to handle new fields
@@ -349,6 +353,7 @@ const SettingsPage: React.FC = () => {
       username: data.appSettings.username,
       email: data.appSettings.email,
       webhook_secret: data.appSettings.webhook_secret,
+      secure_signals: data.appSettings.secure_signals,
       telegram_config: data.telegramSettings,
     };
 

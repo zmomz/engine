@@ -12,6 +12,7 @@ class UserBase(BaseModel):
     is_superuser: Optional[bool] = False
     webhook_secret: Optional[str] = None
     risk_config: Optional[RiskEngineConfig] = None
+    secure_signals: Optional[bool] = True  # When False, webhook secret validation is skipped
 
 class UserCreate(UserBase):
     password: str
@@ -30,6 +31,7 @@ class UserUpdate(BaseModel):
     account_type: Optional[str] = None # Added for input
     risk_config: Optional[RiskEngineConfig] = None
     telegram_config: Optional[Dict[str, Any]] = None
+    secure_signals: Optional[bool] = None  # Toggle webhook secret validation
 
 class UserInDB(UserBase):
     id: uuid.UUID

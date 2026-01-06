@@ -222,6 +222,7 @@ const defaultSettings = {
   username: 'testuser',
   email: 'test@example.com',
   webhook_secret: 'secret',
+  secure_signals: true,
   configured_exchanges: ['binance'],
   configured_exchange_details: {
     binance: { testnet: false, account_type: 'spot' }

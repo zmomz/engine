@@ -38,20 +38,29 @@ class SignatureValidator:
                 detail="Invalid JSON payload.",
             )
 
-        received_secret = payload.get("secret")
-        if not received_secret:
-            logger.warning(f"Webhook auth failed: Missing secret from IP {client_ip} for user_id {user_id}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing secret in payload.",
-            )
-
+        # Look up the user first (always required for routing)
         user = await user_repo.get_by_id(user_id)
         if not user:
             logger.warning(f"Webhook auth failed: User not found for user_id {user_id} from IP {client_ip}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found.",
+            )
+
+        # Check if secure_signals is enabled for this user
+        # If disabled, skip secret validation entirely
+        if not user.secure_signals:
+            logger.info(f"Webhook security disabled for user {user.username} (ID: {user_id}) - skipping secret validation")
+            request.state.user = user
+            return user
+
+        # Secure signals enabled - validate the secret
+        received_secret = payload.get("secret")
+        if not received_secret:
+            logger.warning(f"Webhook auth failed: Missing secret from IP {client_ip} for user_id {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing secret in payload.",
             )
 
         # Validate the secret

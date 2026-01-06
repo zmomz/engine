@@ -41,8 +41,7 @@ class RiskInfo(BaseModel):
     max_slippage_percent: float
 
 class WebhookPayload(BaseModel):
-    user_id: uuid.UUID
-    secret: str
+    secret: Optional[str] = None  # Optional when user has secure_signals=False
     source: str
     timestamp: datetime
     tv: TradingViewData

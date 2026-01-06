@@ -7,6 +7,7 @@ export interface User {
   username: string;
   email: string;
   webhook_secret: string;
+  secure_signals: boolean;
   configured_exchanges: string[];
   risk_config: {
     max_open_positions_global: number;

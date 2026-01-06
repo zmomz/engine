@@ -30,6 +30,11 @@ class User(Base):
     # Telegram configuration for signal broadcasting
     telegram_config = Column(JSON, nullable=True)
 
+    # Security setting for webhook validation
+    # When True: webhook_secret and user_id validation are required
+    # When False: webhook accepts signals without secret validation (user_id still used for routing)
+    secure_signals = Column(Boolean, default=True, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

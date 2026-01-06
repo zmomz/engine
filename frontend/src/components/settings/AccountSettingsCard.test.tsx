@@ -37,6 +37,7 @@ const FormWrapper: React.FC<{
         username: 'testuser',
         email: 'test@example.com',
         webhook_secret: 'secret123',
+        secure_signals: true,
         ...defaultValues,
       },
     },

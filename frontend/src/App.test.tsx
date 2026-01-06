@@ -43,7 +43,8 @@ describe('App Routing', () => {
         dca_grid_config: [],
         username: 'testuser',
         email: 'test@example.com',
-        webhook_secret: 'secret'
+        webhook_secret: 'secret',
+        secure_signals: true
       },
       supportedExchanges: ['binance', 'bybit'],
       loading: false,

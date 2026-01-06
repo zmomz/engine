@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextField, Grid, Box, IconButton, Tooltip } from '@mui/material';
+import { TextField, Grid, Box, IconButton, Tooltip, Switch, Typography } from '@mui/material';
 import { Control, Controller, FieldErrors } from 'react-hook-form';
 import PersonIcon from '@mui/icons-material/Person';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -117,6 +117,32 @@ const AccountSettingsCard: React.FC<AccountSettingsCardProps> = ({
                 helperText="Auto-generated secret"
                 sx={{ '& .MuiFormHelperText-root': { fontSize: { xs: '0.65rem', sm: '0.75rem' } } }}
               />
+            )}
+          />
+        </Grid>
+
+        <Grid size={12}>
+          <Controller
+            name="appSettings.secure_signals"
+            control={control}
+            render={({ field }) => (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography variant="body2" fontWeight={500}>
+                    Secure Signals
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {field.value
+                      ? "Webhook secret is required in payload"
+                      : "Webhook accepts signals without secret validation"}
+                  </Typography>
+                </Box>
+                <Switch
+                  checked={field.value ?? true}
+                  onChange={(e) => field.onChange(e.target.checked)}
+                  color="primary"
+                />
+              </Box>
             )}
           />
         </Grid>
