@@ -115,6 +115,7 @@ class PositionGroup(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = Column(DateTime)
+    closing_started_at = Column(DateTime, nullable=True)  # When position entered CLOSING status (no onupdate)
 
     # Telegram notification tracking
     telegram_message_id = Column(BigInteger, nullable=True)

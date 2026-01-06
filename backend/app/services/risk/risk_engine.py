@@ -34,7 +34,7 @@ from app.services.risk.risk_selector import (
     _filter_eligible_losers,
     select_loser_and_winners,
 )
-from app.services.risk.risk_timer import update_risk_timers
+from app.services.risk.risk_timer import update_risk_timers, recover_stuck_closing_positions
 from app.services.risk.risk_executor import calculate_partial_close_quantities
 from app.core.distributed_lock import get_lock_manager
 
@@ -207,6 +207,12 @@ class RiskEngineService:
                     if pos.symbol not in prices:
                         continue
 
+                    # Skip PnL refresh for CLOSING positions to preserve updated_at
+                    # (recovery mechanism uses updated_at to detect stuck positions)
+                    if pos.status == PositionGroupStatus.CLOSING.value:
+                        logger.debug(f"Risk Engine: Skipping PnL refresh for {pos.symbol} (status=CLOSING)")
+                        continue
+
                     current_price = prices[pos.symbol]
                     avg_entry = pos.weighted_avg_entry
                     qty = pos.total_filled_quantity
@@ -250,8 +256,18 @@ class RiskEngineService:
                         await self._evaluate_user_positions(session, user)
                     except Exception as e:
                         logger.error(f"Risk Engine: Error processing user {user.id}: {e}")
+                        # Ensure session is clean after any error (including deadlocks)
+                        try:
+                            await session.rollback()
+                        except Exception:
+                            pass
             except Exception as e:
                 logger.error(f"Risk Engine: Critical error in evaluation loop: {e}")
+                # Ensure session is rolled back on critical errors
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
 
     async def _evaluate_user_positions(self, session: AsyncSession, user: User):
         """
@@ -266,6 +282,13 @@ class RiskEngineService:
         try:
             position_group_repo = self.position_group_repository_class(session)
             risk_action_repo = self.risk_action_repository_class(session)
+
+            # 0. Check for and recover stuck closing positions
+            closing_positions = await position_group_repo.get_closing_by_user(user.id)
+            if closing_positions:
+                recovered = await recover_stuck_closing_positions(closing_positions, session)
+                if recovered:
+                    await session.commit()
 
             # 1. Get User Positions
             all_positions = await position_group_repo.get_all_active_by_user(user.id)
@@ -407,10 +430,22 @@ class RiskEngineService:
                 )
 
                 # Calculate partial close quantities using fee-adjusted amount
-                close_plan = await calculate_partial_close_quantities(user, winners, fee_adjusted_required_usd)
+                close_plan, total_realizable_profit = await calculate_partial_close_quantities(user, winners, fee_adjusted_required_usd)
 
                 if not close_plan and required_usd > 0:
                     logger.warning(f"Risk Engine: No winners could be partially closed for loser {loser.symbol}. Skipping offset.")
+                    await cache.release_lock(offset_lock_resource, offset_lock_id)
+                    for res, lk in acquired_position_locks:
+                        await lock_manager.release(res, lk)
+                    return
+
+                # Verify total realizable profit meets the requirement
+                if total_realizable_profit < fee_adjusted_required_usd:
+                    logger.warning(
+                        f"Risk Engine: Insufficient realizable profit for {loser.symbol}. "
+                        f"Required=${fee_adjusted_required_usd:.2f}, Realizable=${total_realizable_profit:.2f}. "
+                        f"Skipping offset (profit density too thin across all winners)."
+                    )
                     await cache.release_lock(offset_lock_resource, offset_lock_id)
                     for res, lk in acquired_position_locks:
                         await lock_manager.release(res, lk)
@@ -432,6 +467,7 @@ class RiskEngineService:
                 # IMPORTANT: We commit immediately so other risk engine evaluations
                 # can see this status change and skip this loser
                 loser.status = PositionGroupStatus.CLOSING.value
+                loser.closing_started_at = datetime.utcnow()  # Track when closing started for recovery timeout
                 await position_group_repo.update(loser)
                 await session.commit()
                 logger.info(f"Risk Engine: Loser {loser.symbol} marked as CLOSING and committed to prevent re-selection")
@@ -507,13 +543,17 @@ class RiskEngineService:
 
                 # Execute close orders SEQUENTIALLY to avoid session contention
                 # (asyncio.gather with shared session causes "Session is already flushing" errors)
-                logger.info(f"Risk Engine: Executing {len(close_tasks)} close orders sequentially...")
+                logger.info(f"Risk Engine: Executing {len(close_tasks)} close orders sequentially for {loser.symbol}...")
+                logger.info(f"Risk Engine: Loser {loser.symbol} qty={loser.total_filled_quantity}, side={loser.side}")
                 results = []
-                for task in close_tasks:
+                for task_idx, task in enumerate(close_tasks):
                     try:
+                        logger.info(f"Risk Engine: Executing close task {task_idx}...")
                         result = await task
+                        logger.info(f"Risk Engine: Close task {task_idx} succeeded: {result}")
                         results.append(result)
                     except Exception as e:
+                        logger.error(f"Risk Engine: Close task {task_idx} FAILED with exception: {type(e).__name__}: {e}")
                         results.append(e)
 
                 # Check results
@@ -683,8 +723,9 @@ class RiskEngineService:
                 if loser.risk_skip_once:
                     loser.risk_skip_once = False
 
+                logger.info(f"Risk Engine: About to commit all changes for {loser.symbol} offset...")
                 await session.commit()
-                logger.info(f"Risk Engine: Offset for {loser.symbol} successfully executed and recorded.")
+                logger.info(f"Risk Engine: COMMIT SUCCESSFUL - Offset for {loser.symbol} fully completed!")
 
                 # Cleanup exchange connector
                 try:
@@ -703,8 +744,38 @@ class RiskEngineService:
             else:
                 logger.debug(f"Risk Engine: No eligible loser or winners found for user {user.id}.")
         except Exception as e:
-            logger.error(f"Risk Engine: Error evaluating positions for user {user.id}. Rolling back: {e}")
-            await session.rollback()
+            logger.error(f"Risk Engine: Error evaluating positions for user {user.id}. Rolling back: {e}", exc_info=True)
+            try:
+                await session.rollback()
+            except Exception as rollback_err:
+                logger.error(f"Risk Engine: Rollback failed: {rollback_err}")
+
+            # If we had marked a loser as CLOSING before the error, revert it to ACTIVE
+            # The CLOSING status was committed separately and won't be rolled back automatically
+            # IMPORTANT: Check DATABASE status, not in-memory status (which might be CLOSED already)
+            try:
+                # Check if loser variable exists and has an ID
+                loser_var = locals().get('loser') or (loser if 'loser' in dir() else None)
+                if loser_var and hasattr(loser_var, 'id') and loser_var.id:
+                    # Query the ACTUAL database status (not in-memory which could be stale)
+                    db_result = await session.execute(
+                        select(PositionGroup.status).where(PositionGroup.id == loser_var.id)
+                    )
+                    db_status = db_result.scalar()
+
+                    if db_status == PositionGroupStatus.CLOSING.value:
+                        logger.warning(f"Risk Engine: Reverting {loser_var.symbol} from CLOSING to ACTIVE after error (DB status was {db_status})")
+                        await session.execute(
+                            update(PositionGroup)
+                            .where(PositionGroup.id == loser_var.id)
+                            .values(status=PositionGroupStatus.ACTIVE.value, closing_started_at=None)
+                        )
+                        await session.commit()
+                        logger.info(f"Risk Engine: Successfully reverted {loser_var.symbol} to ACTIVE")
+                    else:
+                        logger.debug(f"Risk Engine: Loser {loser_var.symbol} DB status is {db_status}, not reverting")
+            except Exception as revert_err:
+                logger.error(f"Risk Engine: Failed to revert loser status: {revert_err}", exc_info=True)
 
     async def start_monitoring_task(self):
         """Starts the background task for the Risk Engine."""

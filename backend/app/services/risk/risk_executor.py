@@ -22,12 +22,15 @@ async def calculate_partial_close_quantities(
     user: User,
     winners: List[PositionGroup],
     required_usd: Decimal
-) -> List[Tuple[PositionGroup, Decimal]]:
+) -> Tuple[List[Tuple[PositionGroup, Decimal]], Decimal]:
     """
     Calculate how much to close from each winner to realize required_usd.
 
-    Returns: List of (PositionGroup, quantity_to_close)
+    Returns: Tuple of (close_plan, total_profit_realizable)
+        - close_plan: List of (PositionGroup, quantity_to_close)
+        - total_profit_realizable: Total profit that will be realized from the plan
     """
+    total_profit_realizable = Decimal("0")
     close_plan = []
     remaining_needed = required_usd
 
@@ -81,9 +84,6 @@ async def calculate_partial_close_quantities(
         # Calculate how much profit this winner can contribute
         available_profit = Decimal(str(winner.unrealized_pnl_usd))
 
-        # Determine how much of this winner to close
-        profit_to_take = min(available_profit, remaining_needed)
-
         # Calculate quantity to close to realize this profit
         try:
             current_price = await exchange_connector.get_current_price(winner.symbol)
@@ -100,16 +100,49 @@ async def calculate_partial_close_quantities(
             logger.warning(f"Cannot calculate quantity for {winner.symbol}: profit_per_unit is zero or negative ({profit_per_unit}).")
             continue
 
-        quantity_to_close = profit_to_take / profit_per_unit
-
-        # Round to step size
+        # Get precision rules for this symbol
         symbol_precision = precision_rules.get(winner.symbol, {})
         step_size = Decimal(str(symbol_precision.get("step_size", Decimal("0.001"))))
+        min_notional = Decimal(str(symbol_precision.get("min_notional", Decimal("10"))))
+        total_filled = Decimal(str(winner.total_filled_quantity))
+
+        # PROFIT-ONLY CONSTRAINT:
+        # We can only sell units worth up to the unrealized profit amount
+        # The CASH received from selling those units is the offset contribution
+        # Rule: quantity × current_price <= unrealized_profit
+        max_quantity_from_profit = available_profit / current_price
+
+        # Round down to step size to stay within constraint
+        max_quantity_from_profit = round_to_step_size(max_quantity_from_profit, step_size)
+
+        # The cash we can contribute = max_quantity × current_price ≈ available_profit
+        max_cash_contribution = max_quantity_from_profit * current_price
+
+        logger.info(
+            f"Risk Engine: Winner {winner.symbol} analysis - "
+            f"unrealized=${available_profit:.2f}, price=${current_price}, "
+            f"max_qty={max_quantity_from_profit}, max_contribution=${max_cash_contribution:.2f}"
+        )
+
+        # Determine how much cash to take from this winner (capped by what's available and what we need)
+        cash_to_take = min(max_cash_contribution, remaining_needed)
+
+        if cash_to_take <= 0:
+            logger.warning(
+                f"No contribution possible from {winner.symbol}. "
+                f"max_contribution=${max_cash_contribution:.2f}. Skipping."
+            )
+            continue
+
+        # Calculate quantity to close to get this cash
+        # quantity = cash / current_price
+        quantity_to_close = cash_to_take / current_price
+
+        # Round to step size
         quantity_to_close = round_to_step_size(quantity_to_close, step_size)
 
         # Check minimum notional
         notional_value = quantity_to_close * current_price
-        min_notional = Decimal(str(symbol_precision.get("min_notional", Decimal("10"))))
 
         if notional_value < min_notional:
             logger.warning(
@@ -118,24 +151,31 @@ async def calculate_partial_close_quantities(
             )
             continue
 
-        # IMPORTANT: Never close the entire position - only extract needed profit
-        # The quantity should always be less than total_filled since we only
-        # take partial profit. If calculation suggests closing entire position,
-        # something is wrong (price moved, or insufficient profit check failed).
-        total_filled = Decimal(str(winner.total_filled_quantity))
-        if quantity_to_close >= total_filled:
+        # Safety check: ensure we're not closing more than position size
+        if quantity_to_close > total_filled:
             logger.warning(
-                f"Risk Engine: Calculated quantity_to_close ({quantity_to_close}) >= "
-                f"total_filled ({total_filled}) for {winner.symbol}. "
-                f"This would close entire position. Skipping this winner."
+                f"Risk Engine: quantity_to_close ({quantity_to_close}) > total_filled ({total_filled}) "
+                f"for {winner.symbol}. This shouldn't happen. Skipping."
             )
             continue
 
+        logger.info(
+            f"Risk Engine: Winner {winner.symbol} contributing ${cash_to_take:.2f} "
+            f"(closing {quantity_to_close} of {total_filled}, {(quantity_to_close/total_filled*100):.1f}%)"
+        )
+
         close_plan.append((winner, quantity_to_close))
-        remaining_needed -= profit_to_take
+        total_profit_realizable += cash_to_take
+        remaining_needed -= cash_to_take
 
     # Close connectors
     for conn in connectors.values():
         await conn.close()
 
-    return close_plan
+    logger.info(
+        f"Risk Engine: Close plan complete - {len(close_plan)} winners, "
+        f"total realizable profit=${total_profit_realizable:.2f}, "
+        f"required=${required_usd:.2f}, shortfall=${max(Decimal('0'), remaining_needed):.2f}"
+    )
+
+    return close_plan, total_profit_realizable
