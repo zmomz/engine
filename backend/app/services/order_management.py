@@ -382,6 +382,11 @@ class OrderService:
             price_tolerance = expected_tp_price * Decimal("0.005")  # 0.5% tolerance
             qty_tolerance = expected_qty * Decimal("0.01")  # 1% tolerance
 
+            # Debug: log first order structure to understand the data
+            if open_orders:
+                first_order = open_orders[0]
+                logger.warning(f"DEBUG fetch_open_orders structure: id={first_order.get('id')}, info.orderId={first_order.get('info', {}).get('orderId')}, keys={list(first_order.keys())}")
+
             for order in open_orders:
                 order_side = order.get("side", "").lower()
                 order_price = Decimal(str(order.get("price", 0)))
