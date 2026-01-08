@@ -403,7 +403,9 @@ class OrderService:
                 # Found a match!
                 # Extract native order ID from info field (CCXT returns composite IDs for Bybit)
                 # Bybit native ID is in order['info']['orderId'], fallback to order['id']
-                native_order_id = order.get('info', {}).get('orderId') or order.get('id')
+                info = order.get('info', {})
+                logger.warning(f"DEBUG: Order info keys: {list(info.keys()) if info else 'None'}, info: {info}")
+                native_order_id = info.get('orderId') or order.get('id')
 
                 logger.warning(
                     f"Found potential duplicate TP on exchange: order_id={native_order_id} "
