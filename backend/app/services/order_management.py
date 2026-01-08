@@ -401,11 +401,19 @@ class OrderService:
                     continue
 
                 # Found a match!
+                # Extract native order ID from info field (CCXT returns composite IDs for Bybit)
+                # Bybit native ID is in order['info']['orderId'], fallback to order['id']
+                native_order_id = order.get('info', {}).get('orderId') or order.get('id')
+
                 logger.warning(
-                    f"Found potential duplicate TP on exchange: order_id={order.get('id')}, "
+                    f"Found potential duplicate TP on exchange: order_id={native_order_id} "
+                    f"(ccxt_id={order.get('id')}), "
                     f"price={order_price} (expected {expected_tp_price}), "
                     f"qty={order_qty} (expected {expected_qty})"
                 )
+
+                # Normalize the order ID to native format for storage
+                order['id'] = str(native_order_id)
                 return order
 
             return None
