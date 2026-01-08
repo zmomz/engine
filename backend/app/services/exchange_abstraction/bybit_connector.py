@@ -317,6 +317,15 @@ class BybitConnector(ExchangeInterface):
                             logger.info(f"Order {order_id} found via fetch_orders. Status: {o.get('status', 'unknown')}")
                             return o # Return the full order object
                     logger.warning(f"Order {order_id} not found via fetch_orders either.")
+
+                    # Try fetch_open_orders as last resort for TP orders
+                    logger.info(f"Attempting to find order {order_id} via fetch_open_orders for {symbol}...")
+                    open_orders = await self.exchange.fetch_open_orders(symbol=symbol)
+                    for o in open_orders:
+                        if o.get('id') == order_id or o.get('clientOrderId') == order_id or o.get('info', {}).get('orderId') == order_id:
+                            logger.info(f"Order {order_id} found via fetch_open_orders. Status: {o.get('status', 'open')}")
+                            return o
+                    logger.warning(f"Order {order_id} not found via fetch_open_orders either.")
                     raise retry_e # If not found, re-raise the last exception
                 except Exception as trade_e:
                     logger.error(f"Failed to fetch recent trades/orders for order {order_id}: {trade_e}")
