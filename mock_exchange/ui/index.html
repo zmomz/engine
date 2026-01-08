@@ -637,7 +637,11 @@
     <div id="toast"></div>
 
     <script>
-        const API_BASE = window.location.origin;
+	//const API_BASE = window.location.origin;
+	const API_BASE = window.location.pathname.startsWith('/mock') 
+	    ? window.location.origin + '/mock'
+	    : window.location.origin;
+
         let symbolPrices = {};
 
         // Tab switching
