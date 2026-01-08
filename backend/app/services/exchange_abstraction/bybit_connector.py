@@ -265,7 +265,13 @@ class BybitConnector(ExchangeInterface):
         Fetches the status of a specific order by its ID.
         Returns the full order dictionary.
         Includes retry logic for Bybit conditional orders, account type fallback, and checks closed trades for quickly filled orders.
+
+        Note: Bybit uses composite order IDs in CCXT. The native Bybit order ID is the last 8 digits
+        of the composite ID. We try both formats when looking up orders.
         """
+        # Extract short ID (last 8 digits) for Bybit native format fallback
+        short_order_id = order_id[-8:] if len(order_id) > 8 and order_id.isdigit() else None
+
         try:
             order = await self.exchange.fetch_order(order_id, symbol)
             return order
@@ -313,7 +319,11 @@ class BybitConnector(ExchangeInterface):
                     logger.info(f"Attempting to find order {order_id} via fetch_orders for {symbol}...")
                     all_orders = await self.exchange.fetch_orders(symbol=symbol, limit=50) # Fetch recent orders
                     for o in all_orders:
-                        if o.get('id') == order_id or o.get('clientOrderId') == order_id or o.get('info', {}).get('orderId') == order_id:
+                        o_id = o.get('id', '')
+                        o_info_id = o.get('info', {}).get('orderId', '')
+                        # Check full ID, short ID (last 8 digits), or clientOrderId
+                        if (o_id == order_id or o.get('clientOrderId') == order_id or o_info_id == order_id or
+                            (short_order_id and (o_id.endswith(short_order_id) or o_info_id == short_order_id))):
                             logger.info(f"Order {order_id} found via fetch_orders. Status: {o.get('status', 'unknown')}")
                             return o # Return the full order object
                     logger.warning(f"Order {order_id} not found via fetch_orders either.")
@@ -322,10 +332,25 @@ class BybitConnector(ExchangeInterface):
                     logger.info(f"Attempting to find order {order_id} via fetch_open_orders for {symbol}...")
                     open_orders = await self.exchange.fetch_open_orders(symbol=symbol)
                     for o in open_orders:
-                        if o.get('id') == order_id or o.get('clientOrderId') == order_id or o.get('info', {}).get('orderId') == order_id:
-                            logger.info(f"Order {order_id} found via fetch_open_orders. Status: {o.get('status', 'open')}")
+                        o_id = o.get('id', '')
+                        o_info_id = o.get('info', {}).get('orderId', '')
+                        # Check full ID, short ID (last 8 digits), or clientOrderId
+                        if (o_id == order_id or o.get('clientOrderId') == order_id or o_info_id == order_id or
+                            (short_order_id and (o_id.endswith(short_order_id) or o_info_id == short_order_id))):
+                            logger.info(f"Order {order_id} found via fetch_open_orders (short_id={short_order_id}). Status: {o.get('status', 'open')}")
                             return o
                     logger.warning(f"Order {order_id} not found via fetch_open_orders either.")
+
+                    # Final fallback: try direct fetch with short ID
+                    if short_order_id:
+                        logger.info(f"Attempting direct fetch with short order ID: {short_order_id}...")
+                        try:
+                            order = await self.exchange.fetch_order(short_order_id, symbol)
+                            logger.info(f"Order found via short ID {short_order_id}!")
+                            return order
+                        except Exception as short_e:
+                            logger.warning(f"Short ID {short_order_id} lookup also failed: {short_e}")
+
                     raise retry_e # If not found, re-raise the last exception
                 except Exception as trade_e:
                     logger.error(f"Failed to fetch recent trades/orders for order {order_id}: {trade_e}")
@@ -336,9 +361,13 @@ class BybitConnector(ExchangeInterface):
         """
         Cancels an existing order by its ID with retry logic and status verification.
         Includes fallback for account types (UNIFIED -> SPOT -> CONTRACT).
+        Also tries short ID (last 8 digits) as Bybit native format fallback.
         """
         max_retries = 3
         retry_delay = 0.5  # seconds
+
+        # Extract short ID (last 8 digits) for Bybit native format fallback
+        short_order_id = order_id[-8:] if len(order_id) > 8 and order_id.isdigit() else None
 
         for i in range(max_retries):
             try:
@@ -385,10 +414,24 @@ class BybitConnector(ExchangeInterface):
                     try:
                         return await self.exchange.cancel_order(order_id, symbol, params={'accountType': 'CONTRACT'})
                     except Exception as e3:
+                        # Try with short ID as final fallback
+                        if short_order_id:
+                            logger.info(f"Attempting cancel with short order ID: {short_order_id}...")
+                            try:
+                                return await self.exchange.cancel_order(short_order_id, symbol)
+                            except Exception as short_e:
+                                logger.warning(f"Short ID cancel also failed: {short_e}")
                         logger.error(f"All cancel fallbacks failed for order {order_id}. Last error: {e3}")
                         raise OrderCancellationError(f"Failed to cancel order {order_id} on all account types.")
             else:
-                 raise OrderCancellationError(f"Failed to cancel order {order_id} after retries.")
+                # Try with short ID as final fallback for non-UNIFIED accounts
+                if short_order_id:
+                    logger.info(f"Attempting cancel with short order ID: {short_order_id}...")
+                    try:
+                        return await self.exchange.cancel_order(short_order_id, symbol)
+                    except Exception as short_e:
+                        logger.warning(f"Short ID cancel also failed: {short_e}")
+                raise OrderCancellationError(f"Failed to cancel order {order_id} after retries.")
         except Exception as e:
              raise OrderCancellationError(f"Failed to cancel order {order_id}: {e}")
 
